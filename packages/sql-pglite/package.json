@@ -1,0 +1,85 @@
+{
+	"name": "@effect/sql-pglite",
+	"version": "0.0.0",
+	"type": "module",
+	"packageManager": "pnpm@9.10.0",
+	"license": "MIT",
+	"description": "A PGlite driver for Effect Sql",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/effect-ts/effect"
+	},
+	"publishConfig": {
+		"access": "public",
+		"directory": "dist"
+	},
+	"exports": {
+		".": "./src/index.ts",
+		"./*": "./src/*.ts"
+	},
+	"scripts": {
+		"clean": "rm -rf .tsbuildinfo build dist",
+		"codegen": "build-utils prepare-v2",
+		"build": "pnpm build-esm && pnpm build-annotate && pnpm build-cjs && build-utils pack-v2",
+		"build-esm": "tsc -b tsconfig.build.json",
+		"build-cjs": "babel build/esm --plugins @babel/transform-export-namespace-from --plugins @babel/transform-modules-commonjs --out-dir build/cjs --source-maps",
+		"build-annotate": "babel build/esm --plugins annotate-pure-calls --out-dir build/esm --source-maps",
+		"check": "tsc -b tsconfig.json",
+		"lint": "eslint \"**/{src,test,examples,scripts,dtslint}/**/*.{ts,mjs}\"",
+		"lint-fix": "pnpm lint --fix",
+		"test": "vitest",
+		"coverage": "vitest --coverage"
+	},
+	"dependencies": {
+		"@effect/experimental": "^0.44.5",
+		"@effect/platform": "^0.80.5",
+		"@effect/sql": "^0.33.5",
+		"@electric-sql/pglite": "^0.2.17",
+		"@electric-sql/pglite-sync": "^0.3.0",
+		"@electric-sql/pglite-tools": "^0.2.3",
+		"effect": "^3.14.5"
+	},
+	"devDependencies": {
+		"@babel/cli": "^7.24.8",
+		"@babel/core": "^7.25.2",
+		"@babel/plugin-transform-export-namespace-from": "^7.24.7",
+		"@babel/plugin-transform-modules-commonjs": "^7.24.8",
+		"@effect/build-utils": "^0.7.9",
+		"@effect/eslint-plugin": "^0.2.0",
+		"@effect/language-service": "^0.5.1",
+		"@effect/vitest": "^0.20.5",
+		"@eslint/compat": "1.1.1",
+		"@eslint/eslintrc": "3.1.0",
+		"@eslint/js": "9.10.0",
+		"@types/node": "^22.5.2",
+		"@typescript-eslint/eslint-plugin": "^8.4.0",
+		"@typescript-eslint/parser": "^8.4.0",
+		"babel-plugin-annotate-pure-calls": "^0.4.0",
+		"eslint": "^9.10.0",
+		"eslint-import-resolver-typescript": "^3.6.3",
+		"eslint-plugin-codegen": "^0.28.0",
+		"eslint-plugin-import": "^2.30.0",
+		"eslint-plugin-simple-import-sort": "^12.1.1",
+		"eslint-plugin-sort-destructure-keys": "^2.0.0",
+		"tsx": "^4.17.0",
+		"typescript": "^5.6.2",
+		"vitest": "^3.0.9"
+	},
+	"effect": {
+		"generateExports": {
+			"include": [
+				"**/*.ts"
+			]
+		},
+		"generateIndex": {
+			"include": [
+				"**/*.ts"
+			]
+		}
+	},
+	"pnpm": {
+		"patchedDependencies": {
+			"babel-plugin-annotate-pure-calls@0.4.0": "patches/babel-plugin-annotate-pure-calls@0.4.0.patch"
+		}
+	}
+}

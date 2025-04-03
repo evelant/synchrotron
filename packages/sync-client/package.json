@@ -1,0 +1,49 @@
+{
+  "name": "@synchrotron/sync-client",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Client-side services and components for the synchrotron sync system.",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*.js"
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "dist/*"
+      ]
+    }
+  },
+  "files": [
+    "dist"
+  ],
+	"scripts": {
+		"build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
+		"clean": "rm -rf .tsbuildinfo build dist",
+		"dev": "vite build --watch",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "prettier --check . && eslint .",
+		"format": "prettier --write ."
+	},
+	"dependencies": {
+		"@effect/experimental": "catalog:",
+		"@effect/platform": "catalog:",
+		"@effect/platform-browser": "catalog:",
+		"@effect/sql": "catalog:",
+		"@electric-sql/client": "catalog:",
+		"@electric-sql/pglite": "catalog:",
+		"@electric-sql/pglite-sync": "catalog:",
+		"effect": "catalog:",
+		"@synchrotron/sync-core": "workspace:*",
+		"@effect/sql-pglite": "workspace:*"
+	},
+	"devDependencies": {
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
+	}
+
+}

@@ -1,0 +1,24 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "composite": true,
+        "outDir": "build",
+        "tsBuildInfoFile": ".tsbuildinfo/tsconfig.build.tsbuildinfo",
+        "types": [
+            "vite/client"
+        ],
+        "declaration": true,
+        "declarationMap": true,
+        "rootDir": "src",
+        "noEmit": false
+    },
+    "include": [],
+    "references": [
+        {
+            "path": "./tsconfig.src.json"
+        },
+        {
+            "path": "./tsconfig.test.json"
+        }
+    ]
+}

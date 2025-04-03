@@ -1,0 +1,21 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "include": [
+        "src",
+        "../sync-core/src/db/connection.ts"
+    ],
+    "references": [
+        {
+            "path": "../sync-core/tsconfig.src.json"
+        }
+    ],
+    "compilerOptions": {
+        "composite": true,
+        "types": [
+            "node"
+        ],
+        "outDir": "dist/src",
+        "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+        "rootDir": "src"
+    }
+}

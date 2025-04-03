@@ -1,0 +1,48 @@
+{
+  "name": "@synchrotron/sync-core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Core types, models, and utilities for the synchrotron sync system.",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*.js"
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "dist/*"
+      ]
+    }
+  },
+  "files": [
+    "dist"
+  ],
+	"scripts": {
+		"build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
+		"clean": "rm -rf .tsbuildinfo build dist",
+		"dev": "vite build --watch",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "prettier --check . && eslint .",
+		"format": "prettier --write ."
+	},
+	"dependencies": {
+		"@effect/experimental": "catalog:",
+		"@effect/platform": "catalog:",
+		"@effect/sql": "catalog:",
+		"effect": "catalog:",
+		"@effect/sql-pglite": "workspace:*",
+		"@electric-sql/client": "catalog:",
+		"@electric-sql/pglite": "catalog:",
+		"@electric-sql/pglite-sync": "catalog:"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"@effect/vitest": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
+	}
+}

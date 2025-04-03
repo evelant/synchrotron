@@ -1,0 +1,55 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "test",
+			"type": "shell",
+			"command": "bun",
+			"args": ["run", "test"],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			},
+			"group": "test"
+		},
+		{
+			"label": "test:watch",
+			"type": "shell",
+			"command": "bun",
+			"args": ["run", "test:watch"],
+			"isBackground": true,
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			},
+			"group": "test"
+		},
+		{
+			"label": "format",
+			"type": "shell",
+			"command": "bun",
+			"args": ["run", "format"],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			}
+		},
+		{
+			"type": "typescript",
+			"tsconfig": "tsconfig.json",
+			"option": "watch",
+			"problemMatcher": ["$tsc-watch"],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"label": "tsc: watch - tsconfig.json"
+		}
+	]
+}

@@ -1,0 +1,18 @@
+{
+	"extends": "./tsconfig.base.json",
+	"files": [],
+	"references": [
+		{
+			"path": "packages/sync-core/tsconfig.json"
+		},
+		{
+			"path": "packages/sync-server/tsconfig.json"
+		},
+		{
+			"path": "packages/sync-client/tsconfig.json"
+		},
+		{
+			"path": "packages/sql-pglite/tsconfig.json"
+		}
+	]
+}

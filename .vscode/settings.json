@@ -1,0 +1,34 @@
+{
+	"postgrestools.bin": "/Users/imagio/.cargo/bin/postgres_lsp",
+	"editor.formatOnSave": true,
+	"editor.defaultFormatter": "esbenp.prettier-vscode",
+	"editor.codeActionsOnSave": {
+		"source.fixAll.eslint": "explicit"
+	},
+	"eslint.validate": [
+		"javascript",
+		"typescript"
+	],
+	"typescript.tsdk": "node_modules/typescript/lib",
+	"[typescript]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"[javascript]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	// Show problem matcher output in Problems panel
+	"task.problemMatchers.neverPrompt": true,
+	// Tailwind settings
+	"editor.quickSuggestions": {
+		"strings": true
+	},
+	// Show errors and warnings in Explorer view
+	"problems.decorations.enabled": true,
+	"javascript.preferences.importModuleSpecifier": "non-relative",
+	"javascript.updateImportsOnPaste.enabled": true,
+	"typescript.preferences.importModuleSpecifier": "non-relative",
+	"typescript.preferences.preferTypeOnlyAutoImports": true,
+	"typescript.updateImportsOnFileMove.enabled": "always",
+	"typescript.updateImportsOnPaste.enabled": true,
+	"vitest.disableWorkspaceWarning": true
+}

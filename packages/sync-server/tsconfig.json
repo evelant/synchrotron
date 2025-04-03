@@ -1,0 +1,22 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "outDir": "dist",
+        "rootDir": "src",
+        "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
+        "composite": true // Enable composite for project references
+    },
+    "include": [], // Keep include empty as files are specified in references
+    "exclude": [
+        "node_modules",
+        "dist"
+    ],
+    "references": [
+        {
+            "path": "./tsconfig.src.json"
+        },
+        {
+            "path": "./tsconfig.test.json"
+        },
+    ]
+}

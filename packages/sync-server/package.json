@@ -1,0 +1,47 @@
+{
+  "name": "@synchrotron/sync-server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Server-side services for the synchrotron sync system.",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*.js"
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "dist/*"
+      ]
+    }
+  },
+  "files": [
+    "dist"
+  ],
+	"scripts": {
+		"build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
+		"clean": "rm -rf .tsbuildinfo build dist",
+		"dev": "vite build --watch",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "prettier --check . && eslint .",
+		"format": "prettier --write ."
+	},
+	"dependencies": {
+		"@effect/experimental": "catalog:",
+		"@effect/platform": "catalog:",
+		"@effect/platform-node": "catalog:",
+		"@effect/sql": "catalog:",
+		"@effect/sql-pg": "^0.34.5",
+		"effect": "catalog:",
+		"@synchrotron/sync-core": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
+	}
+	
+}

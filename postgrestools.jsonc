@@ -1,0 +1,24 @@
+{
+    "vcs": {
+        "enabled": true,
+        "clientKind": "git",
+        "useIgnoreFile": false
+    },
+    "files": {
+        "ignore": []
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "recommended": true
+        }
+    },
+    "db": {
+        "host": "127.0.0.1",
+        "port": 55322,
+        "username": "postgres",
+        "password": "postgres",
+        "database": "postgres",
+        "connTimeoutSecs": 10
+    }
+}

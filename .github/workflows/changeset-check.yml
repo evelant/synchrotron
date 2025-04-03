@@ -1,0 +1,55 @@
+name: Changeset Check
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".github/**"
+
+jobs:
+  check:
+    name: Check for Changesets
+    runs-on: ubuntu-latest
+    # Skip this check for PRs created by the changesets bot
+    if: github.actor != 'github-actions[bot]' && !contains(github.head_ref, 'changeset-release')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check for changesets
+        run: |
+          # Get the base branch (usually main)
+          BASE_BRANCH=${{ github.base_ref }}
+
+          # Find all changed files between the base branch and the current branch
+          CHANGED_FILES=$(git diff --name-only origin/$BASE_BRANCH...HEAD)
+
+          # Check if any source files were changed
+          SOURCE_CHANGES=$(echo "$CHANGED_FILES" | grep -E '^src/|^static/|^package.json$' || true)
+
+          # Check if any changesets were added
+          CHANGESET_CHANGES=$(echo "$CHANGED_FILES" | grep -E '^.changeset/.*\.md$' || true)
+
+          # If source files were changed but no changesets were added, fail the check
+          if [ -n "$SOURCE_CHANGES" ] && [ -z "$CHANGESET_CHANGES" ]; then
+            echo "Source files were changed but no changesets were added."
+            echo "Please run 'bun changeset' to create a changeset for your changes."
+            echo "Changed source files:"
+            echo "$SOURCE_CHANGES"
+            exit 1
+          fi
+
+          echo "Changeset check passed!"

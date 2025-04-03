@@ -1,0 +1,84 @@
+{
+	"compilerOptions": {
+		"strict": true,
+		"exactOptionalPropertyTypes": true,
+		"moduleDetection": "force",
+		"composite": true,
+		"downlevelIteration": true,
+		"resolveJsonModule": true,
+		"esModuleInterop": false,
+		"declaration": true,
+		"skipLibCheck": true,
+		"emitDecoratorMetadata": true,
+		"experimentalDecorators": true,
+		"moduleResolution": "bundler",
+		"lib": [
+			"ES2022",
+			"DOM",
+			"DOM.Iterable"
+		],
+		"types": [
+			"vite/client"
+		],
+		"isolatedModules": true,
+		"sourceMap": true,
+		"declarationMap": true,
+		"noImplicitReturns": false,
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
+		"noFallthroughCasesInSwitch": true,
+		"noEmitOnError": false,
+		"noErrorTruncation": true,
+		"allowJs": false,
+		"checkJs": false,
+		"forceConsistentCasingInFileNames": true,
+		"noImplicitAny": true,
+		"noImplicitThis": true,
+		"noUncheckedIndexedAccess": true,
+		"strictNullChecks": true,
+		"baseUrl": ".",
+		"target": "ESNext",
+		"module": "ESNext",
+		"incremental": true,
+		"tsBuildInfoFile": ".tsbuildinfo/tsconfig.base.tsbuildinfo",
+		"removeComments": false,
+		"plugins": [
+			{
+				"name": "@effect/language-service"
+			}
+		],
+		"jsx": "preserve",
+		"jsxImportSource": "solid-js",
+		"paths": {
+			"@synchrotron/app/*": [
+				"packages/app/src/*"
+			],
+			"@synchrotron/sync-core/": [
+				"packages/sync-core/src/*"
+			],
+			"@synchrotron/sync-client/*": [
+				"packages/sync-client/src/*"
+			],
+			"@synchrotron/sync-core/*": [
+				"packages/sync-core/src/*"
+			],
+			"@effect/sql-pglite": [
+				"packages/sql-pglite/src/index"
+			],
+			"@effect/sql-pglite/*": [
+				"packages/sql-pglite/src/*"
+			],
+			"@synchrotron/sync-server/*": [
+				"packages/sync-server/src/*"
+			],
+		}
+	},
+	"exclude": [
+		"**/node_modules",
+		"**/build",
+		"**/dist",
+		"**/docs",
+		"**/.vinxi",
+		"**/.solid"
+	]
+}

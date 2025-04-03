@@ -1,0 +1,18 @@
+{
+    "extends": "./tsconfig.src.json",
+    "compilerOptions": {
+        "types": [
+            "node"
+        ],
+        "tsBuildInfoFile": ".tsbuildinfo/build.tsbuildinfo",
+        "outDir": "dist",
+        "declarationDir": "dist",
+        "declaration": true,
+        "declarationMap": true,
+        "emitDeclarationOnly": true,
+        "stripInternal": true
+    },
+    "include": [
+        "src"
+    ]
+}
