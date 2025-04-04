@@ -1,84 +1,57 @@
-import {
-	SyncNetworkService,
-	type ActionModifiedRow,
-	type ActionRecord,
-	type FetchResult,
-	RemoteActionFetchError,
-	NetworkRequestError,
-	ClockService
-} from "@synchrotron/sync-core"
-import { Effect, Layer, Scope } from "effect"
-import { RpcClient, RpcSerialization } from "@effect/rpc"
 import { FetchHttpClient } from "@effect/platform"
+import { RpcClient, RpcSerialization } from "@effect/rpc"
+import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
 import {
-	FetchRemoteActions,
-	SendLocalActions,
-	SyncNetworkRpcGroup
-} from "@synchrotron/sync-core/SyncNetworkRpc"
+	NetworkRequestError,
+	RemoteActionFetchError,
+	SyncNetworkService
+} from "@synchrotron/sync-core/SyncNetworkService"
+import { ActionRecord } from "@synchrotron/sync-core/models"
+import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { Effect, Layer } from "effect"
 
-const SyncNetworkRpcClientProtocolLive = RpcClient.layerProtocolHttp({
-	url: "/api/sync/rpc"
+// Choose which protocol to use
+const ProtocolLive = RpcClient.layerProtocolHttp({
+	url: "http://localhost:3010/rpc"
 }).pipe(
-	Layer.provide(
-		Layer.merge(
-			FetchHttpClient.layer,
-			RpcSerialization.layerJson
-		)
-	)
+	Layer.provide([
+		// use fetch for http requests
+		FetchHttpClient.layer,
+		// use ndjson for serialization
+		RpcSerialization.layerNdjson
+	])
 )
 
-/**
- * Effect constructor for the client SyncNetworkService implementation.
- */
-const makeSyncNetworkServiceClient = Effect.gen(function* () {
-	const clockService = yield* ClockService
-	const clientId = yield* clockService.getNodeId
-	const client = yield* RpcClient.make(SyncNetworkRpcGroup)
-
-	const fetchRemoteActions = (): Effect.Effect<FetchResult, RemoteActionFetchError> =>
-		Effect.gen(function* () {
-			const lastSyncedClock = yield* clockService.getLastSyncedClock
-			return yield* client.FetchRemoteActions({ lastSyncedClock, clientId })
-		}).pipe(
-			Effect.catchAll((e) =>
-				Effect.fail(new RemoteActionFetchError({ message: "Failed to fetch remote actions via RPC", cause: e }))
-			),
-			Effect.withSpan("SyncNetworkServiceClient.fetchRemoteActions")
-		)
-
-	const sendLocalActions = (
-		actionsToSend: readonly ActionRecord[],
-		amrs: readonly ActionModifiedRow[]
-	): Effect.Effect<boolean, NetworkRequestError> =>
-		client.SendLocalActions({ actions: actionsToSend, amrs, clientId }).pipe(
-			Effect.catchAll((e) =>
-				Effect.fail(new NetworkRequestError({ message: "Failed to send local actions via RPC", cause: e }))
-			),
-			Effect.withSpan("SyncNetworkServiceClient.sendLocalActions", {
-				attributes: { actionCount: actionsToSend.length, amrCount: amrs.length }
-			})
-		)
-
-	// Use .of() with the explicit _tag property
-	return SyncNetworkService.of({
-		_tag: "SyncNetworkService",
-		fetchRemoteActions,
-		sendLocalActions
-	})
-})
-
-/**
- * Live Layer for the client SyncNetworkService.
- * Provides the RPC implementation and its dependencies.
- */
-export const SyncNetworkServiceClientLive = Layer.effect(
+export const SyncNetworkServiceLive = Layer.scoped(
 	SyncNetworkService,
-	makeSyncNetworkServiceClient
-).pipe(
-	Layer.provide(
-		Layer.merge(
-			ClockService.Default,
-			SyncNetworkRpcClientProtocolLive
-		)
-	)
-)
+	Effect.gen(function* (_) {
+		const clockService = yield* ClockService
+		const clientId = yield* clockService.getNodeId
+		// Get the RPC client instance using the schema
+		const client = yield* RpcClient.make(SyncNetworkRpcGroup)
+
+		const sendLocalActions = (actions: ReadonlyArray<ActionRecord>) =>
+			Effect.gen(function* () {
+				return yield* client.SendLocalActions({ actions: actions, amrs: [], clientId })
+			}).pipe(
+				Effect.mapError(
+					(error) => new NetworkRequestError({ message: error.message, cause: error })
+				)
+			)
+		const fetchRemoteActions = () =>
+			Effect.gen(function* () {
+				const lastSyncedClock = yield* clockService.getLastSyncedClock
+				return yield* client.FetchRemoteActions({ clientId, lastSyncedClock })
+			}).pipe(
+				Effect.mapError(
+					(error) => new RemoteActionFetchError({ message: error.message, cause: error })
+				)
+			)
+
+		return SyncNetworkService.of({
+			_tag: "SyncNetworkService",
+			sendLocalActions,
+			fetchRemoteActions
+		})
+	})
+).pipe(Layer.provide(ProtocolLive)) // Provide the configured protocol layer

@@ -1,5 +1,5 @@
 import { PgClientLive } from "../db/connection"
-import { SyncNetworkServiceServerLive } from "../SyncNetworkService"
+import { SyncNetworkServiceServiceLive } from "../SyncNetworkService"
 import { Layer } from "effect"
 
 /**
@@ -12,14 +12,11 @@ export const PgClientTestLayer = PgClientLive
 /**
  * Provides the live (stub) server network service layer for testing.
  */
-export const SyncNetworkServiceServerTestLayer = SyncNetworkServiceServerLive
+export const SyncNetworkServiceServerTestLayer = SyncNetworkServiceServiceLive
 
 /**
  * Combined layer for server-specific testing, providing both DB and network stubs.
  */
-export const ServerTestLayer = Layer.merge(
-  PgClientTestLayer,
-  SyncNetworkServiceServerTestLayer
-)
+export const ServerTestLayer = Layer.merge(PgClientTestLayer, SyncNetworkServiceServerTestLayer)
 
 // Add other server-specific test layers or configurations as needed.

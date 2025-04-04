@@ -12,7 +12,6 @@ import { SqlClient } from "@effect/sql"
 import { Effect, Layer, Schema } from "effect"
 import * as HLC from "@synchrotron/sync-core/HLC"
 
-
 /**
  * Server implementation of the SyncNetworkService.
  */
@@ -21,12 +20,10 @@ const makeSyncNetworkServiceServer = Effect.gen(function* () {
 	const actionRepo = yield* ActionRecordRepo
 	const amrRepo = yield* ActionModifiedRowRepo
 
-	const fetchRemoteActions = (
-		lastSyncedClock: HLC.HLC | null
-	) =>
+	const fetchRemoteActions = () =>
 		Effect.gen(function* () {
+			const lastSyncedClock = HLC.make()
 			yield* Effect.logInfo("Server: Fetching remote actions")
-			
 
 			const actionsQuery = sql<ActionRecord>`
         SELECT * FROM action_records 
@@ -38,16 +35,12 @@ const makeSyncNetworkServiceServer = Effect.gen(function* () {
         WHERE action_hlc > ${lastSyncedClock?.toString() ?? HLC.make().toString()} // This might fetch too many AMRs, needs refinement.
       `
 
-			const [actions, modifiedRows] = yield* 
-				Effect.all([actionsQuery, amrsQuery])
-			
+			const [actions, modifiedRows] = yield* Effect.all([actionsQuery, amrsQuery])
 
 			return { actions, modifiedRows }
 		}).pipe(
 			Effect.catchTag("SqlError", (e) =>
-				Effect.fail(
-					new RemoteActionFetchError({ message: `DB Error: ${e.message}`, cause: e })
-				)
+				Effect.fail(new RemoteActionFetchError({ message: `DB Error: ${e.message}`, cause: e }))
 			),
 			Effect.withSpan("SyncNetworkServiceServer.fetchRemoteActions")
 		)
@@ -58,7 +51,9 @@ const makeSyncNetworkServiceServer = Effect.gen(function* () {
 	) =>
 		Effect.gen(function* (_) {
 			yield* Effect.logInfo(`Server: Receiving ${actions.length} actions, ${amrs.length} AMRs`)
-			yield* sql.withTransaction(Effect.all([...actions.map(actionRepo.insert), ...amrs.map(amrRepo.insert)]))
+			yield* sql.withTransaction(
+				Effect.all([...actions.map(actionRepo.insert), ...amrs.map(amrRepo.insert)])
+			)
 			return true
 		}).pipe(
 			Effect.catchTag("SqlError", (e) =>
@@ -67,7 +62,7 @@ const makeSyncNetworkServiceServer = Effect.gen(function* () {
 			Effect.withSpan("SyncNetworkServiceServer.sendLocalActions")
 		)
 
-	return SyncNetworkService.of({ fetchRemoteActions, sendLocalActions })
+	return SyncNetworkService.of({ _tag: "SyncNetworkService", fetchRemoteActions, sendLocalActions })
 })
 
 /**

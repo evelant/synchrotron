@@ -18,6 +18,9 @@ const config: ViteUserConfig = {
 	optimizeDeps: {
 		exclude: ["bun:sqlite"]
 	},
+	resolve: {
+		preserveSymlinks: true
+	},
 	test: {
 		disableConsoleIntercept: true,
 		// setupFiles: [path.join(__dirname, "vitest.setup.ts")],

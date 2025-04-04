@@ -8,8 +8,7 @@ import createSyncTablesSQL from "./sql/schema/create_sync_tables.sql?raw"
  * Effect that initializes the sync tables schema
  */
 export const createSyncTables = Effect.gen(function* () {
-	const sql = yield* PgLiteClient.PgLiteClient
-
+	const sql = yield* SqlClient.SqlClient
 	// Create all sync tables and indexes
 	yield* sql.unsafe(createSyncTablesSQL).raw
 

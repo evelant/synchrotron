@@ -1,25 +1,25 @@
 {
-  "name": "@synchrotron/sync-client",
-  "version": "0.0.1",
-  "private": true,
-  "type": "module",
-  "description": "Client-side services and components for the synchrotron sync system.",
-  "exports": {
-    ".": "./dist/index.js",
-    "./*": "./dist/*.js"
-  },
-  "typesVersions": {
-    "*": {
-      "*": [
-        "dist/*"
-      ]
-    }
-  },
-  "files": [
-    "dist"
-  ],
+	"name": "@synchrotron/sync-client",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "Client-side services and components for the synchrotron sync system.",
+	"exports": {
+		".": "./dist/index.js",
+		"./*": "./dist/*.js"
+	},
+	"typesVersions": {
+		"*": {
+			"*": [
+				"dist/*"
+			]
+		}
+	},
+	"files": [
+		"dist"
+	],
 	"scripts": {
-		"build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
+		"build": "tsc -p tsconfig.build.json",
 		"clean": "rm -rf .tsbuildinfo build dist",
 		"dev": "vite build --watch",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
@@ -46,5 +46,4 @@
 		"vite": "catalog:",
 		"vitest": "catalog:"
 	}
-
 }

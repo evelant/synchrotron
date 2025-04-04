@@ -1,145 +1,185 @@
-import { useCallback, useState } from "react"
+import React, { useState, useEffect, useCallback, type FormEvent, type ChangeEvent } from "react"
 import {
-  Container,
-  Flex,
-  Checkbox,
-  Heading,
-  Text,
-  TextField,
-  Card,
-  Button,
-  Box,
+	Container,
+	Flex,
+	Checkbox,
+	Heading,
+	Text,
+	TextField,
+	Card,
+	Button,
+	Box
 } from "@radix-ui/themes"
 import logo from "../assets/logo.svg"
-import { useShape } from "@electric-sql/react"
-import { v4 as uuidv4 } from "uuid"
-
-type ToDo = {
-  id: string
-  title: string
-  completed: boolean
-  created_at: number
-}
+import { useRuntime } from "../main"
+import { Effect, Clock } from "effect"
+import { SyncService, type ActionExecutionError, type SyncError } from "@synchrotron/sync-core"
+import { TodoRepo } from "../db/repositories"
+import type { Todo } from "../db/schema"
+import { TodoActions } from "../actions"
+import { SqlError } from "@effect/sql"
 
 export default function Index() {
-  const { data: todos } = useShape<ToDo>({
-    url: new URL(`${import.meta.env.VITE_ELECTRIC_URL}/v1/shape/`).href,
-    params: {
-      table: `todos`,
-      source_id: import.meta.env.VITE_ELECTRIC_SOURCE_ID,
-      source_secret: import.meta.env.VITE_ELECTRIC_SOURCE_SECRET,
-    },
-  })
-  todos.sort((a, b) => a.created_at - b.created_at)
+	const runtime = useRuntime()
+	const [todos, setTodos] = useState<readonly Todo[]>([])
+	const [newTodoText, setNewTodoText] = useState("")
 
-  const [inputEnabled, setInputEnabled] = useState(false)
+	const loadTodos = useCallback(() => {
+		// Define the effect directly inside the callback
+		const fetchTodosEffect = Effect.gen(function* () {
+			const repo = yield* TodoRepo
+			// Use findAll() as defined in the repository
+			return yield* repo.findAll()
+		})
 
-  const onTodoClicked = useCallback(async (todo: ToDo) => {
-    console.log(`completed`)
-    await fetch(
-      new URL(`${import.meta.env.VITE_SERVER_URL}/todos/${todo.id}`).href,
-      {
-        method: `PUT`,
-        headers: {
-          "Content-Type": `application/json`,
-        },
-        body: JSON.stringify({
-          completed: !todo.completed,
-        }),
-      }
-    )
-  }, [])
+		runtime
+			.runPromise(fetchTodosEffect) // Pass the locally defined effect
+			.then((fetchedTodos: readonly Todo[]) => {
+				setTodos(fetchedTodos)
+			})
+			.catch((err: Error) => console.error("Failed to fetch todos:", err))
+	}, [runtime]) // Remove fetchTodosEffect from dependencies as it's defined inside
 
-  const onTodoDeleted = useCallback(async (todo: ToDo) => {
-    console.log(`deleted`)
-    await fetch(
-      new URL(`${import.meta.env.VITE_SERVER_URL}/todos/${todo.id}`).href,
-      {
-        method: `DELETE`,
-      }
-    )
-  }, [])
+	// Initial load
+	useEffect(() => {
+		loadTodos()
+	}, [loadTodos])
 
-  return (
-    <Container size="1">
-      <Flex gap="5" mt="5" direction="column">
-        <Flex align="center" justify="center">
-          <img src={logo} width="32px" alt="logo" />
-          <Heading ml="1">Electric To-Dos</Heading>
-          <Box width="32px" />
-        </Flex>
+	const handleAddTodo = useCallback(
+		(event: FormEvent<HTMLFormElement>) => {
+			event.preventDefault()
+			const text = newTodoText.trim()
+			if (!text) return
 
-        <Flex gap="3" direction="column">
-          {todos.length === 0 ? (
-            <Flex justify="center">
-              <Text>No to-dos to show - add one!</Text>
-            </Flex>
-          ) : (
-            todos.map((todo) => {
-              return (
-                <Card key={todo.id} onClick={() => onTodoClicked(todo)}>
-                  <Flex gap="2" align="center" justify="between">
-                    <Text as="label">
-                      <Flex gap="2" align="center">
-                        <Checkbox checked={todo.completed} />
-                        {todo.title}
-                      </Flex>
-                    </Text>
-                    <Button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onTodoDeleted(todo)
-                      }}
-                      variant="ghost"
-                      ml="auto"
-                      style={{ cursor: `pointer` }}
-                    >
-                      X
-                    </Button>
-                  </Flex>
-                </Card>
-              )
-            })
-          )}
-        </Flex>
-        <form
-          style={{ width: `100%` }}
-          onSubmit={async (event) => {
-            event.preventDefault()
-            if (!inputEnabled) return
-            const id = uuidv4()
-            const formElem = event.target as HTMLFormElement
-            const formData = Object.fromEntries(new FormData(formElem))
-            formElem.reset()
+			const createEffect = Effect.gen(function* () {
+				const syncService = yield* SyncService
+				const actions = yield* TodoActions
+				const timestamp = yield* Clock.currentTimeMillis
 
-            const res = await fetch(
-              new URL(`${import.meta.env.VITE_SERVER_URL}/todos`).href,
-              {
-                method: `POST`,
-                headers: {
-                  "Content-Type": `application/json`,
-                },
-                body: JSON.stringify({ id, title: formData.todo }),
-              }
-            )
-            console.log({ res })
-          }}
-        >
-          <Flex direction="row">
-            <TextField.Root
-              onChange={(e) => setInputEnabled(e.currentTarget.value !== ``)}
-              type="text"
-              name="todo"
-              placeholder="New Todo"
-              mr="1"
-              style={{ width: `100%` }}
-            />
-            <Button type="submit" disabled={!inputEnabled}>
-              Add
-            </Button>
-          </Flex>
-        </form>
-      </Flex>
-    </Container>
-  )
+				const action = actions.createTodoAction({
+					text: text,
+					owner_id: "user1", // Placeholder
+					timestamp: timestamp
+				})
+				yield* syncService.executeAction(action)
+			})
+
+			runtime
+				.runPromise(createEffect)
+				.then(() => {
+					setNewTodoText("")
+					loadTodos()
+				})
+				.catch((err: ActionExecutionError | Error) => console.error("Failed to create todo:", err))
+		},
+		[runtime, newTodoText, loadTodos]
+	)
+
+	const handleToggleTodo = useCallback(
+		(todo: Todo) => {
+			const toggleEffect = Effect.gen(function* () {
+				const syncService = yield* SyncService
+				const actions = yield* TodoActions
+				const timestamp = yield* Clock.currentTimeMillis
+
+				const action = actions.toggleTodoCompletionAction({
+					id: todo.id,
+					timestamp: timestamp
+				})
+				yield* syncService.executeAction(action)
+			})
+
+			runtime
+				.runPromise(toggleEffect)
+				.then(() => {
+					loadTodos()
+				})
+				.catch((err: ActionExecutionError | Error) => console.error("Failed to toggle todo:", err))
+		},
+		[runtime, loadTodos]
+	)
+
+	const handleDeleteTodo = useCallback(
+		(todoId: string) => {
+			const deleteEffect = Effect.gen(function* () {
+				const syncService = yield* SyncService
+				const actions = yield* TodoActions
+				const timestamp = yield* Clock.currentTimeMillis
+
+				const action = actions.deleteTodoAction({
+					id: todoId,
+					timestamp: timestamp
+				})
+				yield* syncService.executeAction(action)
+			})
+
+			runtime
+				.runPromise(deleteEffect)
+				.then(() => {
+					loadTodos()
+				})
+				.catch((err: ActionExecutionError | Error) => console.error("Failed to delete todo:", err))
+		},
+		[runtime, loadTodos]
+	)
+
+	return (
+		<Container size="1">
+			<Flex gap="5" mt="5" direction="column">
+				<Flex align="center" justify="center">
+					<img src={logo} width="32px" alt="logo" />
+					<Heading ml="1">Synchrotron To-Dos</Heading>
+					<Box width="32px" />
+				</Flex>
+
+				<Flex gap="3" direction="column">
+					{todos.length === 0 ? (
+						<Flex justify="center">
+							<Text>No to-dos to show - add one!</Text>
+						</Flex>
+					) : (
+						todos.map((todo: Todo) => (
+							<Card key={todo.id} onClick={() => handleToggleTodo(todo)}>
+								<Flex gap="2" align="center" justify="between">
+									<Text as="label">
+										<Flex gap="2" align="center">
+											<Checkbox checked={!!todo.completed} />
+											{todo.text}
+										</Flex>
+									</Text>
+									<Button
+										onClick={(e) => {
+											e.stopPropagation()
+											handleDeleteTodo(todo.id)
+										}}
+										variant="ghost"
+										ml="auto"
+										style={{ cursor: `pointer` }}
+									>
+										X
+									</Button>
+								</Flex>
+							</Card>
+						))
+					)}
+				</Flex>
+				<form style={{ width: `100%` }} onSubmit={handleAddTodo}>
+					<Flex direction="row">
+						<TextField.Root
+							value={newTodoText}
+							onChange={(e: ChangeEvent<HTMLInputElement>) => setNewTodoText(e.target.value)}
+							type="text"
+							name="todo"
+							placeholder="New Todo"
+							mr="1"
+							style={{ width: `100%` }}
+						/>
+						<Button type="submit" disabled={!newTodoText.trim()}>
+							Add
+						</Button>
+					</Flex>
+				</form>
+			</Flex>
+		</Container>
+	)
 }

@@ -9,10 +9,16 @@
         "declarationDir": "dist",
         "declaration": true,
         "declarationMap": true,
-        "emitDeclarationOnly": true,
+        "emitDeclarationOnly": false,
         "stripInternal": true
     },
     "include": [
         "src"
+    ],
+    "references": [
+        {
+            "path": "../sql-pglite/tsconfig.build.json"
+        },
+        { "path": "../sync-core/tsconfig.build.json" }
     ]
 }

@@ -1,8 +1,8 @@
-import { PgLiteClient } from "@effect/sql-pglite"; // Import specific client
-import { Effect, Schema } from "effect"; // Import Option
-import { ActionModifiedRowRepo } from "./ActionModifiedRowRepo"; // Import AMR Repo
-import { ActionRecordRepo } from "./ActionRecordRepo"; // Import ActionRecord Repo
-import { Action } from "./models"; // Import ActionRecord and ActionModifiedRow
+import { SqlClient } from "@effect/sql"
+import { Effect, Schema } from "effect"
+import { ActionModifiedRowRepo } from "./ActionModifiedRowRepo"
+import { ActionRecordRepo } from "./ActionRecordRepo"
+import { Action } from "./models"
 
 /**
  * Error for unknown action types
@@ -14,7 +14,6 @@ export class UnknownActionError extends Schema.TaggedError<UnknownActionError>()
 	}
 ) {}
 
-// The registry stores action creator functions rather than instances
 export type ActionCreator = <A extends Record<string, unknown> = any, EE = any, R = never>(
 	args: A
 ) => Action<A, EE, R>
@@ -25,10 +24,6 @@ export type ActionCreator = <A extends Record<string, unknown> = any, EE = any, 
  */
 export class ActionRegistry extends Effect.Service<ActionRegistry>()("ActionRegistry", {
 	effect: Effect.gen(function* () {
-		const sql = yield* PgLiteClient.PgLiteClient // Use specific client tag
-		const amrRepo = yield* ActionModifiedRowRepo // Get AMR Repo service
-		const actionRecordRepo = yield* ActionRecordRepo // Get ActionRecord Repo service
-
 		// Create a new registry map
 		const registry = new Map<string, ActionCreator>()
 
@@ -125,6 +120,5 @@ export class ActionRegistry extends Effect.Service<ActionRegistry>()("ActionRegi
 			defineAction,
 			rollbackAction
 		}
-	}),
-	dependencies: [ActionModifiedRowRepo.Default, ActionRecordRepo.Default] // Add ActionRecordRepo dependency
+	})
 }) {}

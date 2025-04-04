@@ -17,9 +17,9 @@
 		"packages/*"
 	],
 	"scripts": {
-		"dev": "bun run --cwd packages/app dev",
-		"dev:electric": "bun run --cwd packages/app dev:electric",
-		"build": "bun run -r build",
+		"dev": "pnpm run --cwd packages/app dev",
+		"dev:electric": "pnpm run --cwd packages/app dev:electric",
+		"build": "pnpm run -r build",
 		"clean": "rm -rf .tsbuildinfo build dist && pnpm run --filter=./packages/* clean",
 		"start": "vinxi start",
 		"format": "prettier --write .",

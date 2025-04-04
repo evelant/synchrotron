@@ -2,22 +2,27 @@ import { SqlClient } from "@effect/sql"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { Data, Effect, Schema } from "effect"
 import { type ActionModifiedRow, type ActionRecord } from "./models" // Import ActionModifiedRow
+import type { BadArgument } from "@effect/platform/Error"
 
+export class RemoteActionFetchError extends Schema.TaggedError<RemoteActionFetchError>()(
+	"RemoteActionFetchError",
+	{
+		message: Schema.String,
+		cause: Schema.optional(Schema.Unknown)
+	}
+) {}
 
-export class RemoteActionFetchError extends Schema.TaggedError<RemoteActionFetchError>()("RemoteActionFetchError", {
-	message: Schema.String,
-	cause: Schema.optional(Schema.Unknown)
-}) { }
-
-export class NetworkRequestError extends Schema.TaggedError<NetworkRequestError>()("NetworkRequestError", {
-	message: Schema.String,
-	cause: Schema.optional(Schema.Unknown)
-}) { }
+export class NetworkRequestError extends Schema.TaggedError<NetworkRequestError>()(
+	"NetworkRequestError",
+	{
+		message: Schema.String,
+		cause: Schema.optional(Schema.Unknown)
+	}
+) {}
 export interface FetchResult {
 	actions: readonly ActionRecord[]
 	modifiedRows: readonly ActionModifiedRow[]
 }
-
 
 export interface TestNetworkState {
 	/** Simulated network delay in milliseconds */
@@ -36,7 +41,7 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 		const clientId = yield* clockService.getNodeId // Keep clientId dependency
 
 		return {
-			fetchRemoteActions: (): Effect.Effect<FetchResult, RemoteActionFetchError> =>
+			fetchRemoteActions: (): Effect.Effect<FetchResult, RemoteActionFetchError | BadArgument> =>
 				Effect.gen(function* () {
 					const lastSyncedClock = yield* clockService.getLastSyncedClock
 					// TODO: Implement actual network request to fetch remote actions
@@ -59,7 +64,10 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 					)
 				),
 
-			sendLocalActions: (actions: readonly ActionRecord[], amrs: readonly ActionModifiedRow[]) =>
+			sendLocalActions: (
+				actions: readonly ActionRecord[],
+				amrs: readonly ActionModifiedRow[]
+			): Effect.Effect<boolean, NetworkRequestError | BadArgument, never> =>
 				Effect.gen(function* () {
 					// TODO: Implement actual network request to send actions to remote server
 					yield* Effect.logInfo(`Sending ${actions.length} local actions to server`)

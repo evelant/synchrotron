@@ -14,5 +14,9 @@
 		{
 			"path": "packages/sql-pglite/tsconfig.json"
 		}
+		,
+		{
+			"path": "examples/todo-app/tsconfig.json"
+		}
 	]
 }

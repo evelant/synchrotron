@@ -2,20 +2,26 @@ packages:
   - packages/*
   - examples/*
 catalog:
-  effect: ^3.14.5
-  '@effect/experimental': ^0.44.5
-  '@effect/platform': ^0.80.5
-  '@effect/platform-browser': ^0.59.5
-  '@effect/platform-node': ^0.76.9
-  '@effect/rpc': ^0.55.7
-  '@effect/sql': ^0.33.5
-  '@effect/vitest': ^0.19.10
-  '@types/node': ^22.14.0
+  effect: ^3.14.6
+  "@effect/experimental": ^0.44.6
+  "@effect/platform": ^0.80.6
+  "@effect/platform-browser": ^0.59.5
+  "@effect/platform-node": ^0.76.9
+  "@effect/platform-bun": ^0.60.10
+  "@effect/rpc": ^0.55.8
+  "@effect/sql": ^0.33.6
+  "@effect/vitest": ^0.20.5
+  "@effect/effect-cluster": ^0.29.10
+  "@types/node": ^22.14.0
   typescript: ^5.8.2
   vite: ^6.2.5
   vitest: ^3.1.1
-  '@electric-sql/client': ^1.0.2
-  '@electric-sql/pglite': ^0.2.17
-  '@electric-sql/pglite-sync': ^0.3.0
+  "@electric-sql/client": ^1.0.3
+  "@electric-sql/pglite": ^0.2.17
+  "@electric-sql/pglite-sync": ^0.3.0
+  uuid: ^11.1.0
+  msgpackr: ^1.11.2
+  fast-check: ^4.0.1
+  "@opentelemetry/semantic-conventions": 1.30.0
 onlyBuiltDependencies:
   - esbuild

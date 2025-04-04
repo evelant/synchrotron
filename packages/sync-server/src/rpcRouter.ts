@@ -1,80 +1,77 @@
 import {
 	FetchRemoteActions,
 	SendLocalActions,
-	SyncNetworkRpcGroup,
+	SyncNetworkRpcGroup
 } from "@synchrotron/sync-core/SyncNetworkRpc"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
+import { ServerConflictError, ServerInternalError, SyncServerService } from "./SyncServerService"
 import {
-	ServerConflictError,
-	ServerInternalError,
-	SyncServerService,
-} from "./SyncServerService"
-import { NetworkRequestError, RemoteActionFetchError } from "@synchrotron/sync-core/src/SyncNetworkService"
+	NetworkRequestError,
+	RemoteActionFetchError
+} from "@synchrotron/sync-core/SyncNetworkService"
+import { KeyValueStore } from "@effect/platform"
+import { PgClientLive } from "@synchrotron/sync-server/db/connection"
 
 export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 	Effect.gen(function* () {
-		const serverService = yield* SyncServerService;
+		const serverService = yield* SyncServerService
 
-		const FetchRemoteActionsHandler = (
-			payload: FetchRemoteActions,
-		) =>
+		const FetchRemoteActionsHandler = (payload: FetchRemoteActions) =>
 			Effect.gen(function* (_) {
-				const clientId = payload.clientId;
+				const clientId = payload.clientId
 
-				const result = yield* 
-					serverService.getActionsSince(
-						clientId,
-						payload.lastSyncedClock,
-					)
-				
+				const result = yield* serverService.getActionsSince(clientId, payload.lastSyncedClock)
 
-				return { actions: result.actions, modifiedRows: result.modifiedRows };
+				return { actions: result.actions, modifiedRows: result.modifiedRows }
 			}).pipe(
 				Effect.catchTag("ServerInternalError", (e: ServerInternalError) =>
-					Effect.fail(new RemoteActionFetchError({
-						message: `Server internal error fetching actions: ${e.message}`,
-						cause: e.cause,
-					}))
-				),
-				Effect.withSpan("RpcHandler.FetchRemoteActions"),
-			);
-
-		const SendLocalActionsHandler = (
-			payload: SendLocalActions,
-		) =>
-			Effect.gen(function* (_) {
-				const clientId = payload.clientId;
-
-				yield* 
-					serverService.receiveActions(
-						clientId,
-						payload.actions,
-						payload.amrs,
+					Effect.fail(
+						new RemoteActionFetchError({
+							message: `Server internal error fetching actions: ${e.message}`,
+							cause: e.cause
+						})
 					)
+				),
+				Effect.withSpan("RpcHandler.FetchRemoteActions")
+			)
 
-				return true;
+		const SendLocalActionsHandler = (payload: SendLocalActions) =>
+			Effect.gen(function* (_) {
+				const clientId = payload.clientId
+
+				yield* serverService.receiveActions(clientId, payload.actions, payload.amrs)
+
+				return true
 			}).pipe(
 				Effect.catchTags({
 					ServerConflictError: (e: ServerConflictError) =>
-						Effect.fail(new NetworkRequestError({
-							message: `Conflict receiving actions: ${e.message}`,
-							cause: e,
-						})),
+						Effect.fail(
+							new NetworkRequestError({
+								message: `Conflict receiving actions: ${e.message}`,
+								cause: e
+							})
+						),
 					ServerInternalError: (e: ServerInternalError) =>
-						Effect.fail(new NetworkRequestError({
-							message: `Server internal error receiving actions: ${e.message}`,
-							cause: e.cause,
-						}))
+						Effect.fail(
+							new NetworkRequestError({
+								message: `Server internal error receiving actions: ${e.message}`,
+								cause: e.cause
+							})
+						)
 				}),
-				Effect.withSpan("RpcHandler.SendLocalActions"),
-			);
+				Effect.withSpan("RpcHandler.SendLocalActions")
+			)
 
 		return {
 			FetchRemoteActions: FetchRemoteActionsHandler,
-			SendLocalActions: SendLocalActionsHandler,
-		};
+			SendLocalActions: SendLocalActionsHandler
+		}
 	})
-);
+).pipe(
+	Layer.provideMerge(SyncServerService.Default),
+	Layer.provideMerge(KeyValueStore.layerMemory),
+	Layer.provideMerge(PgClientLive)
+)
 
 /*
  * Conceptual Integration Point:

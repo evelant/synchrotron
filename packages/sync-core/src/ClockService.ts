@@ -1,6 +1,5 @@
 import { KeyValueStore } from "@effect/platform"
-import { SqlSchema } from "@effect/sql"
-import { PgLiteClient } from "@effect/sql-pglite"
+import { SqlClient, SqlSchema } from "@effect/sql"
 import { makeRepository } from "@effect/sql/Model"
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { Effect, Option, Schema } from "effect"
@@ -15,7 +14,7 @@ import { SyncError } from "@synchrotron/sync-core/SyncService"
  */
 export class ClockService extends Effect.Service<ClockService>()("ClockService", {
 	effect: Effect.gen(function* () {
-		const sql = yield* PgLiteClient.PgLiteClient
+		const sql = yield* SqlClient.SqlClient
 		const keyValueStore = yield* KeyValueStore.KeyValueStore
 		const overrideOption = yield* Effect.serviceOption(ClientIdOverride)
 		const actionRecordRepo = yield* ActionRecordRepo
@@ -83,8 +82,8 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			yield* sql`
 				INSERT INTO client_sync_status ${sql.insert({
 					client_id: initialStatus.client_id,
-					current_clock: sql.json(initialStatus.current_clock),
-					last_synced_clock: sql.json(initialStatus.last_synced_clock)
+					current_clock: JSON.stringify(initialStatus.current_clock),
+					last_synced_clock: JSON.stringify(initialStatus.last_synced_clock)
 				})}
 				ON CONFLICT (client_id)
 				DO NOTHING
@@ -184,11 +183,7 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 		/**
 		 * Sort an array of clocks in ascending order
 		 */
-		const sortClocks = <
-			T extends { clock: HLC.HLC; clientId: string }
-		>(
-			items: T[]
-		): T[] => {
+		const sortClocks = <T extends { clock: HLC.HLC; clientId: string }>(items: T[]): T[] => {
 			return [...items].sort((a, b) => compareClock(a, b))
 		}
 
@@ -269,5 +264,6 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			findLatestCommonClock
 		}
 	}),
-	accessors: true
+	accessors: true,
+	dependencies: [ActionRecordRepo.Default]
 }) {}
