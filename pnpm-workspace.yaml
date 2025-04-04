@@ -7,6 +7,7 @@ catalog:
   "@effect/platform": ^0.80.5
   "@effect/platform-browser": ^0.59.5
   "@effect/platform-node": ^0.76.9
+  "@effect/rpc": ^0.55.7
   "@effect/sql": ^0.33.5
   "@effect/vitest": ^0.19.10
   "@types/node": ^22.14.0
@@ -16,4 +17,3 @@ catalog:
   "@electric-sql/client": ^1.0.2
   "@electric-sql/pglite": ^0.2.17
   "@electric-sql/pglite-sync": ^0.3.0
-  

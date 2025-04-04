@@ -33,6 +33,7 @@
 		"@effect/platform": "catalog:",
 		"@effect/platform-node": "catalog:",
 		"@effect/sql": "catalog:",
+		"@effect/rpc": "catalog:",
 		"@effect/sql-pg": "^0.34.5",
 		"effect": "catalog:",
 		"@synchrotron/sync-core": "workspace:*"

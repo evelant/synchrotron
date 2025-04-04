@@ -18,6 +18,9 @@ catalogs:
     '@effect/platform-node':
       specifier: ^0.76.9
       version: 0.76.9
+    '@effect/rpc':
+      specifier: ^0.55.7
+      version: 0.55.7
     '@effect/sql':
       specifier: ^0.33.5
       version: 0.33.5
@@ -208,6 +211,9 @@ importers:
       '@effect/platform-browser':
         specifier: 'catalog:'
         version: 0.59.5(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5)
+      '@effect/rpc':
+        specifier: 'catalog:'
+        version: 0.55.7(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5)
       '@effect/sql':
         specifier: 'catalog:'
         version: 0.33.5(@effect/experimental@0.44.5(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5))(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5)
@@ -248,21 +254,12 @@ importers:
       '@effect/platform':
         specifier: 'catalog:'
         version: 0.80.5(effect@3.14.5)
+      '@effect/rpc':
+        specifier: 'catalog:'
+        version: 0.55.7(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5)
       '@effect/sql':
         specifier: 'catalog:'
         version: 0.33.5(@effect/experimental@0.44.5(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5))(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5)
-      '@effect/sql-pglite':
-        specifier: workspace:*
-        version: link:../sql-pglite/dist
-      '@electric-sql/client':
-        specifier: 'catalog:'
-        version: 1.0.2
-      '@electric-sql/pglite':
-        specifier: 'catalog:'
-        version: 0.2.17
-      '@electric-sql/pglite-sync':
-        specifier: 'catalog:'
-        version: 0.3.0(@electric-sql/pglite@0.2.17)
       effect:
         specifier: 'catalog:'
         version: 3.14.5
@@ -294,6 +291,9 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 0.76.9(@effect/cluster@0.29.9(@effect/platform@0.80.5(effect@3.14.5))(@effect/rpc@0.55.7(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5))(@effect/sql@0.33.5(@effect/experimental@0.44.5(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5))(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5))(effect@3.14.5))(@effect/platform@0.80.5(effect@3.14.5))(@effect/rpc@0.55.7(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5))(@effect/sql@0.33.5(@effect/experimental@0.44.5(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5))(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5))(effect@3.14.5)
+      '@effect/rpc':
+        specifier: 'catalog:'
+        version: 0.55.7(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5)
       '@effect/sql':
         specifier: 'catalog:'
         version: 0.33.5(@effect/experimental@0.44.5(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5))(@effect/platform@0.80.5(effect@3.14.5))(effect@3.14.5)

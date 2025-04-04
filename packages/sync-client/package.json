@@ -33,6 +33,7 @@
 		"@effect/platform": "catalog:",
 		"@effect/platform-browser": "catalog:",
 		"@effect/sql": "catalog:",
+		"@effect/rpc": "catalog:",
 		"@electric-sql/client": "catalog:",
 		"@electric-sql/pglite": "catalog:",
 		"@electric-sql/pglite-sync": "catalog:",

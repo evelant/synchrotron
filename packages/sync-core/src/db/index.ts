@@ -9,7 +9,6 @@ import { createSyncTables } from "./schema"
 export * from "./action-functions"
 export * from "./amr-functions"
 export * from "./clock-functions"
-export * from "./connection"
 export * from "./patch-functions"
 export * from "./schema"
 

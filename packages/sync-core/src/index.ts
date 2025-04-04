@@ -6,6 +6,8 @@ export * from "./ActionRecordRepo"
 export * from "./ActionModifiedRowRepo"
 export * from "./SyncNetworkService"
 export * from "./ClientIdOverride"
+export * from "./SyncService"
+export * from "./SyncNetworkRpc"
+
+export * from "./db/schema"
 export * from "./utils"
-// Re-export anything from ./actions if needed, e.g.:
-// export * as ExampleActions from "./actions/exampleAction"

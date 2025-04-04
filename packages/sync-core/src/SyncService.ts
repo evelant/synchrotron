@@ -1,4 +1,3 @@
-import { PgLiteClient } from "@effect/sql-pglite"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import * as HLC from "@synchrotron/sync-core/HLC" // Import HLC namespace
 import { Effect, Option, Schema, type Fiber, Array } from "effect" // Import ReadonlyArray
@@ -28,8 +27,7 @@ export class SyncError extends Schema.TaggedError<SyncError>()("SyncError", {
 export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 	effect: Effect.gen(function* () {
 		// Get required services
-		const sql = yield* PgLiteClient.PgLiteClient
-		const sqlClientService = yield* SqlClient.SqlClient // Get the SqlClient service
+		const sql = yield* SqlClient.SqlClient // Get the generic SqlClient service
 		const clockService = yield* ClockService
 		const actionRecordRepo = yield* ActionRecordRepo
 		const actionModifiedRowRepo = yield* ActionModifiedRowRepo
@@ -445,7 +443,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						const syncAmrs = yield* actionModifiedRowRepo.findByActionRecordIds([actionRecord.id])
 						if (syncAmrs.length > 0) {
 							const amrIds = syncAmrs.map((amr) => amr.id)
-							yield* sql`SELECT apply_forward_amr_batch(${sql.json(amrIds)})`
+							yield* sql`SELECT apply_forward_amr_batch(${sql(JSON.stringify(amrIds))})`
 							yield* Effect.logDebug(
 								`Applied forward patches for ${syncAmrs.length} AMRs associated with received SYNC action ${actionRecord.id}`
 							)
@@ -520,7 +518,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					yield* Effect.logDebug(
 						`Updating placeholder SYNC action ${syncRecord.id} clock due to divergence: ${JSON.stringify(newSyncClock)}`
 					)
-					yield* sql`UPDATE action_records SET clock = ${sql.json(newSyncClock)} WHERE id = ${syncRecord.id}`
+					yield* sql`UPDATE action_records SET clock = ${JSON.stringify(newSyncClock)} WHERE id = ${syncRecord.id}`
 					// The generated patches are already associated with syncRecord via transactionId by the triggers.
 				}
 

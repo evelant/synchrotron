@@ -32,11 +32,8 @@
 		"@effect/experimental": "catalog:",
 		"@effect/platform": "catalog:",
 		"@effect/sql": "catalog:",
-		"effect": "catalog:",
-		"@effect/sql-pglite": "workspace:*",
-		"@electric-sql/client": "catalog:",
-		"@electric-sql/pglite": "catalog:",
-		"@electric-sql/pglite-sync": "catalog:"
+		"@effect/rpc": "catalog:",
+		"effect": "catalog:"
 	},
 	"devDependencies": {
 		"@types/node": "catalog:",

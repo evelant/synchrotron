@@ -1,5 +1,4 @@
 import { Model, SqlClient, SqlSchema, type SqlError } from "@effect/sql"
-import { PgLiteSyncLayer } from "@synchrotron/sync-core/db/connection"
 import { Effect, Schema } from "effect"
 import { ActionModifiedRow } from "./models"
 import { deepObjectEquals } from "@synchrotron/sync-core/utils"
@@ -85,7 +84,6 @@ export class ActionModifiedRowRepo extends Effect.Service<ActionModifiedRowRepo>
 				// Removed exports for deleted functions
 			} as const
 		}),
-		dependencies: [PgLiteSyncLayer] 
 	}
 ) {}
 

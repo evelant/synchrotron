@@ -1,31 +1,24 @@
 import { SqlClient } from "@effect/sql"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
-import { Data, Effect } from "effect"
+import { Data, Effect, Schema } from "effect"
 import { type ActionModifiedRow, type ActionRecord } from "./models" // Import ActionModifiedRow
 
-/**
- * SyncNetworkService errors
- */
-export class RemoteActionFetchError extends Data.TaggedError("RemoteActionFetchError")<{
-	message: string
-	cause?: unknown
-}> {}
 
-export class NetworkRequestError extends Data.TaggedError("NetworkRequestError")<{
-	message: string
-	cause?: unknown
-}> {}
+export class RemoteActionFetchError extends Schema.TaggedError<RemoteActionFetchError>()("RemoteActionFetchError", {
+	message: Schema.String,
+	cause: Schema.optional(Schema.Unknown)
+}) { }
 
-// Define the return type for fetchRemoteActions
+export class NetworkRequestError extends Schema.TaggedError<NetworkRequestError>()("NetworkRequestError", {
+	message: Schema.String,
+	cause: Schema.optional(Schema.Unknown)
+}) { }
 export interface FetchResult {
 	actions: readonly ActionRecord[]
 	modifiedRows: readonly ActionModifiedRow[]
 }
 
-/**
- * SyncNetworkService tag definition
- * Responsible for handling network communication with sync server
- */
+
 export interface TestNetworkState {
 	/** Simulated network delay in milliseconds */
 	networkDelay: number
@@ -43,7 +36,7 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 		const clientId = yield* clockService.getNodeId // Keep clientId dependency
 
 		return {
-			fetchRemoteActions: (): Effect.Effect<FetchResult, RemoteActionFetchError> => // Update return type
+			fetchRemoteActions: (): Effect.Effect<FetchResult, RemoteActionFetchError> =>
 				Effect.gen(function* () {
 					const lastSyncedClock = yield* clockService.getLastSyncedClock
 					// TODO: Implement actual network request to fetch remote actions

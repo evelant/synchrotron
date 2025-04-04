@@ -1,5 +1,4 @@
 import { Model, SqlClient, SqlSchema } from "@effect/sql"
-import { PgLiteSyncLayer } from "@synchrotron/sync-core/db/connection"
 import { Effect, Option, Schema } from "effect" // Import Option
 import { ActionRecord } from "./models"
 
@@ -140,5 +139,5 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 			findUnappliedLocally
 		} as const
 	}),
-	dependencies: [PgLiteSyncLayer]
+	dependencies: []
 }) {}
