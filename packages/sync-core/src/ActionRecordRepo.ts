@@ -8,15 +8,11 @@ import { ActionRecord } from "./models"
 export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("ActionRecordRepo", {
 	effect: Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
-
-		// Create the base repository
 		const repo = yield* Model.makeRepository(ActionRecord, {
 			tableName: "action_records",
 			idColumn: "id",
 			spanPrefix: "ActionRecordRepository"
 		})
-
-		// --- Define type-safe queries ---
 
 		const findBySynced = SqlSchema.findAll({
 			Request: Schema.Boolean,
@@ -78,14 +74,10 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 				sql`SELECT * FROM action_records WHERE synced = false ORDER BY sortable_clock ASC`
 		})
 
-		// --- Define operations for modifying data ---
-
 		const markAsSynced = (id: string) =>
 			sql`UPDATE action_records SET synced = true WHERE id = ${id}`
 
 		const deleteById = (id: string) => sql`DELETE FROM action_records WHERE id = ${id}`
-
-		// --- New methods for local applied state ---
 
 		const markLocallyApplied = (actionRecordId: string) =>
 			sql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionRecordId}) ON CONFLICT DO NOTHING`

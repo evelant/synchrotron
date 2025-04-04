@@ -1,6 +1,6 @@
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import * as HLC from "@synchrotron/sync-core/HLC" // Import HLC namespace
-import { Effect, Option, Schema, type Fiber, Array } from "effect" // Import ReadonlyArray
+import { Effect, Option, Schema, type Fiber, Array, DateTime } from "effect" // Import ReadonlyArray
 import { ActionModifiedRowRepo, compareActionModifiedRows } from "./ActionModifiedRowRepo"
 import { ActionRecordRepo } from "./ActionRecordRepo"
 import { ClockService } from "./ClockService"
@@ -22,11 +22,8 @@ export class SyncError extends Schema.TaggedError<SyncError>()("SyncError", {
 	message: Schema.String,
 	cause: Schema.optional(Schema.Unknown)
 }) {}
-
-// Create the service tag
 export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 	effect: Effect.gen(function* () {
-		// Get required services
 		const sql = yield* SqlClient.SqlClient // Get the generic SqlClient service
 		const clockService = yield* ClockService
 		const actionRecordRepo = yield* ActionRecordRepo
@@ -52,10 +49,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				yield* Effect.logInfo(`Executing action: ${action._tag}"}`)
 				// 1. Get current transaction ID
 				const txidResult = yield* sql<{ txid: number }>`SELECT txid_current() as txid`
-				// Ensure txResult is not empty and txid exists before converting
 				const transactionId = txidResult[0]?.txid
-
-				// console.log("transaction id is ", transactionId) // Keep console for now if helpful
 				if (!transactionId) {
 					return yield* Effect.fail(
 						new ActionExecutionError({
@@ -64,18 +58,12 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						})
 					)
 				}
+				const executionTimestamp = new Date() 
 
-				// Capture execution time *before* clock increment for determinism
-				const executionTimestamp = new Date() // Use standard Date for simplicity, could use HLC timestamp if needed across system
-
-				// 2. Increment the client's clock
 				const newClock = yield* clockService.incrementClock
 
-				// 3. Get client ID
-				const localClientId = yield* clockService.getNodeId // Use local variable to avoid shadowing
+				const localClientId = yield* clockService.getNodeId 
 
-				// 4. Create an action record (with empty reverse patches initially)
-				// Inject the execution timestamp *only* if it's not already present (i.e., not a replay)
 				const timestampToUse =
 					typeof action.args.timestamp === "number"
 						? action.args.timestamp
@@ -91,16 +79,15 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						client_id: localClientId,
 						clock: newClock,
 						_tag: action._tag,
-						args: argsWithTimestamp, // Store args with timestamp
+						args: argsWithTimestamp, 
+						created_at: DateTime.unsafeFromDate( executionTimestamp),
 						synced: false,
-						// Explicitly cast to BigInt to ensure schema validation passes
 						transaction_id: transactionId
 					})
 				)
 
 				// 6. Apply the action - this will trigger database changes
 				// and will throw an exception if the action fails
-				// If this fails, sql.withTransaction will automatically roll back
 				// all changes, including the action record inserted above
 				yield* action.execute() // Pass args with timestamp to apply
 
@@ -115,8 +102,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						})
 					)
 				}
-
-				// Mark the action as locally applied *within the same transaction*
 				yield* actionRecordRepo.markLocallyApplied(updatedRecord.value.id)
 
 				return updatedRecord.value
@@ -148,7 +133,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		 */
 		const rollbackToCommonAncestor = () =>
 			Effect.gen(function* () {
-				// Find common ancestor using the corrected logic and all local actions
 				const commonAncestor = yield* findCommonAncestor().pipe(Effect.map(Option.getOrNull))
 				yield* Effect.logDebug(`Found common ancestor: ${JSON.stringify(commonAncestor)}`)
 				yield* sql`SELECT rollback_to_action(${commonAncestor?.id ?? null})`
@@ -177,18 +161,12 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					`Fetched ${remoteActions.length} remote actions for client ${clientId}: [${remoteActions.map((a) => `${a.id} (${a._tag})`).join(", ")}]`
 				)
 
-				// --- Branching Logic ---
-
 				const hasPending = pendingActions.length > 0
 				const hasRemote = remoteActions.length > 0
-
-				// Case 0: No actions anywhere
 				if (!hasPending && !hasRemote) {
 					yield* Effect.logInfo("No pending or remote actions to sync.")
 					return [] as const // Return readonly empty array
 				}
-
-				// Case 1: No pending actions -> Apply remote + Check Divergence
 				if (!hasPending && hasRemote) {
 					yield* Effect.logInfo(
 						`Case 1: No pending actions, applying ${remoteActions.length} remote actions and checking divergence.`
@@ -196,26 +174,19 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					// applyActionRecords handles clock updates for received actions
 					return yield* applyActionRecords(remoteActions)
 				}
-
-				// Case 2: No remote actions -> Send pending
 				if (hasPending && !hasRemote) {
 					yield* Effect.logInfo(
 						`Case 2: No remote actions, sending ${pendingActions.length} local actions.`
 					)
 					return yield* sendLocalActions()
 				}
-
-				// Case 3: Both pending and remote actions exist -> Reconcile
 				if (hasPending && hasRemote) {
-					// --- Differentiate between Case 3 and Case 4 based on HLC ---
 					const latestPendingClockOpt = clockService.getLatestClock(pendingActions)
 					const earliestRemoteClockOpt = clockService.getEarliestClock(remoteActions)
 
 					if (Option.isSome(latestPendingClockOpt) && Option.isSome(earliestRemoteClockOpt)) {
 						const latestPendingClock = latestPendingClockOpt.value
 						const earliestRemoteClock = earliestRemoteClockOpt.value
-
-						// Compare clocks We need the actual ActionRecord to get the clientId for compareClock
 						const latestPendingAction = pendingActions.find((a) =>
 							HLC.equals(a.clock, latestPendingClock)
 						)
@@ -224,7 +195,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						)
 
 						if (
-							//if no incoming rollback actions and all remote actions happened AFTER all local pending actions.
 							!remoteActions.find((a) => a._tag === "RollbackAction") &&
 							latestPendingAction &&
 							earliestRemoteAction &&
@@ -233,7 +203,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 								{ clock: earliestRemoteAction.clock, clientId: earliestRemoteAction.client_id }
 							) < 0
 						) {
-							// Case 4: All remote actions happened AFTER all local pending actions.
 							yield* Effect.logInfo(
 								`Case 4: Latest pending action (${latestPendingAction.id}) is older than earliest remote action (${earliestRemoteAction.id}). Applying remote, then sending pending.`
 							)
@@ -242,24 +211,17 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							const appliedRemotes = yield* applyActionRecords(remoteActions)
 							// 2. Send pending actions
 							yield* sendLocalActions()
-							// Return a combined list or decide on appropriate return value for this case
 							// For now, returning applied remotes as they were processed first in this flow.
-							// The pending actions are handled by _handleSendActions.
 							return appliedRemotes
 						} else {
-							// Case 3: Actions are interleaved, concurrent, or remote is older/equal -> Reconciliation required.
 							yield* Effect.logInfo(
 								"Case 3: Actions interleaved or remote older than pending. Reconciliation required."
 							)
-							// Fetch ALL local actions for reconciliation context
 							const allLocalActions = yield* actionRecordRepo.all()
 							yield* reconcile(pendingActions, remoteActions, allLocalActions)
-
-							// Send the newly created reconciled actions
 							return yield* sendLocalActions()
 						}
 					} else {
-						// Should not happen if hasPending and hasRemote are true, but handle defensively
 						return yield* Effect.fail(
 							new SyncError({
 								message: "Could not determine latest pending or earliest remote clock."
@@ -267,14 +229,10 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						)
 					}
 				}
-
-				// Should be unreachable, but satisfy TypeScript
 				return yield* Effect.dieMessage("Unreachable code reached in performSync")
 			}).pipe(
-				// Centralized error handling
 				Effect.catchAll((error) =>
 					Effect.gen(function* () {
-						// Added Effect.gen wrapper
 						const message = error instanceof Error ? error.message : String(error)
 						yield* Effect.logError(`Sync failed: ${message}`, error)
 						if (error instanceof SyncError) {
@@ -307,47 +265,35 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				yield* Effect.logDebug(
 					`Rolled back to common ancestor during reconcile: ${JSON.stringify(commonAncestor)}`
 				)
-
-				// --- BEGIN FIX: Create RollbackAction ---
-				// Get necessary info for the new action record
 				const rollbackClock = yield* clockService.incrementClock // Get a new clock for the rollback action
-				// We might be outside the main reconcile transaction here, but need a txid.
-				// Getting the current one should suffice for associating the record,
 				// even if the actual DB rollback happened in the SQL function's implicit transaction.
 				const rollbackTxIdResult = yield* sql<{ txid: number }>`SELECT txid_current() as txid`
 				const rollbackTransactionId = rollbackTxIdResult[0]?.txid
 
 				if (!rollbackTransactionId) {
-					// If we can't get a txid, something is wrong, fail the reconciliation.
 					return yield* Effect.fail(
 						new SyncError({ message: "Failed to get transaction ID for RollbackAction during reconcile" })
 					)
 				}
-
-				// Create and insert the RollbackAction record
 				const rollbackActionRecord = yield* actionRecordRepo.insert(
 					ActionRecord.insert.make({
 						_tag: "RollbackAction", // Use the specific tag for rollback actions
 						client_id: clientId, // The client performing the rollback
 						clock: rollbackClock, // The new clock timestamp for this action
-						// Add timestamp to satisfy the schema, using the rollback action's own HLC timestamp
 						args: { target_action_id: commonAncestor?.id ?? null, timestamp: rollbackClock.timestamp },
 						synced: false, // This new action is initially unsynced
+						created_at: yield* DateTime.now,
 						transaction_id: rollbackTransactionId // Associate with the current transaction context
 					})
 				)
 				yield* Effect.logInfo(`Created RollbackAction record: ${rollbackActionRecord.id}`)
-				// --- END FIX ---
 
 				const actionsToReplay = yield* actionRecordRepo.findUnappliedLocally() // Use new method
 				yield* Effect.logDebug(
 					`Final list of actions to REPLAY in reconcile: [${actionsToReplay.map((a: ActionRecord) => `${a.id} (${a._tag})`).join(", ")}]` // Added type for 'a'
 				)
-				// Now that we have rolled back to a comon ancestor, apply the actions in clock order
 				// then check for any divergence, adding a SYNC action if needed
 				yield* applyActionRecords(actionsToReplay)
-				// Return the newly created actions as the result of reconciliation (as readonly)
-				// Let the caller handle sending and marking as synced
 				return yield* actionRecordRepo.allUnsynced()
 			})
 
@@ -363,7 +309,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				const pendingActions = yield* actionRecordRepo.findBySynced(false)
 
 				const currentRollbackTarget = yield* findCommonAncestor()
-				// Find the oldest target of either the incoming rollbacks or the current rollback target
 				let rollbackTarget = Option.none<ActionRecord>()
 				if (
 					pendingActions.length > 0 &&
@@ -409,6 +354,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						clock: currentClock, // Use current clock initially
 						_tag: syncActionTag,
 						args: syncActionArgs,
+						created_at: yield* DateTime.now,
 						synced: false, // Placeholder is initially local
 						transaction_id: transactionId
 					})
@@ -422,14 +368,10 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				)
 
 				for (const actionRecord of sortedRemoteActions) {
-					// Skip applying rollback actions during the apply/replay phase
-					// Their effect is already handled by the initial rollbackToCommonAncestor call.
 					if (actionRecord._tag === "_Rollback") {
 						yield* Effect.logTrace(
-							// Changed to trace as it's less critical info now
 							`Skipping application of Rollback action during apply phase: ${actionRecord.id}`
 						)
-						// Mark as applied locally as its effect (the rollback) is complete.
 						yield* actionRecordRepo.markLocallyApplied(actionRecord.id) // Use new method
 						appliedRemoteClocks.push(actionRecord.clock) // Still update clock based on its timestamp
 						continue // Move to the next action
@@ -438,7 +380,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					const actionCreator = actionRegistry.getActionCreator(actionRecord._tag)
 
 					if (actionRecord._tag === "_InternalSyncApply") {
-						// Apply SYNC action patches directly
 						yield* Effect.logDebug(`Applying patches for received SYNC action: ${actionRecord.id}`)
 						const syncAmrs = yield* actionModifiedRowRepo.findByActionRecordIds([actionRecord.id])
 						if (syncAmrs.length > 0) {
@@ -452,25 +393,19 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 								`Received SYNC action ${actionRecord.id} had no associated ActionModifiedRows.`
 							)
 						}
-						// Mark that a SYNC action was processed
 					} else if (!actionCreator) {
-						// Handle missing creator (should rollback transaction)
 						return yield* Effect.fail(
 							new SyncError({ message: `Missing action creator: ${actionRecord._tag}` })
 						)
 					} else {
-						// Apply regular action logic
 						yield* Effect.logDebug(
 							`Applying logic for remote action: ${actionRecord.id} (${actionRecord._tag}) ${JSON.stringify(actionRecord.args)}`
 						)
 
 						yield* actionCreator(actionRecord.args).execute()
 					}
-
-					// Mark the received action (regular or SYNC) as applied locally
 					yield* actionRecordRepo.markLocallyApplied(actionRecord.id) // Use new method
 					yield* Effect.logDebug(`Marked remote action ${actionRecord.id} as applied locally.`)
-					// Store clock for later HLC update
 					appliedRemoteClocks.push(actionRecord.clock)
 				}
 				yield* Effect.logDebug(
@@ -484,8 +419,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				const originalRemoteActionIds = sortedRemoteActions.map((a) => a.id)
 				const originalPatches =
 					yield* actionModifiedRowRepo.findByActionRecordIds(originalRemoteActionIds)
-
-				// --- Add Logging Here ---
 				yield* Effect.logDebug(`Comparing generated vs original patches for divergence check.`)
 				yield* Effect.logDebug(
 					`Generated Patches (${generatedPatches.length}): ${JSON.stringify(generatedPatches, null, 2)}`
@@ -493,7 +426,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				yield* Effect.logDebug(
 					`Original Patches (${originalPatches.length}): ${JSON.stringify(originalPatches, null, 2)}`
 				)
-				// --- End Logging ---
 
 				// 6. Compare total generated patches vs. total original patches
 				const arePatchesIdentical = compareActionModifiedRows(generatedPatches, originalPatches) // Use strict comparison
@@ -504,13 +436,10 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 
 				if (arePatchesIdentical) {
 					// 7a. No divergence OR a SYNC action was processed (implying divergence was handled):
-					// Delete the placeholder SYNC record
 					yield* Effect.logInfo("No overall divergence detected. Deleting placeholder SYNC action.")
 					yield* actionRecordRepo.deleteById(syncRecord.id)
-					// Cascading delete should handle AMRs associated with syncRecord.id
 				} else {
 					// 7b. Divergence detected AND no corrective SYNC action was received:
-					// Keep the placeholder SYNC action, update its clock
 					yield* Effect.logWarning(
 						"Overall divergence detected (and no corrective SYNC received). Keeping placeholder SYNC action."
 					)
@@ -519,7 +448,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						`Updating placeholder SYNC action ${syncRecord.id} clock due to divergence: ${JSON.stringify(newSyncClock)}`
 					)
 					yield* sql`UPDATE action_records SET clock = ${JSON.stringify(newSyncClock)} WHERE id = ${syncRecord.id}`
-					// The generated patches are already associated with syncRecord via transactionId by the triggers.
 				}
 
 				yield* clockService.updateLastSyncedClock()
@@ -534,12 +462,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		 */
 		const findCommonAncestor = (): Effect.Effect<Option.Option<ActionRecord>, SqlError.SqlError> =>
 			Effect.gen(function* () {
-				// Call the SQL function
-				// The SQL function now takes no arguments
 				const result = yield* sql<ActionRecord>`SELECT * FROM find_common_ancestor()`
-
-				// The function returns SETOF actions, so we expect 0 or 1 row.
-				// Return the first element as an Option.
 				return Array.head(result)
 			}).pipe(Effect.withSpan("db.findCommonAncestor"))
 
@@ -548,7 +471,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		 */
 		const startSyncListener = (): Effect.Effect<Fiber.RuntimeFiber<void>, never, never> =>
 			Effect.gen(function* () {
-				// TODO: Implement real-time sync listener using Electric-sql and pglite
 				return yield* Effect.void.pipe(Effect.forever, Effect.forkDaemon)
 			}).pipe(Effect.annotateLogs("clientId", clientId))
 
@@ -558,18 +480,12 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		 */
 		const cleanupOldActionRecords = (retentionDays = 7) =>
 			Effect.gen(function* () {
-				// Delete action records older than the retention period that have been synced
-				// Using direct SQL instead of the repository methods to avoid type errors
 				yield* sql`
 					DELETE FROM action_records
 					WHERE synced = true
 					AND created_at < (NOW() - INTERVAL '1 day' * ${retentionDays})
 				`
-
-				// Log completion for debugging
 				yield* Effect.logInfo(`Cleaned up action records older than ${retentionDays} days`)
-
-				// Return success
 				return true
 			}).pipe(Effect.annotateLogs("clientId", clientId))
 
@@ -592,7 +508,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							if (error instanceof NetworkRequestError) {
 								yield* Effect.logWarning(`Failed to send actions to server: ${error.message}`)
 							}
-							// Re-throw the error so caller can decide how to handle it
 							return yield* Effect.fail(
 								new SyncError({
 									message: `Failed to send actions to server: ${error.message}`,
@@ -602,21 +517,16 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						})
 					)
 				)
-
-				// Mark the specific actions passed in (pending or reconciled) as synced
 				for (const action of actionsToSend) {
 					yield* actionRecordRepo.markAsSynced(action.id)
 					yield* Effect.logDebug(
 						`Marked action ${action.id} (${action._tag}) as synced after send.`
 					)
 				}
-
-				// Update last_synced_clock based on the latest clock
 				yield* clockService.updateLastSyncedClock()
 
 				return actionsToSend // Return the actions that were handled
 			}).pipe(
-				// Catch potential errors from sendLocalActions or markAsSynced and map to SyncError
 				Effect.catchAll((error) => {
 					const message = error instanceof Error ? error.message : String(error)
 					return Effect.fail(

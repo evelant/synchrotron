@@ -14,7 +14,6 @@ import { SyncError } from "@synchrotron/sync-core/SyncService"
  * causal ordering of actions across distributed clients
  */
 export class ClockService extends Effect.Service<ClockService>()("ClockService", {
-	// Define E and R explicitly for the service effect
 	effect: Effect.gen(function* () {
 		const sql = yield* PgLiteClient.PgLiteClient
 		const keyValueStore = yield* KeyValueStore.KeyValueStore
@@ -28,13 +27,10 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 		 * via the ClientIdOverride service
 		 */
 		const getNodeId = Effect.gen(function* () {
-			// Check if we have an override client ID (used for testing)
-
 			if (overrideOption._tag === "Some") {
 				return ClientId.make(overrideOption.value)
 			}
 
-			// Normal production flow - get from key-value store or generate new
 			const existingIdOption = yield* keyValueStore.get("sync_client_id")
 
 			if (existingIdOption._tag === "Some") {
@@ -42,7 +38,6 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 				return ClientId.make(existingIdOption.value)
 			}
 
-			// Generate and store a new client ID
 			const newClientId = crypto.randomUUID()
 			yield* keyValueStore.set("sync_client_id", newClientId)
 			const clientId = ClientId.make(newClientId)
@@ -51,14 +46,12 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 
 		const clientId = yield* getNodeId
 
-		// Create a repository for client sync status
 		const clientSyncStatusRepo = yield* makeRepository(ClientSyncStatusModel, {
 			tableName: "client_sync_status",
 			idColumn: "client_id",
 			spanPrefix: `ClientSyncStatus-${clientId}`
 		})
 
-		// Define type-safe queries using SqlSchema
 		const findClientClock = SqlSchema.findOne({
 			Request: Schema.String,
 			Result: ClientSyncStatusModel,
@@ -80,27 +73,24 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			}
 
 			yield* Effect.logInfo(`No client sync status found for client ${clientId}, creating.`)
-			// If no record, create one with initial empty/default clocks
 			const initialClock = HLC.make()
 			const initialStatus = ClientSyncStatusModel.make({
 				client_id: clientId,
-				current_clock: initialClock, // Initialize current_clock
-				last_synced_clock: initialClock // Initialize last_synced_clock
+				current_clock: initialClock,
+				last_synced_clock: initialClock
 			})
 
 			yield* sql`
 				INSERT INTO client_sync_status ${sql.insert({
 					client_id: initialStatus.client_id,
 					current_clock: sql.json(initialStatus.current_clock),
-					last_synced_clock: sql.json(initialStatus.last_synced_clock) // Insert new field
+					last_synced_clock: sql.json(initialStatus.last_synced_clock)
 				})}
 				ON CONFLICT (client_id)
-				DO NOTHING -- If it exists concurrently, let the existing value stand
+				DO NOTHING
 			`
-			// Re-fetch after potential insert/conflict
 			const finalStatus = yield* findClientClock(clientId)
 			if (finalStatus._tag === "Some") return finalStatus.value
-			// This should be unreachable if insert/fetch works
 			return yield* Effect.die("Failed to create or fetch initial client sync status")
 		}).pipe(Effect.annotateLogs("clientId", clientId))
 
@@ -116,19 +106,16 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			const currentState = yield* getClientClockState
 			const currentClock = currentState.current_clock
 
-			// Create the new clock with incremented vector value for this client
 			const newClock = HLC.createLocalMutation(currentClock, clientId)
 
 			yield* Effect.logInfo(
 				`Incremented clock for client ${clientId}: from ${JSON.stringify(currentClock)} to ${JSON.stringify(newClock)}`
 			)
 
-			// Use the repository to update the record
 			yield* clientSyncStatusRepo.update(
 				ClientSyncStatusModel.update.make({
 					client_id: clientId,
-					current_clock: newClock, // Update current_clock
-					// last_synced_clock remains unchanged here
+					current_clock: newClock,
 					last_synced_clock: currentState.last_synced_clock
 				})
 			)
@@ -156,12 +143,11 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 
 				const currentState = yield* getClientClockState
 
-				// Only update if the latest sent clock is actually newer than the current last_synced_clock
 				if (HLC._order(latestSyncedClock, currentState.last_synced_clock) <= 0) {
 					yield* Effect.logDebug(
 						`Skipping last_synced_clock update: latest sent clock ${JSON.stringify(latestSyncedClock)} is not newer than current last_synced_clock ${JSON.stringify(currentState.last_synced_clock)}`
 					)
-					return // No update needed
+					return
 				}
 
 				yield* Effect.logInfo(
@@ -171,8 +157,8 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 				yield* clientSyncStatusRepo.update(
 					ClientSyncStatusModel.update.make({
 						client_id: clientId,
-						current_clock: currentState.current_clock, // Keep current clock the same
-						last_synced_clock: latestSyncedClock // Update only last_synced_clock
+						current_clock: currentState.current_clock,
+						last_synced_clock: latestSyncedClock
 					})
 				)
 			}).pipe(Effect.annotateLogs("clientId", clientId))
@@ -185,7 +171,6 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			a: { clock: HLC.HLC; clientId: string },
 			b: { clock: HLC.HLC; clientId: string }
 		): number => {
-			// Use the HLC function that includes client ID tiebreaking
 			return HLC.orderWithClientId(a.clock, b.clock, a.clientId, b.clientId)
 		}
 
@@ -193,7 +178,6 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 		 * Merge two clocks, taking the maximum values
 		 */
 		const mergeClock = (a: HLC.HLC, b: HLC.HLC): HLC.HLC => {
-			// Use HLC.receiveRemoteMutation for proper merging
 			return HLC.receiveRemoteMutation(a, b, clientId)
 		}
 
@@ -201,11 +185,10 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 		 * Sort an array of clocks in ascending order
 		 */
 		const sortClocks = <
-			T extends { clock: HLC.HLC; clientId: string } // Ensure items have clientId
+			T extends { clock: HLC.HLC; clientId: string }
 		>(
 			items: T[]
 		): T[] => {
-			// Pass the objects containing clock and clientId to compareClock
 			return [...items].sort((a, b) => compareClock(a, b))
 		}
 
@@ -223,54 +206,43 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			localActions: T[],
 			remoteActions: T[]
 		): HLC.HLC | null => {
-			// Find all synced actions that could be common ancestors
 			const syncedActions = localActions.filter((a) => a.synced === true)
 
-			// Map actions to include clientId property expected by sortClocks
 			const syncedActionsWithClientId = syncedActions.map((a) => ({
 				...a,
-				clientId: a.client_id // Map client_id to clientId
+				clientId: a.client_id
 			}))
 
 			if (syncedActionsWithClientId.length === 0) {
 				return null
 			}
 
-			// Sort in descending order (newest first)
 			const sortedSynced = sortClocks(syncedActionsWithClientId).reverse()
 
 			const remoteClocks = remoteActions.map((a) => a.clock)
 
-			// Find the newest synced action that comes before all remote actions
 			for (const action of sortedSynced) {
 				if (remoteClocks.every((remoteClock) => HLC.isBefore(action.clock, remoteClock))) {
 					return action.clock
 				}
 			}
 
-			// If no suitable clock found, return null
 			return null
 		}
 
 		/** Helper to get the clock of the earliest action in a list */
 		const getEarliestClock = (actions: readonly ActionRecord[]): Option.Option<HLC.HLC> => {
 			if (actions.length === 0) return Option.none()
-			// Ensure array is not empty before accessing index
-			// Map actions to include clientId for sorting
 			const actionsWithClientId = actions.map((a) => ({ ...a, clientId: a.client_id }))
 			const sorted = sortClocks(actionsWithClientId)
-			// Need to check if sorted[0] exists due to noUncheckedIndexAccess
 			return sorted[0] ? Option.some(sorted[0].clock) : Option.none()
 		}
 
 		/** Helper to get the clock of the latest action in a list */
 		const getLatestClock = (actions: readonly ActionRecord[]): Option.Option<HLC.HLC> => {
 			if (actions.length === 0) return Option.none()
-			// Ensure array is not empty before accessing index
-			// Map actions to include clientId for sorting
 			const actionsWithClientId = actions.map((a) => ({ ...a, clientId: a.client_id }))
 			const sorted = sortClocks(actionsWithClientId)
-			// Need to check if sorted[sorted.length - 1] exists
 			const lastAction = sorted[sorted.length - 1]
 			return lastAction ? Option.some(lastAction.clock) : Option.none()
 		}
@@ -290,7 +262,7 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			getLastSyncedClock,
 			getEarliestClock,
 			getLatestClock,
-			updateLastSyncedClock, // Add the new method
+			updateLastSyncedClock,
 			compareClock,
 			mergeClock,
 			sortClocks,

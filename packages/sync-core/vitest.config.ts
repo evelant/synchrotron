@@ -1,11 +1,13 @@
-import { defineProject } from "vitest/config"
-import shared from "../../vitest.shared"
+import wasm from "vite-plugin-wasm"
+import { mergeConfig, type ViteUserConfig } from "vitest/config"
+import shared from "../../vitest.shared.ts"
 
-export default defineProject({
-  ...shared,
-  test: {
-    name: "sync-core",
-    // Add any specific test configurations for sync-core here
-    // e.g., setupFiles: ["./vitest-setup.ts"]
-  }
-})
+const config: ViteUserConfig = {
+	plugins: [wasm()],
+	test: {
+		maxConcurrency: 1,
+		setupFiles: ["./vitest-setup.ts"]
+	}
+}
+
+export default mergeConfig(shared, config)

@@ -1,11 +1,10 @@
-import { PgClient } from "@effect/sql-pg" // Use PgClient
-import { SqlClient, SqlError } from "@effect/sql" // Keep SqlError for type checking if needed
-import { Context, Data, Effect, Layer, Array, Option, Config } from "effect" // Import Config
+import { PgClient } from "@effect/sql-pg"
+import { SqlClient, SqlError } from "@effect/sql"
+import { Context, Data, Effect, Layer, Array, Option, Config } from "effect"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 
-// Define potential errors for server operations
 export class ServerConflictError extends Data.TaggedError("ServerConflictError")<{
 	readonly message: string
 	readonly conflictingActions: readonly ActionRecord[]
@@ -16,18 +15,15 @@ export class ServerInternalError extends Data.TaggedError("ServerInternalError")
 	readonly cause?: unknown
 }> {}
 
-// Define the result type for fetching actions
 export interface FetchActionsResult {
 	readonly actions: readonly ActionRecord[]
 	readonly modifiedRows: readonly ActionModifiedRow[]
-	readonly serverClock: HLC // Include current server clock for client initialization
+	readonly serverClock: HLC
 }
 
-// Define the SyncServerService using Effect.Service pattern
 export class SyncServerService extends Effect.Service<SyncServerService>()(
-	"SyncServerService", // Service name
+	"SyncServerService",
 	{
-		// Define the methods within the effect block
 		effect: Effect.gen(function* () {
 			const sql = yield* PgClient.PgClient
 			const clockService = yield* ClockService
@@ -47,10 +43,9 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 					)
 					if (actions.length === 0) {
 						yield* Effect.logDebug("Server: No incoming actions to process.")
-						return // Nothing to insert
+						return
 					}
 
-					// --- Conflict Check ---
 					if (amrs.length > 0) {
 						const affectedRowKeys = amrs.map((r) => ({
 							table_name: r.table_name,
@@ -90,7 +85,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 							JOIN conflicting_rows cr ON ar.id = cr.action_record_id
 							WHERE compare_hlc(ar.clock, ${sql.json(latestIncomingClock)}) > 0 -- Use sql.json
 							ORDER BY sortable_clock ASC
-						`.pipe(
+						`.pipe( // Use sql.json
 							Effect.mapError(
 								(e) => new ServerInternalError({ message: "Conflict check query failed", cause: e })
 							)
@@ -109,11 +104,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 						}
 						yield* Effect.logDebug("Server: No conflicts detected.")
 					}
-					// --- End Conflict Check ---
 
-					// --- Transaction Block ---
 					yield* Effect.gen(function* () {
-						// --- Rollback Handling ---
 						const incomingRollbacks = actions.filter((a) => a._tag === "RollbackAction")
 						if (incomingRollbacks.length > 0) {
 							yield* Effect.logInfo(
@@ -155,9 +147,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 								)
 							}
 						}
-						// --- End Rollback Handling ---
 
-						// --- Insert Actions ---
 						for (const actionRecord of actions) {
 							yield* Effect.logDebug(
 								`Server: Inserting action ${actionRecord.id} (${actionRecord._tag}) from client ${clientId}`
@@ -166,11 +156,9 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 								INSERT INTO action_records (id, client_id, _tag, args, clock, synced, transaction_id, created_at)
 								VALUES (${actionRecord.id}, ${actionRecord.client_id}, ${actionRecord._tag}, ${sql.json(actionRecord.args)}, ${sql.json(actionRecord.clock)}, true, ${actionRecord.transaction_id}, ${new Date(actionRecord.created_at.epochMillis)})
 								ON CONFLICT (id) DO NOTHING
-              				` // Mark synced=true on server
+              				`
 						}
-						// --- End Insert Actions ---
 
-						// --- Insert AMRs ---
 						for (const modifiedRow of amrs) {
 							yield* Effect.logTrace(
 								`Server: Inserting AMR ${modifiedRow.id} for action ${modifiedRow.action_record_id}`
@@ -181,9 +169,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 								ON CONFLICT (id) DO NOTHING
               				`
 						}
-						// --- End Insert AMRs ---
 
-						// --- Apply Forward Patches ---
 						if (amrs.length > 0) {
 							const nonRollbackActions = actions.filter((a) => a._tag !== "RollbackAction")
 							const nonRollbackActionIds = nonRollbackActions.map((a) => a.id)
@@ -218,14 +204,12 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 								yield* Effect.logDebug("Server: No forward patches to apply after filtering rollbacks.")
 							}
 						}
-						// --- End Apply Forward Patches ---
 					}).pipe(
 						sql.withTransaction,
 						Effect.mapError(
 							(e) => new ServerInternalError({ message: "Transaction failed during receiveActions", cause: e })
 						)
 					)
-					// --- End Transaction Block ---
 
 					yield* Effect.logInfo(
 						`Server: Successfully processed ${actions.length} actions from client ${clientId}.`
@@ -250,10 +234,6 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 					Effect.annotateLogs({ serverOperation: "receiveActions", requestingClientId: clientId })
 				)
 
-			/**
-			 * Fetches actions and their modified rows from the server that are newer
-			 * than the client's last synced clock.
-			 */
 			const getActionsSince = (
 				clientId: string,
 				lastSyncedClock: HLC
@@ -271,7 +251,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 								? sql``
 								: sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0` // Use sql.json
 						}
-						ORDER BY sortable_clock ASC
+						ORDER BY sortable_clock ASC // Use sql.json
           			`.pipe(
 						Effect.mapError(
 							(error) =>
@@ -335,7 +315,6 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 					Effect.annotateLogs({ serverOperation: "getActionsSince", requestingClientId: clientId })
 				)
 
-			// Return the service methods
 			return {
 				receiveActions,
 				getActionsSince
@@ -345,16 +324,12 @@ export class SyncServerService extends Effect.Service<SyncServerService>()(
 	}
 ) {}
 
-// --- Live Implementation ---
 export const SyncServerServiceLive = Layer.provide(
-	SyncServerService.Default, // Provides the service implementation
+	SyncServerService.Default,
 	Layer.mergeAll(
-		// Provide the *specific* PgClient layer using PgClient.layer
 		PgClient.layerConfig({
-			// Use Config.redacted for the URL
 			url: Config.redacted("DATABASE_URL")
 		}),
-		ClockService.Default // Provide the ClockService layer
-		// Add other necessary dependency layers here if any
+		ClockService.Default
 	)
 )

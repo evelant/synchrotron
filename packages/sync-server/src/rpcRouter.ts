@@ -12,8 +12,8 @@ import {
 import { NetworkRequestError, RemoteActionFetchError } from "@synchrotron/sync-core/src/SyncNetworkService"
 
 export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
-	Effect.gen(function* (_) {
-		const serverService = yield* _(SyncServerService);
+	Effect.gen(function* () {
+		const serverService = yield* SyncServerService;
 
 		const FetchRemoteActionsHandler = (
 			payload: FetchRemoteActions,
@@ -21,12 +21,12 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 			Effect.gen(function* (_) {
 				const clientId = payload.clientId;
 
-				const result = yield* _(
+				const result = yield* 
 					serverService.getActionsSince(
 						clientId,
 						payload.lastSyncedClock,
-					),
-				);
+					)
+				
 
 				return { actions: result.actions, modifiedRows: result.modifiedRows };
 			}).pipe(
@@ -45,13 +45,12 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 			Effect.gen(function* (_) {
 				const clientId = payload.clientId;
 
-				yield* _(
+				yield* 
 					serverService.receiveActions(
 						clientId,
 						payload.actions,
 						payload.amrs,
-					),
-				);
+					)
 
 				return true;
 			}).pipe(
@@ -89,18 +88,17 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
  * import { NodeHttpServer } from "@effect/platform-node";
  * import { RpcServer } from "@effect/rpc";
  * import { SyncServerServiceLive } from "./SyncServerService";
- * import { SyncNetworkRpcHandlersLive } from "./rpcRouter"; // Import the handler layer
+ * import { SyncNetworkRpcHandlersLive } from "./rpcRouter";
  *
- * const RpcAppLive = RpcServer.layer(SyncNetworkRpcGroup).pipe( // Use the RpcGroup
- *      Layer.provide(SyncNetworkRpcHandlersLive), // Provide the handlers
- *      Layer.provide(SyncServerServiceLive) // Provide the dependency
- *      // Add serialization layer (e.g., RpcSerialization.layerJson)
+ * const RpcAppLive = RpcServer.layer(SyncNetworkRpcGroup).pipe(
+ *      Layer.provide(SyncNetworkRpcHandlersLive),
+ *      Layer.provide(SyncServerServiceLive)
  *  );
  *
  * const HttpAppLive = HttpRouter.empty.pipe(
- *   HttpRouter.rpc(RpcAppLive, { path: "/api/sync/rpc" }), // Mount RPC app
+ *   HttpRouter.rpc(RpcAppLive, { path: "/api/sync/rpc" }),
  *   HttpServer.serve(),
- *   Layer.provide(NodeHttpServer.layer(...)) // Provide HTTP server impl
+ *   Layer.provide(NodeHttpServer.layer(...))
  * );
  *
  */
