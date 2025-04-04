@@ -40,46 +40,31 @@
 		"effect": "^3.14.5"
 	},
 	"devDependencies": {
-		"@babel/cli": "^7.24.8",
-		"@babel/core": "^7.25.2",
-		"@babel/plugin-transform-export-namespace-from": "^7.24.7",
-		"@babel/plugin-transform-modules-commonjs": "^7.24.8",
+		"@babel/cli": "^7.27.0",
+		"@babel/core": "^7.26.10",
+		"@babel/plugin-transform-export-namespace-from": "^7.25.9",
+		"@babel/plugin-transform-modules-commonjs": "^7.26.3",
 		"@effect/build-utils": "^0.7.9",
-		"@effect/eslint-plugin": "^0.2.0",
+		"@effect/eslint-plugin": "^0.3.0",
 		"@effect/language-service": "^0.5.1",
 		"@effect/vitest": "^0.20.5",
-		"@eslint/compat": "1.1.1",
-		"@eslint/eslintrc": "3.1.0",
-		"@eslint/js": "9.10.0",
-		"@types/node": "^22.5.2",
-		"@typescript-eslint/eslint-plugin": "^8.4.0",
-		"@typescript-eslint/parser": "^8.4.0",
-		"babel-plugin-annotate-pure-calls": "^0.4.0",
+		"@eslint/compat": "^1.2.8",
+		"@eslint/eslintrc": "^3.3.1",
+		"@eslint/js": "^9.23.0",
+		"@types/node": "^22.14.0",
+		"@typescript-eslint/eslint-plugin": "^8.29.0",
+		"@typescript-eslint/parser": "^8.29.0",
+		"babel-plugin-annotate-pure-calls": "^0.5.0",
 		"eslint": "^9.10.0",
-		"eslint-import-resolver-typescript": "^3.6.3",
+		"eslint-import-resolver-typescript": "^4.3.1",
 		"eslint-plugin-codegen": "^0.28.0",
-		"eslint-plugin-import": "^2.30.0",
+		"eslint-plugin-import": "^2.31.0",
 		"eslint-plugin-simple-import-sort": "^12.1.1",
 		"eslint-plugin-sort-destructure-keys": "^2.0.0",
-		"tsx": "^4.17.0",
-		"typescript": "^5.6.2",
-		"vitest": "^3.0.9"
-	},
-	"effect": {
-		"generateExports": {
-			"include": [
-				"**/*.ts"
-			]
-		},
-		"generateIndex": {
-			"include": [
-				"**/*.ts"
-			]
-		}
-	},
-	"pnpm": {
-		"patchedDependencies": {
-			"babel-plugin-annotate-pure-calls@0.4.0": "patches/babel-plugin-annotate-pure-calls@0.4.0.patch"
-		}
+		"tsx": "^4.19.3",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
 	}
+
+	
 }
