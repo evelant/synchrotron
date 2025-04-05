@@ -7,7 +7,8 @@ import { Config, Effect, Layer, Redacted } from "effect"
  * Defines the required configuration parameters using Effect's Config module.
  */
 const config = Config.all({
-  url: Config.redacted("DATABASE_URL"),
+	url: Config.redacted("DATABASE_URL"),
+	debug: Config.succeed(true)
 })
 
 /**
@@ -15,8 +16,6 @@ const config = Config.all({
  * Uses `layerConfig` to create the layer from the defined configuration structure.
  * This layer reads configuration and creates the PgClient.
  */
-export const PgClientLive = PgClient.layerConfig(config).pipe(
-  Layer.tapErrorCause(Effect.logError)
-)
+export const PgClientLive = PgClient.layerConfig(config).pipe(Layer.tapErrorCause(Effect.logError))
 
 export const SqlClient = Sql.SqlClient

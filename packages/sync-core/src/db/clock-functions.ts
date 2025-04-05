@@ -1,7 +1,7 @@
 import { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
-import compareVectorClocksSQL from "./sql/clock/compare_vector_clocks.sql?raw"
-import compareHlcSQL from "./sql/clock/compare_hlc.sql?raw"
+import compareVectorClocksSQL from "./sql/clock/compare_vector_clocks.sql?raw" with { type: "text" }
+import compareHlcSQL from "./sql/clock/compare_hlc.sql?raw" with { type: "text" }
 
 /**
  * Effect that creates core clock comparison functions

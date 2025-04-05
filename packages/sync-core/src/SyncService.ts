@@ -58,11 +58,11 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						})
 					)
 				}
-				const executionTimestamp = new Date() 
+				const executionTimestamp = new Date()
 
 				const newClock = yield* clockService.incrementClock
 
-				const localClientId = yield* clockService.getNodeId 
+				const localClientId = yield* clockService.getNodeId
 
 				const timestampToUse =
 					typeof action.args.timestamp === "number"
@@ -79,8 +79,8 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						client_id: localClientId,
 						clock: newClock,
 						_tag: action._tag,
-						args: argsWithTimestamp, 
-						created_at: DateTime.unsafeFromDate( executionTimestamp),
+						args: argsWithTimestamp,
+						created_at: DateTime.unsafeFromDate(executionTimestamp),
 						synced: false,
 						transaction_id: transactionId
 					})
@@ -260,7 +260,9 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				)
 
 				// Roll back to common ancestor, passing all local actions for context
-				const commonAncestorOpt = yield* rollbackToCommonAncestor().pipe(Effect.map(Option.fromNullable)) // Get Option<ActionRecord>
+				const commonAncestorOpt = yield* rollbackToCommonAncestor().pipe(
+					Effect.map(Option.fromNullable)
+				) // Get Option<ActionRecord>
 				const commonAncestor = Option.getOrNull(commonAncestorOpt) // Keep null for args if None
 				yield* Effect.logDebug(
 					`Rolled back to common ancestor during reconcile: ${JSON.stringify(commonAncestor)}`
@@ -272,7 +274,9 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 
 				if (!rollbackTransactionId) {
 					return yield* Effect.fail(
-						new SyncError({ message: "Failed to get transaction ID for RollbackAction during reconcile" })
+						new SyncError({
+							message: "Failed to get transaction ID for RollbackAction during reconcile"
+						})
 					)
 				}
 				const rollbackActionRecord = yield* actionRecordRepo.insert(
@@ -280,7 +284,10 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						_tag: "RollbackAction", // Use the specific tag for rollback actions
 						client_id: clientId, // The client performing the rollback
 						clock: rollbackClock, // The new clock timestamp for this action
-						args: { target_action_id: commonAncestor?.id ?? null, timestamp: rollbackClock.timestamp },
+						args: {
+							target_action_id: commonAncestor?.id ?? null,
+							timestamp: rollbackClock.timestamp
+						},
 						synced: false, // This new action is initially unsynced
 						created_at: yield* DateTime.now,
 						transaction_id: rollbackTransactionId // Associate with the current transaction context
@@ -546,7 +553,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 	dependencies: [
 		ActionRecordRepo.Default,
 		ActionModifiedRowRepo.Default, // Add ActionModifiedRowRepo dependency
-		SyncNetworkService.Default,
 		ActionRegistry.Default // Added ActionRegistry
 	]
 }) {}

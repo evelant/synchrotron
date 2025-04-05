@@ -3,9 +3,9 @@ import { Effect } from "effect"
 
 // Import SQL files
 // @ts-ignore - Vite raw imports
-import applyForwardAmrSQL from "./sql/amr/apply_forward_amr.sql?raw"
+import applyForwardAmrSQL from "./sql/amr/apply_forward_amr.sql?raw" with { type: "text" }
 // @ts-ignore - Vite raw imports
-import applyReverseAmrSQL from "./sql/amr/apply_reverse_amr.sql?raw"
+import applyReverseAmrSQL from "./sql/amr/apply_reverse_amr.sql?raw" with { type: "text" }
 
 /**
  * Effect that creates action modified rows related functions

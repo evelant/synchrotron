@@ -1,11 +1,11 @@
 import { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
-import generateOpPatchesSQL from "./sql/patch/generate_op_patches.sql?raw"
-import handleRemoveOperationSQL from "./sql/patch/handle_remove_operation.sql?raw"
-import handleInsertOperationSQL from "./sql/patch/handle_insert_operation.sql?raw"
-import handleUpdateOperationSQL from "./sql/patch/handle_update_operation.sql?raw"
-import generatePatchesSQL from "./sql/patch/generate_patches.sql?raw"
-import createPatchesTriggerSQL from "./sql/patch/create_patches_trigger.sql?raw"
+import generateOpPatchesSQL from "./sql/patch/generate_op_patches.sql?raw" with { type: "text" }
+import handleRemoveOperationSQL from "./sql/patch/handle_remove_operation.sql?raw" with { type: "text" }
+import handleInsertOperationSQL from "./sql/patch/handle_insert_operation.sql?raw" with { type: "text" }
+import handleUpdateOperationSQL from "./sql/patch/handle_update_operation.sql?raw" with { type: "text" }
+import generatePatchesSQL from "./sql/patch/generate_patches.sql?raw" with { type: "text" }
+import createPatchesTriggerSQL from "./sql/patch/create_patches_trigger.sql?raw" with { type: "text" }
 
 /**
  * Effect that creates the database functions for generating and applying patches

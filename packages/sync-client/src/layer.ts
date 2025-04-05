@@ -9,6 +9,7 @@ import {
 } from "@synchrotron/sync-core"
 import { SyncNetworkServiceLive } from "./SyncNetworkService"
 import { KeyValueStore } from "@effect/platform"
+import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
 
 export const SynchrotronClientLive = SyncService.Default.pipe(
 	Layer.provideMerge(SyncNetworkServiceLive),

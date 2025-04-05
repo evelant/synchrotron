@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS action_records (
 	sortable_clock TEXT
 );
 
-CREATE FUNCTION compute_sortable_clock(clock JSONB)
+CREATE OR REPLACE FUNCTION compute_sortable_clock(clock JSONB)
 RETURNS TEXT AS $$
 DECLARE
 	ts TEXT;
@@ -61,9 +61,9 @@ BEGIN
 
 	RETURN sortable_clock;
 END;
-$$ LANGUAGE plpgsql; -- Removed IMMUTABLE
+$$ LANGUAGE plpgsql;
 
-CREATE FUNCTION compute_sortable_clock()
+CREATE OR REPLACE FUNCTION compute_sortable_clock()
 RETURNS TRIGGER AS $$
 DECLARE
     ts TEXT;
@@ -80,13 +80,14 @@ BEGIN
 	END IF;
 	RETURN NEW;
 END;
-$$ LANGUAGE plpgsql; -- Removed IMMUTABLE
+$$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS action_records_sortable_clock_trigger ON action_records;
 CREATE TRIGGER action_records_sortable_clock_trigger
 BEFORE INSERT OR UPDATE ON action_records
 FOR EACH ROW EXECUTE FUNCTION compute_sortable_clock();
 
-CREATE INDEX action_records_sortable_clock_idx ON action_records(sortable_clock);
+CREATE INDEX IF NOT EXISTS action_records_sortable_clock_idx ON action_records(sortable_clock);
 
 
 -- Create indexes for action_records
@@ -123,7 +124,7 @@ CREATE TABLE IF NOT EXISTS client_sync_status (
 
 );
 
-CREATE FUNCTION compute_sortable_clocks_on_sync_status()
+CREATE OR REPLACE FUNCTION compute_sortable_clocks_on_sync_status()
 RETURNS TRIGGER AS $$
 DECLARE
     ts TEXT;
@@ -145,14 +146,15 @@ BEGIN
 
 	RETURN NEW;
 END;
-$$ LANGUAGE plpgsql; -- Removed IMMUTABLE
+$$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS client_sync_status_sortable_clock_trigger ON client_sync_status;
 CREATE TRIGGER client_sync_status_sortable_clock_trigger
 BEFORE INSERT OR UPDATE ON client_sync_status
 FOR EACH ROW EXECUTE FUNCTION compute_sortable_clocks_on_sync_status();
 
-CREATE INDEX client_sync_status_sortable_clock_idx ON client_sync_status(sortable_current_clock);
-CREATE INDEX client_sync_status_sortable_last_synced_clock_idx ON client_sync_status(sortable_last_synced_clock);
+CREATE INDEX IF NOT EXISTS client_sync_status_sortable_clock_idx ON client_sync_status(sortable_current_clock);
+CREATE INDEX IF NOT EXISTS client_sync_status_sortable_last_synced_clock_idx ON client_sync_status(sortable_last_synced_clock);
 
 -- Create client-local table to track applied actions
 CREATE TABLE IF NOT EXISTS local_applied_action_ids (

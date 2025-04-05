@@ -13,7 +13,23 @@ export default mergeConfig(
 				formats: ["es"]
 			},
 			sourcemap: true,
-			target: "esnext"
+			ssr: true,
+			target: "esnext",
+			rollupOptions: {
+				external: [
+					"node:util",
+					"node:buffer",
+					"node:stream",
+					"node:net",
+					"node:url",
+					"node:fs",
+					"node:path",
+					"perf_hooks",
+					"node:net",
+					"node:tls",
+					"node:crypto"
+				]
+			}
 		}
 	})
 )

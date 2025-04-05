@@ -5,28 +5,8 @@ import shared from "../../vite.shared.ts"
 export default mergeConfig(
 	shared,
 	defineConfig({
-		plugins: [react()],
-		optimizeDeps: {
-			exclude: [
-				"@electric-sql/experimental",
-				"@opentelemetry/semantic-conventions",
-				"@effect/experimental/EventJournal",
-				"@effect/experimental/RequestResolver",
-				"@effect/experimental/Reactivity",
-				"@effect/experimental/VariantSchema",
-				"@effect/experimental/EventLogEncryption",
-				"@effect/experimental/EventLogServer",
-				"scheduler",
-				"find-my-way-ts",
-				"multipasta",
-				"msgpackr",
-				"cookie",
-				"set-cookie-parser",
-				"radix-ui",
-				"radix-ui/internal",
-				"classnames",
-				"fast-check"
-			]
-		}
+		plugins: [react()]
+		// optimizeDeps is now handled by the shared config (vite.shared.ts)
+		// to ensure consistent pre-bundling behavior across the monorepo.
 	})
 )

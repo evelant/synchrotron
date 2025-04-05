@@ -14,11 +14,13 @@ import Root from "./routes/root"
 import Index from "./routes/index"
 import { TodoRepo } from "./db/repositories" // Import app-specific layers
 import { TodoActions } from "./actions"
+import { setupDatabase } from "examples/todo-app/src/db/setup"
 
 // Compose the final application layer including client and app-specific services
 const AppLive = SynchrotronClientLive.pipe(
 	Layer.provideMerge(TodoRepo.Default),
 	Layer.provideMerge(TodoActions.Default),
+	Layer.provideMerge(Layer.effectDiscard(setupDatabase)),
 	Layer.provideMerge(PgLiteClientLive)
 )
 

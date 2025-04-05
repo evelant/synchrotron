@@ -7,6 +7,7 @@ export const PgLiteSyncTag = PgLiteClient.tag<{
 	electric: ReturnType<typeof electricSync>
 }>()
 export const PgLiteClientLive = PgLiteClient.layer({
+	debug: 1,
 	dataDir: "idb://synchrotron",
 	relaxedDurability: true,
 	extensions: {
