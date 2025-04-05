@@ -1,6 +1,6 @@
 import { KeyValueStore } from "@effect/platform"
 import { Model, SqlClient, SqlSchema } from "@effect/sql"
-import type { PgLiteClient } from "@effect/sql-pglite"
+import { PgLiteClient } from "@effect/sql-pglite"
 import type { Row } from "@effect/sql/SqlConnection"
 import type { Argument, Statement } from "@effect/sql/Statement"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
@@ -8,10 +8,16 @@ import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { ClientIdOverride } from "@synchrotron/sync-core/ClientIdOverride"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
-import { PgLiteSyncLayer } from "@synchrotron/sync-core/db/connection"
 
+import {
+	SynchrotronClientConfig,
+	type SynchrotronClientConfigData
+} from "@synchrotron/sync-core/config"
 import { createPatchTriggersForTables, initializeDatabaseSchema } from "@synchrotron/sync-core/db"
-import { SyncNetworkService, type TestNetworkState } from "@synchrotron/sync-core/SyncNetworkService"
+import {
+	SyncNetworkService,
+	type TestNetworkState
+} from "@synchrotron/sync-core/SyncNetworkService"
 import { SyncService } from "@synchrotron/sync-core/SyncService"
 import { Effect, Layer, Logger, LogLevel, Schema, type Context } from "effect"
 import {
@@ -89,9 +95,26 @@ export const makeDbInitLayer = (schema: string) =>
 			yield* Effect.logInfo("Database schema setup complete for tests")
 		}).pipe(Effect.annotateLogs("clientId", schema))
 	)
+export const testConfig: SynchrotronClientConfigData = {
+	electricSyncUrl: "http://localhost:5133",
+	pglite: {
+		debug: 1,
+		dataDir: "memory://",
+		relaxedDurability: true
+	}
+}
+
+/**
+ * Create a layer that provides PgLiteClient with Electric extensions based on config
+ */
+export const PgLiteClientLive = PgLiteClient.layer({
+	debug: 1,
+	dataDir: "memory://",
+	relaxedDurability: true
+})
 
 const logger = Logger.prettyLogger({ mode: "tty", colors: true })
-const pgLiteLayer = Layer.provideMerge(PgLiteSyncLayer)
+const pgLiteLayer = Layer.provideMerge(PgLiteClientLive)
 
 export const makeTestLayers = (
 	clientId: string,
@@ -107,17 +130,18 @@ export const makeTestLayers = (
 		Layer.provideMerge(makeDbInitLayer(clientId)), // Initialize DB first
 
 		Layer.provideMerge(TestHelpers.Default),
-		Layer.provideMerge(ActionRegistry.DefaultWithoutDependencies),
+		Layer.provideMerge(ActionRegistry.Default),
 		Layer.provideMerge(ClockService.Default),
-		Layer.provideMerge(ActionRecordRepo.DefaultWithoutDependencies),
-		Layer.provideMerge(ActionModifiedRowRepo.DefaultWithoutDependencies),
+		Layer.provideMerge(ActionRecordRepo.Default),
+		Layer.provideMerge(ActionModifiedRowRepo.Default),
 		Layer.provideMerge(KeyValueStore.layerMemory),
 
 		Layer.provideMerge(Layer.succeed(ClientIdOverride, clientId)),
 		pgLiteLayer,
 		Layer.provideMerge(Logger.replace(Logger.defaultLogger, logger)),
 		Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Trace)),
-		Layer.annotateLogs("clientId", clientId)
+		Layer.annotateLogs("clientId", clientId),
+		Layer.provideMerge(Layer.succeed(SynchrotronClientConfig, testConfig))
 	)
 }
 
@@ -220,7 +244,7 @@ export class NoteModel extends Model.Class<NoteModel>("notes")({
 	title: Schema.String,
 	content: Schema.String,
 	tags: Schema.Array(Schema.String).pipe(Schema.mutable, Schema.optional),
-	updated_at: Model.DateTimeFromDateWithNow, // Reverted back
+	updated_at: Schema.DateFromSelf,
 	user_id: Schema.String
 }) {}
 

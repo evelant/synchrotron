@@ -1,10 +1,10 @@
 import { Model, SqlClient, SqlSchema } from "@effect/sql"
-import { it, describe } from "@effect/vitest" // Import describe
+import { describe, it } from "@effect/vitest" // Import describe
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { SyncService } from "@synchrotron/sync-core/SyncService"
 import { Effect, Schema } from "effect"
-import { TestHelpers } from "./helpers/TestHelpers"
 import { expect } from "vitest"
+import { TestHelpers } from "./helpers/TestHelpers"
 import { NoteModel, makeTestLayers } from "./helpers/TestLayers"
 
 /**
@@ -109,7 +109,8 @@ describe("Basic Action Execution", () => {
 									id: args.id,
 									title: "Will Fail",
 									content: "This should be rolled back",
-									user_id: "test-user"
+									user_id: "test-user",
+									updated_at: new Date(args.timestamp)
 								})
 							)
 

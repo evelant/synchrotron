@@ -1,7 +1,7 @@
 import { SqlClient, type SqlError } from "@effect/sql" // Import SqlClient service
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import * as HLC from "@synchrotron/sync-core/HLC" // Import HLC namespace
-import { Array, DateTime, Effect, Option, Schema, type Fiber } from "effect" // Import ReadonlyArray
+import { Array, Effect, Option, Schema, type Fiber } from "effect" // Import ReadonlyArray
 import { ActionModifiedRowRepo, compareActionModifiedRows } from "./ActionModifiedRowRepo"
 import { ActionRecordRepo } from "./ActionRecordRepo"
 import { ClockService } from "./ClockService"
@@ -72,18 +72,25 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					...action.args,
 					timestamp: timestampToUse
 				}
+				yield* Effect.logInfo(`inserting new action record for ${action._tag}`)
+				const toInsert = ActionRecord.insert.make({
+					client_id: localClientId,
+					clock: newClock,
+					_tag: action._tag,
+					args: argsWithTimestamp,
+					created_at: executionTimestamp,
+					synced: false,
+					transaction_id: transactionId
+				})
+				yield* Effect.logInfo(`action record to insert: ${JSON.stringify(toInsert)}`)
 				// 5. Store the action record
-				const actionRecord = yield* actionRecordRepo.insert(
-					ActionRecord.insert.make({
-						client_id: localClientId,
-						clock: newClock,
-						_tag: action._tag,
-						args: argsWithTimestamp,
-						created_at: DateTime.unsafeFromDate(executionTimestamp),
-						synced: false,
-						transaction_id: transactionId
-					})
-				)
+				const actionRecord = yield* actionRecordRepo
+					.insert(toInsert)
+					.pipe(
+						Effect.tapErrorCause((e) =>
+							Effect.logError(`Failed to store action record: ${action._tag}`, e)
+						)
+					)
 
 				// 6. Apply the action - this will trigger database changes
 				// and will throw an exception if the action fails
@@ -124,7 +131,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					),
 					Effect.annotateLogs("clientId", clientId) // Use service-level clientId here
 				)
-				.pipe(Effect.andThen(performSync))
+				.pipe(Effect.zipLeft(performSync()))
 
 		/**
 		 * Rollback to common ancestor state
@@ -290,7 +297,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							timestamp: rollbackClock.timestamp
 						},
 						synced: false, // This new action is initially unsynced
-						created_at: yield* DateTime.now,
+						created_at: new Date(),
 						transaction_id: rollbackTransactionId // Associate with the current transaction context
 					})
 				)
@@ -362,7 +369,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						clock: currentClock, // Use current clock initially
 						_tag: syncActionTag,
 						args: syncActionArgs,
-						created_at: yield* DateTime.now,
+						created_at: new Date(),
 						synced: false, // Placeholder is initially local
 						transaction_id: transactionId
 					})

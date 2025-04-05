@@ -6,13 +6,13 @@ import {
 	ClockService,
 	SyncService
 } from "@synchrotron/sync-core"
-import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
-import { Effect, Layer } from "effect"
 import {
 	SynchrotronClientConfig,
 	SynchrotronClientConfigData,
 	createSynchrotronConfig
-} from "./config"
+} from "@synchrotron/sync-core/config"
+import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
+import { Effect, Layer } from "effect"
 import { PgLiteClientLive } from "./db/connection"
 import { ElectricSyncService } from "./electric"
 import { SyncNetworkServiceLive } from "./SyncNetworkService"

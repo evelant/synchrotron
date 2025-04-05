@@ -2,7 +2,8 @@
     "extends": "../../tsconfig.base.json",
     "include": [
         "src",
-        "../sync-core/src/db/connection.ts"
+        "../sync-core/src/db/connection.ts",
+        "../sync-core/src/config.ts"
     ],
     "references": [
         {

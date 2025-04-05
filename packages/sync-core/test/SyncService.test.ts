@@ -1,14 +1,14 @@
 import { SqlClient } from "@effect/sql"
-import { describe, it } from "@effect/vitest"; // Import describe
-import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"; // Correct import path
+import { PgLiteClient } from "@effect/sql-pglite"
+import { describe, it } from "@effect/vitest" // Import describe
+import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo" // Correct import path
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
-import { PgLiteTag } from "@synchrotron/sync-core/db"
 import { ActionRecord } from "@synchrotron/sync-core/models"
-import { ActionExecutionError, SyncService } from "@synchrotron/sync-core/SyncService"; // Corrected import path
-import { Effect, Option } from "effect"; // Import DateTime
+import { ActionExecutionError, SyncService } from "@synchrotron/sync-core/SyncService" // Corrected import path
+import { Effect, Option } from "effect" // Import DateTime
 import { expect } from "vitest"
-import { createTestClient, makeTestLayers } from "./helpers/TestLayers"; // Removed TestServices import
+import { createTestClient, makeTestLayers } from "./helpers/TestLayers" // Removed TestServices import
 
 // Use describe instead of it.layer
 describe("SyncService", () => {
@@ -49,7 +49,11 @@ describe("SyncService", () => {
 				expect(actionRecord.clock).toBeDefined()
 				expect(actionRecord.clock.timestamp).toBeGreaterThan(0)
 				expect(Object.keys(actionRecord.clock.vector).length).toBeGreaterThan(0)
-				expect(Object.values(actionRecord.clock.vector).some((value) => typeof value === 'number' && value > 0)).toBe(true) // Added type check
+				expect(
+					Object.values(actionRecord.clock.vector).some(
+						(value) => typeof value === "number" && value > 0
+					)
+				).toBe(true) // Added type check
 				// Verify it's marked as locally applied after execution
 				const isApplied = yield* actionRecordRepo.isLocallyApplied(actionRecord.id)
 				expect(isApplied).toBe(true)
@@ -229,7 +233,11 @@ describe("SyncService", () => {
 				expect(actionRecord.clock).toBeDefined()
 				expect(actionRecord.clock.timestamp).toBeGreaterThan(0)
 				expect(Object.keys(actionRecord.clock.vector).length).toBeGreaterThan(0)
-				expect(Object.values(actionRecord.clock.vector).some((value) => typeof value === 'number' && value > 0)).toBe(true) // Added type check
+				expect(
+					Object.values(actionRecord.clock.vector).some(
+						(value) => typeof value === "number" && value > 0
+					)
+				).toBe(true) // Added type check
 
 				// Mark it as synced
 				const sql = yield* SqlClient.SqlClient
@@ -254,7 +262,7 @@ describe("Sync Algorithm Integration", () => {
 		() =>
 			Effect.gen(function* ($) {
 				// --- Arrange ---
-				const serverSql = yield* PgLiteTag
+				const serverSql = yield* PgLiteClient.PgLiteClient
 				// Create two clients connected to the same server DB
 				const client1 = yield* createTestClient("client1", serverSql)
 				const remoteClient = yield* createTestClient("remoteClient", serverSql)
@@ -322,12 +330,10 @@ describe("Sync Algorithm Integration", () => {
 		"should correctly handle concurrent modifications to different fields",
 		() =>
 			Effect.gen(function* ($) {
-				const serverSql = yield* PgLiteTag
+				const serverSql = yield* PgLiteClient.PgLiteClient
 				// Setup test clients and repositories *within* the provided context
 				const client1 = yield* createTestClient("client1", serverSql)
 				const client2 = yield* createTestClient("client2", serverSql)
-				const sql = yield* SqlClient.SqlClient // Now SqlClient is available from the layer
-				// ActionRegistry is implicitly shared via TestLayers
 
 				// Use actions from TestHelpers
 				const createNoteAction = client1.testHelpers.createNoteAction
@@ -432,10 +438,18 @@ describe("Sync Algorithm Integration", () => {
 				const allActionsClient1 = yield* client1.actionRecordRepo.all()
 				const allActionsClient2 = yield* client2.actionRecordRepo.all()
 
-				const titleAppliedC1 = yield* client1.actionRecordRepo.isLocallyApplied(updateTitleRecord.id)
-				const contentAppliedC1 = yield* client1.actionRecordRepo.isLocallyApplied(updateContentRecord.id)
-				const titleAppliedC2 = yield* client2.actionRecordRepo.isLocallyApplied(updateTitleRecord.id)
-				const contentAppliedC2 = yield* client2.actionRecordRepo.isLocallyApplied(updateContentRecord.id)
+				const titleAppliedC1 = yield* client1.actionRecordRepo.isLocallyApplied(
+					updateTitleRecord.id
+				)
+				const contentAppliedC1 = yield* client1.actionRecordRepo.isLocallyApplied(
+					updateContentRecord.id
+				)
+				const titleAppliedC2 = yield* client2.actionRecordRepo.isLocallyApplied(
+					updateTitleRecord.id
+				)
+				const contentAppliedC2 = yield* client2.actionRecordRepo.isLocallyApplied(
+					updateContentRecord.id
+				)
 
 				expect(titleAppliedC1).toBe(true)
 				expect(contentAppliedC1).toBe(true)

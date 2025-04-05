@@ -1,10 +1,6 @@
-import { describe, it, expect } from "@effect/vitest"
-import { Duration } from "effect"
+import { PgLiteClient } from "@effect/sql-pglite"
+import { describe, expect, it } from "@effect/vitest"
 import { Effect, Option } from "effect"
-import { PgLiteTag } from "@synchrotron/sync-core/db"
-import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
-import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
-import type { ActionRecord, ActionModifiedRow } from "@synchrotron/sync-core/models" // Import models
 import { createTestClient, makeTestLayers } from "./helpers/TestLayers"
 
 describe("Sync Divergence Scenarios", () => {
@@ -13,7 +9,7 @@ describe("Sync Divergence Scenarios", () => {
 		() =>
 			Effect.gen(function* () {
 				// --- Arrange ---
-				const serverSql = yield* PgLiteTag
+				const serverSql = yield* PgLiteClient.PgLiteClient
 				const clientA = yield* createTestClient("clientA", serverSql)
 				const clientB = yield* createTestClient("clientB", serverSql)
 				const noteId = "note-sync-div"
@@ -113,7 +109,7 @@ describe("Sync Divergence Scenarios", () => {
 		() =>
 			Effect.gen(function* () {
 				// --- Arrange ---
-				const serverSql = yield* PgLiteTag
+				const serverSql = yield* PgLiteClient.PgLiteClient
 				const clientA = yield* createTestClient("clientA", serverSql)
 				const clientB = yield* createTestClient("clientB", serverSql)
 				const clientC = yield* createTestClient("clientC", serverSql)
@@ -212,7 +208,7 @@ describe("Sync Divergence Scenarios", () => {
 		// This test now verifies client-side reconciliation preempts server rejection
 		Effect.gen(function* () {
 			// --- Arrange ---
-			const serverSql = yield* PgLiteTag
+			const serverSql = yield* PgLiteClient.PgLiteClient
 			const clientA = yield* createTestClient("clientA", serverSql)
 			const clientB = yield* createTestClient("clientB", serverSql)
 			const noteId = "note-conflict-reject"

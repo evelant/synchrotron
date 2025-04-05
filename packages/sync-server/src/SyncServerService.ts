@@ -42,7 +42,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			amrs: readonly ActionModifiedRow[]
 		): Effect.Effect<void, ServerConflictError | ServerInternalError> =>
 			Effect.gen(function* () {
-				yield* Effect.logDebug(
+				yield* Effect.logInfo(
 					`Server: receiveActions called by ${clientId} with ${actions.length} actions.`
 				)
 				if (actions.length === 0) {
@@ -158,7 +158,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						)
 						yield* sql`
 								INSERT INTO action_records (id, client_id, _tag, args, clock, synced, transaction_id, created_at)
-								VALUES (${actionRecord.id}, ${actionRecord.client_id}, ${actionRecord._tag}, ${sql.json(actionRecord.args)}, ${sql.json(actionRecord.clock)}, true, ${actionRecord.transaction_id}, ${new Date(actionRecord.created_at.epochMillis)})
+								VALUES (${actionRecord.id}, ${actionRecord.client_id}, ${actionRecord._tag}, ${sql.json(actionRecord.args)}, ${sql.json(actionRecord.clock)}, true, ${actionRecord.transaction_id}, ${new Date(actionRecord.created_at)})
 								ON CONFLICT (id) DO NOTHING
               				`
 					}

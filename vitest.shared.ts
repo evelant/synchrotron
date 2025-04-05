@@ -33,9 +33,10 @@ const config: ViteUserConfig = {
 		maxConcurrency: 1,
 		include: ["test/**/*.test.ts"],
 		alias: {
-			...alias("app"),
 			...alias("sql-pglite"),
-			...alias("sync")
+			...alias("sync-core"),
+			...alias("sync-server"),
+			...alias("sync-client")
 		}
 	}
 }

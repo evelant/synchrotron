@@ -70,7 +70,9 @@ export default function Index() {
 					setNewTodoText("")
 					loadTodos()
 				})
-				.catch((err: ActionExecutionError | Error) => console.error("Failed to create todo:", err))
+				.catch((err: ActionExecutionError | Error) =>
+					console.error("Failed to create todo:", JSON.stringify(err))
+				)
 		},
 		[runtime, newTodoText, loadTodos]
 	)

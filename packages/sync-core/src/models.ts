@@ -44,7 +44,7 @@ export class ActionRecord extends Model.Class<ActionRecord>("action_records")({
 	transaction_id: Schema.Number,
 	clock: HLC,
 	args: Schema.Struct({ timestamp: Schema.Number }, { key: Schema.String, value: Schema.Unknown }),
-	created_at: Model.DateTimeFromDate,
+	created_at: Schema.DateFromString,
 	synced: Schema.Boolean.pipe(Schema.optionalWith({ default: () => false })),
 	sortable_clock: Model.Generated(Schema.String)
 }) {}

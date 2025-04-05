@@ -21,7 +21,7 @@ const syncConfig = {
 	electricSyncUrl: "http://localhost:5133",
 	pglite: {
 		dataDir: "idb://todo-app",
-		debug: 1, //import.meta.env.DEV ? 1 : 0,
+		debug: 0, //1, //import.meta.env.DEV ? 1 : 0,
 		relaxedDurability: true
 	}
 }

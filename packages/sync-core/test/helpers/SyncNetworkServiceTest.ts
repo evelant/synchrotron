@@ -1,11 +1,10 @@
-import type { PgLiteClient } from "@effect/sql-pglite"
+import { PgLiteClient } from "@effect/sql-pglite"
 import type { SqlError } from "@effect/sql/SqlError"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo" // Import Repo
 import { ClockService } from "@synchrotron/sync-core/ClockService"
-import { ActionModifiedRow } from "@synchrotron/sync-core/models" // Import ActionModifiedRow model
-import { PgLiteTag } from "@synchrotron/sync-core/db/connection"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
+import { ActionModifiedRow } from "@synchrotron/sync-core/models" // Import ActionModifiedRow model
 import {
 	NetworkRequestError,
 	RemoteActionFetchError,
@@ -53,7 +52,7 @@ export const createTestSyncNetworkServiceLayer = (
 	Layer.unwrapEffect(
 		Effect.gen(function* () {
 			// Removed explicit return type annotation
-			const sql = yield* PgLiteTag // This is the CLIENT's SQL instance from the layer
+			const sql = yield* PgLiteClient.PgLiteClient // This is the CLIENT's SQL instance from the layer
 			const clockService = yield* ClockService // Keep clockService dependency
 			// Need the repo to fetch/insert ActionModifiedRow for conflict check
 			const actionModifiedRowRepo = yield* ActionModifiedRowRepo
@@ -282,7 +281,7 @@ export const createTestSyncNetworkServiceLayer = (
 								clock: sql.json(actionRecord.clock),
 								synced: true, // Mark as synced on server
 								transaction_id: actionRecord.transaction_id,
-								created_at: new Date(actionRecord.created_at.epochMillis)
+								created_at: new Date(actionRecord.created_at)
 							})}
 								ON CONFLICT (id) DO NOTHING`
 						}

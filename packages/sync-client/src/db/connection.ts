@@ -1,8 +1,8 @@
 import { PgLiteClient } from "@effect/sql-pglite"
 import { electricSync } from "@electric-sql/pglite-sync"
 import { live } from "@electric-sql/pglite/live"
+import { SynchrotronClientConfig, SynchrotronClientConfigData } from "@synchrotron/sync-core/config"
 import { Effect, Layer } from "effect"
-import { SynchrotronClientConfig, SynchrotronClientConfigData } from "../config"
 
 export const PgLiteSyncTag = PgLiteClient.tag<{
 	live: typeof live
@@ -12,7 +12,7 @@ export const PgLiteSyncTag = PgLiteClient.tag<{
 /**
  * Creates a PgLiteClient layer with the specified configuration
  */
-export const createPgLiteClientLayer = (config: SynchrotronClientConfigData["pglite"]) => {
+const createPgLiteClientLayer = (config: SynchrotronClientConfigData["pglite"]) => {
 	// DebugLevel is 0, 1, or 2
 	// Type assertion is safe because we ensure it's a valid value
 	return PgLiteClient.layer({

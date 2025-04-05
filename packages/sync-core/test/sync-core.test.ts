@@ -1,5 +1,5 @@
-import { expect, it, describe } from "@effect/vitest" // Import describe
-import { PgLiteTag } from "@synchrotron/sync-core/db/connection"
+import { PgLiteClient } from "@effect/sql-pglite"
+import { describe, expect, it } from "@effect/vitest" // Import describe
 import { ActionRecord } from "@synchrotron/sync-core/models" // Import ActionRecord directly
 import { Effect, TestClock } from "effect"
 import { createTestClient, makeTestLayers } from "./helpers/TestLayers"
@@ -17,7 +17,7 @@ describe("Core Sync Functionality", () => {
 		() =>
 			Effect.gen(function* () {
 				// Removed TestServices context type
-				const serverSql = yield* PgLiteTag
+				const serverSql = yield* PgLiteClient.PgLiteClient
 				const client1 = yield* createTestClient("client1", serverSql).pipe(Effect.orDie)
 				const client2 = yield* createTestClient("client2", serverSql).pipe(Effect.orDie)
 
@@ -59,7 +59,7 @@ describe("Core Sync Functionality", () => {
 		() =>
 			Effect.gen(function* () {
 				// Removed TestServices context type
-				const serverSql = yield* PgLiteTag
+				const serverSql = yield* PgLiteClient.PgLiteClient
 				const client1 = yield* createTestClient("client1", serverSql) // Renamed from client7
 				const client2 = yield* createTestClient("client2", serverSql) // Renamed from client8
 
@@ -134,13 +134,11 @@ describe("Core Sync Functionality", () => {
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer here
 	)
 
-	// --- Test 3: Case 3/5 (Reconciliation) ---
 	it.effect(
 		"should reconcile interleaved actions",
 		() =>
 			Effect.gen(function* () {
-				// Removed TestServices context type
-				const serverSql = yield* PgLiteTag
+				const serverSql = yield* PgLiteClient.PgLiteClient
 				const client1 = yield* createTestClient("client1", serverSql).pipe(Effect.orDie)
 				const client2 = yield* createTestClient("client2", serverSql).pipe(Effect.orDie)
 
@@ -210,7 +208,4 @@ describe("Core Sync Functionality", () => {
 				expect(replayedB).toBeDefined()
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer here
 	)
-
-	// TODO: Add test for Case 3 (Remote Older -> Reconciliation)
-	// TODO: Add tests for applyAndCheckDivergence (Case 1/4) with actual divergence
 })
