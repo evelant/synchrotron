@@ -39,6 +39,7 @@
 		"@effect/language-service": "^0.4.0",
 		"@types/node": "22.13.10",
 		"@types/uuid": "^10.0.0",
+		"@types/bun": "^1.2.8",
 		"blob-polyfill": "^9.0.20240710",
 		"eslint": "^9.18.0",
 		"eslint-config-prettier": "^10.0.1",

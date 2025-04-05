@@ -27,8 +27,9 @@ services:
       # Not suitable for production. Only use insecure mode in development or if you've otherwise secured the Electric API.
       # See https://electric-sql.com/docs/guides/security
       ELECTRIC_INSECURE: true
+      ELECTRIC_LOG_LEVEL: debug
     ports:
-      - 3211:3000
+      - 5133:3000
     build:
       context: ../packages/sync-service/
     depends_on:

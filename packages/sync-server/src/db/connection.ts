@@ -1,6 +1,6 @@
 import * as Sql from "@effect/sql"
 import { PgClient } from "@effect/sql-pg"
-import { Config, Effect, Layer, Redacted } from "effect"
+import { Config, Effect, Layer } from "effect"
 
 /**
  * Configuration structure for the PostgreSQL client.
@@ -8,7 +8,7 @@ import { Config, Effect, Layer, Redacted } from "effect"
  */
 const config = Config.all({
 	url: Config.redacted("DATABASE_URL"),
-	debug: Config.succeed(true)
+	debug: Config.succeed((a: any, b: any, c: any, d: any) => console.log(a, b, c, d))
 })
 
 /**

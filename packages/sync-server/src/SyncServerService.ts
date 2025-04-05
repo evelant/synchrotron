@@ -1,10 +1,10 @@
 import { KeyValueStore } from "@effect/platform"
 import { PgClient } from "@effect/sql-pg"
+import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
+import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
-import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
-import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { PgClientLive } from "@synchrotron/sync-server/db/connection"
 import { Data, Effect } from "effect"
 
@@ -257,12 +257,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 
 				const actions = yield* sql<ActionRecord>`
 						SELECT * FROM action_records
-						${
-							isInitialSync
-								? sql``
-								: sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0` // Use sql.json
-						}
-						ORDER BY sortable_clock ASC // Use sql.json
+						${isInitialSync ? sql`` : sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0`}
+						ORDER BY sortable_clock ASC
           			`.pipe(
 					Effect.mapError(
 						(error) =>

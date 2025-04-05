@@ -1,13 +1,12 @@
+import { SqlClient, type SqlError } from "@effect/sql" // Import SqlClient service
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import * as HLC from "@synchrotron/sync-core/HLC" // Import HLC namespace
-import { Effect, Option, Schema, type Fiber, Array, DateTime } from "effect" // Import ReadonlyArray
+import { Array, DateTime, Effect, Option, Schema, type Fiber } from "effect" // Import ReadonlyArray
 import { ActionModifiedRowRepo, compareActionModifiedRows } from "./ActionModifiedRowRepo"
 import { ActionRecordRepo } from "./ActionRecordRepo"
 import { ClockService } from "./ClockService"
-import { Action, ActionRecord, type ActionModifiedRow } from "./models" // Import ActionModifiedRow type from models
-import { SqlClient, type SqlError } from "@effect/sql" // Import SqlClient service
+import { Action, ActionRecord } from "./models" // Import ActionModifiedRow type from models
 import { NetworkRequestError, SyncNetworkService } from "./SyncNetworkService"
-import { deepObjectEquals } from "@synchrotron/sync-core/utils"
 
 // Error types
 export class ActionExecutionError extends Schema.TaggedError<ActionExecutionError>()(
@@ -105,25 +104,27 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				yield* actionRecordRepo.markLocallyApplied(updatedRecord.value.id)
 
 				return updatedRecord.value
-			}).pipe(
-				sql.withTransaction, // Restore transaction wrapper
-				Effect.catchAll((error) =>
-					Effect.gen(function* () {
-						yield* Effect.logError(`Error during action execution`, error)
-						if (error instanceof ActionExecutionError) {
-							return yield* Effect.fail(error)
-						}
+			})
+				.pipe(
+					sql.withTransaction, // Restore transaction wrapper
+					Effect.catchAll((error) =>
+						Effect.gen(function* () {
+							yield* Effect.logError(`Error during action execution`, error)
+							if (error instanceof ActionExecutionError) {
+								return yield* Effect.fail(error)
+							}
 
-						return yield* Effect.fail(
-							new ActionExecutionError({
-								actionId: action._tag,
-								cause: error
-							})
-						)
-					})
-				),
-				Effect.annotateLogs("clientId", clientId) // Use service-level clientId here
-			)
+							return yield* Effect.fail(
+								new ActionExecutionError({
+									actionId: action._tag,
+									cause: error
+								})
+							)
+						})
+					),
+					Effect.annotateLogs("clientId", clientId) // Use service-level clientId here
+				)
+				.pipe(Effect.andThen(performSync))
 
 		/**
 		 * Rollback to common ancestor state

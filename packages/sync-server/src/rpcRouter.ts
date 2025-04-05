@@ -1,16 +1,16 @@
+import { KeyValueStore } from "@effect/platform"
 import {
 	FetchRemoteActions,
 	SendLocalActions,
 	SyncNetworkRpcGroup
 } from "@synchrotron/sync-core/SyncNetworkRpc"
-import { Effect, Layer } from "effect"
-import { ServerConflictError, ServerInternalError, SyncServerService } from "./SyncServerService"
 import {
 	NetworkRequestError,
 	RemoteActionFetchError
 } from "@synchrotron/sync-core/SyncNetworkService"
-import { KeyValueStore } from "@effect/platform"
 import { PgClientLive } from "@synchrotron/sync-server/db/connection"
+import { Effect, Layer } from "effect"
+import { ServerConflictError, ServerInternalError, SyncServerService } from "./SyncServerService"
 
 export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 	Effect.gen(function* () {
@@ -37,6 +37,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 
 		const SendLocalActionsHandler = (payload: SendLocalActions) =>
 			Effect.gen(function* (_) {
+				yield* Effect.logInfo(`SendLocalActionsHandler`)
 				const clientId = payload.clientId
 
 				yield* serverService.receiveActions(clientId, payload.actions, payload.amrs)

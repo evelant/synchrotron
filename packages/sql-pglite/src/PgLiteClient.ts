@@ -357,7 +357,7 @@ export const layer = <Extensions extends Record<string, any> = {}>(
  * @since 1.0.0
  */
 export const tag = <Extensions extends Record<string, any> = {}>() =>
-	PgLiteClient as Context.Tag<PgLiteClient<Extensions>, PgLiteClient<Extensions>>
+	PgLiteClient as Context.Tag<PgLiteClient<Extensions> | Client.SqlClient, PgLiteClient<Extensions>>
 
 /**
  * @category constructor

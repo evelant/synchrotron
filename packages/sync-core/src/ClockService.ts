@@ -2,11 +2,11 @@ import { KeyValueStore } from "@effect/platform"
 import { SqlClient, SqlSchema } from "@effect/sql"
 import { makeRepository } from "@effect/sql/Model"
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
+import { SyncError } from "@synchrotron/sync-core/SyncService"
 import { Effect, Option, Schema } from "effect"
 import { ClientIdOverride } from "./ClientIdOverride"
 import * as HLC from "./HLC"
 import { ClientId, ClientSyncStatusModel, type ActionRecord } from "./models"
-import { SyncError } from "@synchrotron/sync-core/SyncService"
 
 /**
  * Service that manages Hybrid Logical Clocks (HLCs) for establishing
@@ -82,8 +82,8 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			yield* sql`
 				INSERT INTO client_sync_status ${sql.insert({
 					client_id: initialStatus.client_id,
-					current_clock: JSON.stringify(initialStatus.current_clock),
-					last_synced_clock: JSON.stringify(initialStatus.last_synced_clock)
+					current_clock: sql.json(initialStatus.current_clock),
+					last_synced_clock: sql.json(initialStatus.last_synced_clock)
 				})}
 				ON CONFLICT (client_id)
 				DO NOTHING
@@ -114,8 +114,8 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			yield* clientSyncStatusRepo.update(
 				ClientSyncStatusModel.update.make({
 					client_id: clientId,
-					current_clock: newClock,
-					last_synced_clock: currentState.last_synced_clock
+					current_clock: sql.json(newClock),
+					last_synced_clock: sql.json(currentState.last_synced_clock)
 				})
 			)
 

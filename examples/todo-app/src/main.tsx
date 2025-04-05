@@ -3,25 +3,41 @@ import ReactDOM from "react-dom/client"
 import { createBrowserRouter, RouterProvider } from "react-router"
 import ErrorPage from "./error-page"
 
-import { Theme } from "@radix-ui/themes"
 import "@fontsource/alegreya-sans/latin.css"
-import { ManagedRuntime, type Context, Layer } from "effect" // Import Layer
-import { PgLiteClientLive, SynchrotronClientLive } from "@synchrotron/sync-client"
+import { Theme } from "@radix-ui/themes"
 import "@radix-ui/themes/styles.css"
-import "./style.css"
+import { makeSynchrotronClientLayer } from "@synchrotron/sync-client"
+import { Effect, Layer, Logger, LogLevel, ManagedRuntime, type Context } from "effect" // Import Layer
 import Root from "./routes/root"
+import "./style.css"
 
-import Index from "./routes/index"
-import { TodoRepo } from "./db/repositories" // Import app-specific layers
-import { TodoActions } from "./actions"
 import { setupDatabase } from "examples/todo-app/src/db/setup"
+import { TodoActions } from "./actions"
+import { TodoRepo } from "./db/repositories" // Import app-specific layers
+import Index from "./routes/index"
 
-// Compose the final application layer including client and app-specific services
-const AppLive = SynchrotronClientLive.pipe(
-	Layer.provideMerge(TodoRepo.Default),
+// App-specific synchrotron configuration
+const syncConfig = {
+	electricSyncUrl: "http://localhost:5133",
+	pglite: {
+		dataDir: "idb://todo-app",
+		debug: 1, //import.meta.env.DEV ? 1 : 0,
+		relaxedDurability: true
+	}
+}
+
+// Create the application runtime layer
+// The proper order matters for dependency resolution
+// Start with TodoRepo and other app services that require Synchrotron
+const AppLive = TodoRepo.Default.pipe(
 	Layer.provideMerge(TodoActions.Default),
 	Layer.provideMerge(Layer.effectDiscard(setupDatabase)),
-	Layer.provideMerge(PgLiteClientLive)
+	Layer.provideMerge(makeSynchrotronClientLayer(syncConfig)),
+	Layer.provideMerge(Layer.effectDiscard(Effect.logInfo(`creating layers`))),
+	Layer.provideMerge(
+		Logger.replace(Logger.defaultLogger, Logger.prettyLoggerDefault.pipe(Logger.withLeveledConsole))
+	),
+	Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Trace))
 )
 
 const runtime = ManagedRuntime.make(AppLive)

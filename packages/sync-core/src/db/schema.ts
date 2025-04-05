@@ -1,7 +1,6 @@
 import { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 // Import SQL files
-import { PgLiteClient } from "@effect/sql-pglite"
 import createSyncTablesSQL from "./sql/schema/create_sync_tables.sql?raw" with { type: "text" }
 
 /**

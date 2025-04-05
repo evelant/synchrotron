@@ -1,23 +1,22 @@
-import React, { useState, useEffect, useCallback, type FormEvent, type ChangeEvent } from "react"
 import {
+	Box,
+	Button,
+	Card,
+	Checkbox,
 	Container,
 	Flex,
-	Checkbox,
 	Heading,
 	Text,
-	TextField,
-	Card,
-	Button,
-	Box
+	TextField
 } from "@radix-ui/themes"
+import { SyncService, type ActionExecutionError } from "@synchrotron/sync-core"
+import { Clock, Effect } from "effect"
+import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from "react"
+import { TodoActions } from "../actions"
 import logo from "../assets/logo.svg"
-import { useRuntime } from "../main"
-import { Effect, Clock } from "effect"
-import { SyncService, type ActionExecutionError, type SyncError } from "@synchrotron/sync-core"
 import { TodoRepo } from "../db/repositories"
 import type { Todo } from "../db/schema"
-import { TodoActions } from "../actions"
-import { SqlError } from "@effect/sql"
+import { useRuntime } from "../main"
 
 export default function Index() {
 	const runtime = useRuntime()
@@ -28,6 +27,7 @@ export default function Index() {
 		// Define the effect directly inside the callback
 		const fetchTodosEffect = Effect.gen(function* () {
 			const repo = yield* TodoRepo
+			yield* Effect.logInfo(`loading todos`)
 			// Use findAll() as defined in the repository
 			return yield* repo.findAll()
 		})

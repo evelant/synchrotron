@@ -1,4 +1,3 @@
-import path from "path" // Use default import for path
 import wasm from "vite-plugin-wasm"
 import tsconfigPaths from "vite-tsconfig-paths"
 import type { ViteUserConfig } from "vitest/config"

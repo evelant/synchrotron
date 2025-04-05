@@ -1,4 +1,4 @@
-import { HttpRouter } from "@effect/platform"
+import { HttpMiddleware, HttpRouter } from "@effect/platform"
 import { BunHttpServer, BunRuntime } from "@effect/platform-bun"
 import { RpcSerialization, RpcServer } from "@effect/rpc"
 import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
@@ -22,9 +22,11 @@ const RpcLayer = RpcServer.layer(SyncNetworkRpcGroup).pipe(
 	Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Debug))
 )
 
-const Main = HttpRouter.Default.serve().pipe(
-	Layer.provide(RpcLayer),
-	Layer.provide(BunHttpServer.layer({ port: 3010 }))
-)
+const Main = HttpRouter.Default.serve(
+	HttpMiddleware.cors({
+		allowedOrigins: ["*"],
+		allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+	})
+).pipe(Layer.provide(RpcLayer), Layer.provide(BunHttpServer.layer({ port: 3010 })))
 
 BunRuntime.runMain(Layer.launch(Main))
