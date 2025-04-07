@@ -131,7 +131,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					),
 					Effect.annotateLogs("clientId", clientId) // Use service-level clientId here
 				)
-				.pipe(Effect.zipLeft(performSync()))
+
 
 		/**
 		 * Rollback to common ancestor state
