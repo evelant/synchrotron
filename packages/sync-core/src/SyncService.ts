@@ -1,4 +1,5 @@
-import { SqlClient, type SqlError } from "@effect/sql" // Import SqlClient service
+import { type SqlError } from "@effect/sql" // Import SqlClient service
+import { PgLiteClient } from "@effect/sql-pglite"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import * as HLC from "@synchrotron/sync-core/HLC" // Import HLC namespace
 import { Array, Effect, Option, Schema, type Fiber } from "effect" // Import ReadonlyArray
@@ -7,7 +8,6 @@ import { ActionRecordRepo } from "./ActionRecordRepo"
 import { ClockService } from "./ClockService"
 import { Action, ActionRecord } from "./models" // Import ActionModifiedRow type from models
 import { NetworkRequestError, SyncNetworkService } from "./SyncNetworkService"
-
 // Error types
 export class ActionExecutionError extends Schema.TaggedError<ActionExecutionError>()(
 	"ActionExecutionError",
@@ -23,7 +23,7 @@ export class SyncError extends Schema.TaggedError<SyncError>()("SyncError", {
 }) {}
 export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 	effect: Effect.gen(function* () {
-		const sql = yield* SqlClient.SqlClient // Get the generic SqlClient service
+		const sql = yield* PgLiteClient.PgLiteClient // Get the generic SqlClient service
 		const clockService = yield* ClockService
 		const actionRecordRepo = yield* ActionRecordRepo
 		const actionModifiedRowRepo = yield* ActionModifiedRowRepo
@@ -399,7 +399,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						const syncAmrs = yield* actionModifiedRowRepo.findByActionRecordIds([actionRecord.id])
 						if (syncAmrs.length > 0) {
 							const amrIds = syncAmrs.map((amr) => amr.id)
-							yield* sql`SELECT apply_forward_amr_batch(${sql(JSON.stringify(amrIds))})`
+							yield* sql`SELECT apply_forward_amr_batch(${sql.array(amrIds)})`
 							yield* Effect.logDebug(
 								`Applied forward patches for ${syncAmrs.length} AMRs associated with received SYNC action ${actionRecord.id}`
 							)
@@ -555,7 +555,8 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 			executeAction,
 			performSync,
 			startSyncListener,
-			cleanupOldActionRecords
+			cleanupOldActionRecords,
+			applyActionRecords
 		}
 	}),
 	dependencies: [

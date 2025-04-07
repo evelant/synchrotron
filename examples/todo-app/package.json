@@ -10,6 +10,7 @@
 	},
 	"dependencies": {
 		"@electric-sql/react": "^1.0.2",
+		"@electric-sql/pglite": "catalog:",
 		"@effect/platform-node": "catalog:",
 		"@effect/platform-bun": "catalog:",
 		"@effect/platform": "catalog:",
@@ -74,7 +75,9 @@
 		"backend:down": "PROJECT_NAME=todo-app-example docker compose -f ./docker-compose.yml down --volumes",
 		"build": "vite build",
 		"db:migrate": "pnpm exec pg-migrations apply --directory ./db/migrations",
-		"dev": "concurrently \"vite\" \"bun run src/server.ts\"",
+		"dev:frontend": "vite --force",
+		"dev:backend": "pnpx bun --bun --watch src/server.ts",
+		"dev": "pnpm run --parallel \"/dev:(frontend|backend)/\"",
 		"typecheck": "tsc --noEmit"
 	}
 }

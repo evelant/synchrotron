@@ -2,17 +2,11 @@ import { Rpc, RpcGroup } from "@effect/rpc"
 import { Schema } from "effect"
 import { HLC } from "./HLC"
 import { ActionModifiedRow, ActionRecord } from "./models"
-import {
-	type NetworkRequestError as NetworkRequestErrorType,
-	type RemoteActionFetchError as RemoteActionFetchErrorType,
-	type FetchResult as FetchResultType,
-	RemoteActionFetchError,
-	NetworkRequestError
-} from "./SyncNetworkService"
+import { NetworkRequestError, RemoteActionFetchError } from "./SyncNetworkService"
 
 const FetchResultSchema = Schema.Struct({
-	actions: Schema.Array(ActionRecord),
-	modifiedRows: Schema.Array(ActionModifiedRow)
+	actions: Schema.Array(ActionRecord.json),
+	modifiedRows: Schema.Array(ActionModifiedRow.json)
 })
 
 export class FetchRemoteActions extends Schema.TaggedRequest<FetchRemoteActions>()(

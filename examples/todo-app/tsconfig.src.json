@@ -5,7 +5,16 @@
     ],
     "references": [
         {
-            "path": "../sql-pglite/tsconfig.src.json"
+            "path": "../../packages/sql-pglite/tsconfig.src.json"
+        },
+        {
+            "path": "../../packages/sync-core/tsconfig.src.json"
+        },
+        {
+            "path": "../../packages/sync-client/tsconfig.src.json"
+        },
+        {
+            "path": "../../packages/sync-server/tsconfig.src.json"
         }
     ],
     "compilerOptions": {

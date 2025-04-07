@@ -10,40 +10,20 @@ import {
 	TextField
 } from "@radix-ui/themes"
 import { SyncService, type ActionExecutionError } from "@synchrotron/sync-core"
+import { useReactiveTodos } from "@synchrotron/todo-app/db/electric"
 import { Clock, Effect } from "effect"
-import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from "react"
+import { useCallback, useState, type ChangeEvent, type FormEvent } from "react"
 import { TodoActions } from "../actions"
 import logo from "../assets/logo.svg"
-import { TodoRepo } from "../db/repositories"
 import type { Todo } from "../db/schema"
 import { useRuntime } from "../main"
 
 export default function Index() {
 	const runtime = useRuntime()
-	const [todos, setTodos] = useState<readonly Todo[]>([])
 	const [newTodoText, setNewTodoText] = useState("")
 
-	const loadTodos = useCallback(() => {
-		// Define the effect directly inside the callback
-		const fetchTodosEffect = Effect.gen(function* () {
-			const repo = yield* TodoRepo
-			yield* Effect.logInfo(`loading todos`)
-			// Use findAll() as defined in the repository
-			return yield* repo.findAll()
-		})
-
-		runtime
-			.runPromise(fetchTodosEffect) // Pass the locally defined effect
-			.then((fetchedTodos: readonly Todo[]) => {
-				setTodos(fetchedTodos)
-			})
-			.catch((err: Error) => console.error("Failed to fetch todos:", err))
-	}, [runtime]) // Remove fetchTodosEffect from dependencies as it's defined inside
-
-	// Initial load
-	useEffect(() => {
-		loadTodos()
-	}, [loadTodos])
+	const { todos, isLoading } = useReactiveTodos()
+	// useSyncedActions()
 
 	const handleAddTodo = useCallback(
 		(event: FormEvent<HTMLFormElement>) => {
@@ -62,19 +42,17 @@ export default function Index() {
 					timestamp: timestamp
 				})
 				yield* syncService.executeAction(action)
+				yield* syncService.performSync()
 			})
 
 			runtime
 				.runPromise(createEffect)
-				.then(() => {
-					setNewTodoText("")
-					loadTodos()
-				})
+				.then(() => setNewTodoText(""))
 				.catch((err: ActionExecutionError | Error) =>
 					console.error("Failed to create todo:", JSON.stringify(err))
 				)
 		},
-		[runtime, newTodoText, loadTodos]
+		[runtime, newTodoText]
 	)
 
 	const handleToggleTodo = useCallback(
@@ -93,12 +71,10 @@ export default function Index() {
 
 			runtime
 				.runPromise(toggleEffect)
-				.then(() => {
-					loadTodos()
-				})
+				.then(() => {})
 				.catch((err: ActionExecutionError | Error) => console.error("Failed to toggle todo:", err))
 		},
-		[runtime, loadTodos]
+		[runtime]
 	)
 
 	const handleDeleteTodo = useCallback(
@@ -117,12 +93,10 @@ export default function Index() {
 
 			runtime
 				.runPromise(deleteEffect)
-				.then(() => {
-					loadTodos()
-				})
+
 				.catch((err: ActionExecutionError | Error) => console.error("Failed to delete todo:", err))
 		},
-		[runtime, loadTodos]
+		[runtime]
 	)
 
 	return (
@@ -135,7 +109,11 @@ export default function Index() {
 				</Flex>
 
 				<Flex gap="3" direction="column">
-					{todos.length === 0 ? (
+					{isLoading ? (
+						<Flex justify="center">
+							<Text>Loading todos...</Text>
+						</Flex>
+					) : todos.length === 0 ? (
 						<Flex justify="center">
 							<Text>No to-dos to show - add one!</Text>
 						</Flex>

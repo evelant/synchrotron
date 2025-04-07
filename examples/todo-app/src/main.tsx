@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import React, {
+	createContext,
+	useContext,
+	useEffect,
+	useRef,
+	useState,
+	type ReactNode
+} from "react"
 import ReactDOM from "react-dom/client"
 import { createBrowserRouter, RouterProvider } from "react-router"
 import ErrorPage from "./error-page"
@@ -54,25 +61,24 @@ export const useRuntime = () => {
 	return ctx
 }
 
-export function useService<T extends AppServices>(tag: Context.Tag<T, T>): T | undefined {
+export function useService<T extends AppServices, U>(tag: Context.Tag<T, U>): U | undefined {
 	const runtime = useRuntime()
-	const [svc, setSvc] = useState<T | undefined>(undefined)
+	const svc = useRef<U | undefined>(undefined)
+	const [_, set] = useState(false)
 	useEffect(() => {
 		if (runtime) {
 			runtime
 				.runPromise(tag)
 				.then((s) => {
-					setSvc(s)
+					console.log(`useService got service`, tag, s)
+					svc.current = s
+					set(true)
 				})
 				.catch((e) => console.error(`useService error getting service`, e))
 		}
+	}, [runtime, tag])
 
-		return () => {
-			setSvc(undefined)
-		}
-	}, [runtime])
-
-	return svc
+	return svc.current
 }
 
 // 7. Provider Component

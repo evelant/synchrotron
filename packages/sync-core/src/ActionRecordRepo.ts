@@ -112,6 +112,20 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 			`
 		})
 
+		const findSyncedButUnapplied = SqlSchema.findAll({
+			Request: Schema.Void,
+			Result: ActionRecord,
+			execute: () => sql`
+				SELECT ar.*
+				FROM action_records ar
+				LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
+				WHERE la.action_record_id IS NULL
+				AND ar.synced = true
+				AND ar.client_id != (SELECT client_id FROM client_sync_status LIMIT 1)
+				ORDER BY ar.sortable_clock ASC
+			`
+		})
+
 		return {
 			...repo,
 			all,
@@ -128,7 +142,8 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 			markLocallyApplied,
 			unmarkLocallyApplied,
 			isLocallyApplied,
-			findUnappliedLocally
+			findUnappliedLocally,
+			findSyncedButUnapplied
 		} as const
 	}),
 	dependencies: []

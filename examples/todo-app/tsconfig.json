@@ -1,42 +1,41 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "target": "ESNext",
-    "tsBuildInfoFile": ".tsbuildinfo/tsconfig.tsbuildinfo", // Unique build info file
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-
-    /* Bundler mode */
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-
-    /* Linting */
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "exactOptionalPropertyTypes": true,
-    "moduleDetection": "force",
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "noUncheckedIndexedAccess": true,
-    "forceConsistentCasingInFileNames": true
-  },
-  "plugins": [
-    {
-      "name": "@effect/language-service"
-    }
-  ],
-  "include": ["src"],
-  "exclude": ["sst.config.ts"],
-  "references": [
-    { "path": "../../packages/sync-core/tsconfig.json" },
-    { "path": "../../packages/sync-client/tsconfig.json" },
-    { "path": "../../packages/sql-pglite/tsconfig.json" },
-    { "path": "../../packages/sync-server/tsconfig.json" }
-  ]
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"composite": true,
+		"outDir": "build",
+		"lib": [
+			"ES2022",
+			"DOM",
+			"DOM.Iterable"
+		],
+		"tsBuildInfoFile": ".tsbuildinfo/tsconfig.build.tsbuildinfo",
+		"types": [
+			"vite/client"
+		],
+		"declaration": true,
+		"declarationMap": true,
+		"rootDir": "src",
+		"noEmit": false
+	},
+	"include": [],
+	"references": [
+		{
+			"path": "./tsconfig.src.json"
+		},
+		{
+			"path": "./tsconfig.test.json"
+		},
+		{
+			"path": "../../packages/sync-core/tsconfig.json"
+		},
+		{
+			"path": "../../packages/sync-client/tsconfig.json"
+		},
+		{
+			"path": "../../packages/sql-pglite/tsconfig.json"
+		},
+		{
+			"path": "../../packages/sync-server/tsconfig.json"
+		}
+	]
 }

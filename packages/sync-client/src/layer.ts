@@ -14,7 +14,7 @@ import {
 import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
 import { Effect, Layer } from "effect"
 import { PgLiteClientLive } from "./db/connection"
-import { ElectricSyncService } from "./electric"
+import { ElectricSyncService } from "./electric/ElectricSyncService"
 import { SyncNetworkServiceLive } from "./SyncNetworkService"
 
 /**

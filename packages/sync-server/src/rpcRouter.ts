@@ -23,8 +23,17 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 				yield* Effect.logInfo(`FetchRemoteActionsHandler: ${clientId}`)
 				const result = yield* serverService.getActionsSince(clientId, payload.lastSyncedClock)
 
-				return { actions: result.actions, modifiedRows: result.modifiedRows }
+				yield* Effect.logInfo(
+					`Fetched ${result.actions.length} remote actions for client ${clientId} and ${result.modifiedRows.length} AMRs\n ${JSON.stringify(result.actions[0], null, 2)}`
+				)
+
+				// return { actions: [], modifiedRows: [] }
+				return {
+					actions: result.actions,
+					modifiedRows: result.modifiedRows
+				}
 			}).pipe(
+				Effect.tapErrorCause((c) => Effect.logError(`error in FetchRemoteActions handler`, c)),
 				Effect.catchTag("ServerInternalError", (e: ServerInternalError) =>
 					Effect.fail(
 						new RemoteActionFetchError({
@@ -45,6 +54,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 
 				return true
 			}).pipe(
+				Effect.tapErrorCause((c) => Effect.logError(`error in SendLocalActions handler`, c)),
 				Effect.catchTags({
 					ServerConflictError: (e: ServerConflictError) =>
 						Effect.fail(
@@ -70,6 +80,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 		}
 	})
 ).pipe(
+	Layer.tapErrorCause((e) => Effect.logError(`error in SyncNetworkRpcHandlersLive`, e)),
 	Layer.provideMerge(SyncServerService.Default),
 	Layer.provideMerge(KeyValueStore.layerMemory),
 	Layer.provideMerge(PgClientLive)
