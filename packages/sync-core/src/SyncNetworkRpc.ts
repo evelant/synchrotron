@@ -5,8 +5,8 @@ import { ActionModifiedRow, ActionRecord } from "./models"
 import { NetworkRequestError, RemoteActionFetchError } from "./SyncNetworkService"
 
 const FetchResultSchema = Schema.Struct({
-	actions: Schema.Array(ActionRecord.json),
-	modifiedRows: Schema.Array(ActionModifiedRow.json)
+	actions: Schema.Array(ActionRecord),
+	modifiedRows: Schema.Array(ActionModifiedRow)
 })
 
 export class FetchRemoteActions extends Schema.TaggedRequest<FetchRemoteActions>()(

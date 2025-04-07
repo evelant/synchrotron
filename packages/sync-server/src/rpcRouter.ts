@@ -1,4 +1,6 @@
 import { KeyValueStore } from "@effect/platform"
+import { HLC } from "@synchrotron/sync-core/HLC"
+import { ActionRecord } from "@synchrotron/sync-core/models"
 import {
 	FetchRemoteActions,
 	SendLocalActions,
@@ -8,7 +10,6 @@ import {
 	NetworkRequestError,
 	RemoteActionFetchError
 } from "@synchrotron/sync-core/SyncNetworkService"
-import { PgClientLive } from "@synchrotron/sync-server/db/connection"
 import { Effect, Layer } from "effect"
 import { ServerConflictError, ServerInternalError, SyncServerService } from "./SyncServerService"
 
@@ -29,7 +30,10 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 
 				// return { actions: [], modifiedRows: [] }
 				return {
-					actions: result.actions,
+					actions: result.actions.map(
+						(a) => ActionRecord.make({ ...a, clock: HLC.make(a.clock) } as any) as any
+					),
+					// actions: [],
 					modifiedRows: result.modifiedRows
 				}
 			}).pipe(
@@ -82,8 +86,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 ).pipe(
 	Layer.tapErrorCause((e) => Effect.logError(`error in SyncNetworkRpcHandlersLive`, e)),
 	Layer.provideMerge(SyncServerService.Default),
-	Layer.provideMerge(KeyValueStore.layerMemory),
-	Layer.provideMerge(PgClientLive)
+	Layer.provideMerge(KeyValueStore.layerMemory)
 )
 
 /*

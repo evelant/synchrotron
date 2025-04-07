@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS action_records (
 	transaction_id BIGINT NOT NULL,
 	clock JSONB NOT NULL,
 	args JSONB NOT NULL,
-	created_at TEXT,--TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 	synced BOOLEAN DEFAULT FALSE,
 	-- Sortable string representation of HLC
 	-- Correctly orders by timestamp, then by version vector, then by client ID alphabetically

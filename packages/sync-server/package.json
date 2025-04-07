@@ -31,11 +31,11 @@
 		"@effect/experimental": "catalog:",
 		"@effect/platform": "catalog:",
 		"@effect/platform-node": "catalog:",
-		"@effect/sql": "catalog:",
 		"@effect/rpc": "catalog:",
-		"@effect/sql-pg": "^0.34.5",
-		"effect": "catalog:",
-		"@synchrotron/sync-core": "workspace:*"
+		"@effect/sql": "catalog:",
+		"@effect/sql-pg": "^0.34.6",
+		"@synchrotron/sync-core": "workspace:*",
+		"effect": "catalog:"
 	},
 	"devDependencies": {
 		"@types/node": "catalog:",

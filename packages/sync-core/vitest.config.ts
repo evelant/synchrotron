@@ -5,8 +5,7 @@ import shared from "../../vitest.shared.ts"
 const config: ViteUserConfig = {
 	plugins: [wasm()],
 	test: {
-		maxConcurrency: 1,
-		setupFiles: ["./vitest-setup.ts"]
+		maxConcurrency: 1
 	}
 }
 

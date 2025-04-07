@@ -5,7 +5,6 @@ import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
-import { PgClientLive } from "@synchrotron/sync-server/db/connection"
 import { Data, Effect } from "effect"
 
 export class ServerConflictError extends Data.TaggedError("ServerConflictError")<{
@@ -40,8 +39,9 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			clientId: string,
 			actions: readonly ActionRecord[],
 			amrs: readonly ActionModifiedRow[]
-		): Effect.Effect<void, ServerConflictError | ServerInternalError> =>
+		) =>
 			Effect.gen(function* () {
+				const sql = yield* PgClient.PgClient
 				yield* Effect.logInfo(
 					`Server: receiveActions called by ${clientId} with ${actions.length} actions.`
 				)
@@ -158,7 +158,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						)
 						yield* sql`
 								INSERT INTO action_records (id, client_id, _tag, args, clock, synced, transaction_id, created_at)
-								VALUES (${actionRecord.id}, ${actionRecord.client_id}, ${actionRecord._tag}, ${sql.json(actionRecord.args)}, ${sql.json(actionRecord.clock)}, true, ${actionRecord.transaction_id}, ${new Date(actionRecord.created_at)})
+								VALUES (${actionRecord.id}, ${actionRecord.client_id}, ${actionRecord._tag}, ${sql.json(actionRecord.args)}, ${sql.json(actionRecord.clock)}, true, ${actionRecord.transaction_id}, ${new Date(actionRecord.created_at).getTime()})
 								ON CONFLICT (id) DO NOTHING
               				`
 					}
@@ -198,11 +198,11 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							yield* Effect.logDebug(
 								`Server: Applying forward patches for ${sortedAmrIdsToApply.length} AMRs in HLC order: [${sortedAmrIdsToApply.join(", ")}]`
 							)
-							yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
+							yield* sql`SELECT set_config('sync.disable_trigger', 'true', false)`
 							try {
 								yield* sql`SELECT apply_forward_amr_batch(${sql.array(sortedAmrIdsToApply)})`
 							} finally {
-								yield* sql`SELECT set_config('sync.disable_trigger', 'false', true)`
+								yield* sql`SELECT set_config('sync.disable_trigger', 'false', false)`
 							}
 						} else {
 							yield* Effect.logDebug(
@@ -211,7 +211,6 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						}
 					}
 				}).pipe(
-					sql.withTransaction,
 					Effect.mapError(
 						(e) =>
 							new ServerInternalError({
@@ -245,19 +244,16 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				Effect.annotateLogs({ serverOperation: "receiveActions", requestingClientId: clientId })
 			)
 
-		const getActionsSince = (
-			clientId: string,
-			lastSyncedClock: HLC
-		): Effect.Effect<FetchActionsResult, ServerInternalError> =>
+		const getActionsSince = (clientId: string, lastSyncedClock: HLC) =>
 			Effect.gen(function* () {
+				const sql = yield* PgClient.PgClient
 				yield* Effect.logDebug(
 					`Server: getActionsSince called by ${clientId} with clock ${JSON.stringify(lastSyncedClock)}`
 				)
 				const isInitialSync = Object.keys(lastSyncedClock.vector).length === 0
-
+				//${isInitialSync ? sql`` : sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0`}
 				const actions = yield* sql<ActionRecord>`
 						SELECT * FROM action_records
-						${isInitialSync ? sql`` : sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0`}
 						ORDER BY sortable_clock ASC
           			`.pipe(
 					Effect.mapError(
@@ -327,10 +323,5 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			getActionsSince
 		}
 	}),
-	dependencies: [
-		PgClientLive,
-		ClockService.Default,
-		ActionRecordRepo.Default,
-		ActionModifiedRowRepo.Default
-	]
+	dependencies: [ClockService.Default, ActionRecordRepo.Default, ActionModifiedRowRepo.Default]
 }) {}

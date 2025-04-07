@@ -1,11 +1,9 @@
 import { PgLiteClient } from "@effect/sql-pglite"
-import { it, describe } from "@effect/vitest" // Import describe
-import { Effect, Layer, Either } from "effect" // Import Either
+import { describe, it } from "@effect/vitest"
+import { Effect, Layer } from "effect"
 import { expect } from "vitest"
 import { makeTestLayers } from "./helpers/TestLayers"
-import { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models" // Import models
 
-// This test doesn't need the shared layer, it tests independent instances
 it.effect("should support multiple independent PgLite instances", () =>
 	Effect.gen(function* () {
 		// Create two independent PgLite layers with unique memory identifiers
@@ -1411,7 +1409,6 @@ it.effect("should rollback to a specific action", () =>
 		// Removed the second part of the test which involved an artificial scenario
 		// not aligned with the reconciliation plan. The first part sufficiently
 		// tests the basic rollback functionality.
-
 	}).pipe(Effect.provide(makeTestLayers("server")))
 )
 
