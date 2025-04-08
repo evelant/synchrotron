@@ -111,27 +111,25 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				yield* actionRecordRepo.markLocallyApplied(updatedRecord.value.id)
 
 				return updatedRecord.value
-			})
-				.pipe(
-					sql.withTransaction, // Restore transaction wrapper
-					Effect.catchAll((error) =>
-						Effect.gen(function* () {
-							yield* Effect.logError(`Error during action execution`, error)
-							if (error instanceof ActionExecutionError) {
-								return yield* Effect.fail(error)
-							}
+			}).pipe(
+				sql.withTransaction, // Restore transaction wrapper
+				Effect.catchAll((error) =>
+					Effect.gen(function* () {
+						yield* Effect.logError(`Error during action execution`, error)
+						if (error instanceof ActionExecutionError) {
+							return yield* Effect.fail(error)
+						}
 
-							return yield* Effect.fail(
-								new ActionExecutionError({
-									actionId: action._tag,
-									cause: error
-								})
-							)
-						})
-					),
-					Effect.annotateLogs("clientId", clientId) // Use service-level clientId here
-				)
-
+						return yield* Effect.fail(
+							new ActionExecutionError({
+								actionId: action._tag,
+								cause: error
+							})
+						)
+					})
+				),
+				Effect.annotateLogs("clientId", clientId) // Use service-level clientId here
+			)
 
 		/**
 		 * Rollback to common ancestor state
@@ -450,14 +448,11 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				)
 
 				if (arePatchesIdentical) {
-					// 7a. No divergence OR a SYNC action was processed (implying divergence was handled):
 					yield* Effect.logInfo("No overall divergence detected. Deleting placeholder SYNC action.")
 					yield* actionRecordRepo.deleteById(syncRecord.id)
 				} else {
 					// 7b. Divergence detected AND no corrective SYNC action was received:
-					yield* Effect.logWarning(
-						"Overall divergence detected (and no corrective SYNC received). Keeping placeholder SYNC action."
-					)
+					yield* Effect.logWarning("Overall divergence detected Keeping placeholder SYNC action.")
 					const newSyncClock = yield* clockService.incrementClock
 					yield* Effect.logDebug(
 						`Updating placeholder SYNC action ${syncRecord.id} clock due to divergence: ${JSON.stringify(newSyncClock)}`
@@ -480,14 +475,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				const result = yield* sql<ActionRecord>`SELECT * FROM find_common_ancestor()`
 				return Array.head(result)
 			}).pipe(Effect.withSpan("db.findCommonAncestor"))
-
-		/**
-		 * Start a background process to listen for sync events
-		 */
-		const startSyncListener = (): Effect.Effect<Fiber.RuntimeFiber<void>, never, never> =>
-			Effect.gen(function* () {
-				return yield* Effect.void.pipe(Effect.forever, Effect.forkDaemon)
-			}).pipe(Effect.annotateLogs("clientId", clientId))
 
 		/**
 		 * Clean up old, synced action records to prevent unbounded growth.
@@ -554,7 +541,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		return {
 			executeAction,
 			performSync,
-			startSyncListener,
 			cleanupOldActionRecords,
 			applyActionRecords
 		}

@@ -9,7 +9,6 @@ export function useReactiveTodos() {
 	const [isLoading, setIsLoading] = useState(true)
 	const db = useService(PgLiteSyncTag)
 	const runtime = useRuntime()
-	console.log(`useReactiveTodos`, db, runtime)
 	useEffect(() => {
 		try {
 			if (db) {

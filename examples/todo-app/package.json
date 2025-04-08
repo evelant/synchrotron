@@ -16,6 +16,7 @@
 		"@effect/sql": "catalog:",
 		"@effect/sql-pglite": "workspace:*",
 		"@electric-sql/pglite": "catalog:",
+		"@electric-sql/experimental": "catalog:",
 		"@electric-sql/react": "^1.0.3",
 		"@fontsource/alegreya-sans": "^5.2.5",
 		"@radix-ui/themes": "^3.2.1",
@@ -71,8 +72,8 @@
 	},
 	"scripts": {
 		"clean": "rm -rf .tsbuildinfo build dist",
-		"backend:up": "PROJECT_NAME=todo-app-example pnpm backend:down && docker compose -f ./docker-compose.yml up -d && pnpm db:migrate",
-		"backend:down": "PROJECT_NAME=todo-app-example docker compose -f ./docker-compose.yml down --volumes",
+		"backend:up": "pnpm backend:down && docker compose -f ./docker-compose.yml up -d && pnpm db:migrate",
+		"backend:down": "docker compose -f ./docker-compose.yml down --volumes",
 		"build": "vite build",
 		"db:migrate": "pnpm exec pg-migrations apply --directory ./db/migrations",
 		"dev:frontend": "vite --force",

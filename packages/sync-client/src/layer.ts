@@ -1,4 +1,4 @@
-import { KeyValueStore } from "@effect/platform"
+import { BrowserKeyValueStore } from "@effect/platform-browser"
 import {
 	ActionModifiedRowRepo,
 	ActionRecordRepo,
@@ -29,7 +29,6 @@ export const ElectricSyncLive = Layer.scopedDiscard(
 		yield* initializeDatabaseSchema
 		yield* Effect.logInfo("Database schema initialized, starting Electric sync")
 
-		yield* service.setupSync(config.electricSyncUrl)
 		return service
 	}).pipe(Effect.withSpan("ElectricSyncLive"))
 )
@@ -52,16 +51,15 @@ export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConf
 	// Create the config layer with custom config merged with defaults
 	const configLayer = createSynchrotronConfig(config)
 
-	return SyncService.Default.pipe(
+	return ElectricSyncService.Default.pipe(
+		Layer.provideMerge(SyncService.Default),
 		Layer.provideMerge(SyncNetworkServiceLive),
 		Layer.provideMerge(ActionRegistry.Default),
 		Layer.provideMerge(ActionRecordRepo.Default),
 		Layer.provideMerge(ActionModifiedRowRepo.Default),
-		Layer.provideMerge(ElectricSyncLive),
-		Layer.provideMerge(ElectricSyncService.Default),
 		Layer.provideMerge(ClockService.Default),
 
-		Layer.provideMerge(KeyValueStore.layerMemory),
+		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
 
 		Layer.provideMerge(PgLiteClientLive),
 

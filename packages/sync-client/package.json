@@ -35,6 +35,7 @@
 		"@effect/sql": "catalog:",
 		"@effect/rpc": "catalog:",
 		"@electric-sql/client": "catalog:",
+		"@electric-sql/experimental": "catalog:",
 		"@electric-sql/pglite": "catalog:",
 		"@electric-sql/pglite-sync": "catalog:",
 		"effect": "catalog:",

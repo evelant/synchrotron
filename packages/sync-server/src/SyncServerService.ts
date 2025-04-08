@@ -198,12 +198,14 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							yield* Effect.logDebug(
 								`Server: Applying forward patches for ${sortedAmrIdsToApply.length} AMRs in HLC order: [${sortedAmrIdsToApply.join(", ")}]`
 							)
-							yield* sql`SELECT set_config('sync.disable_trigger', 'true', false)`
-							try {
-								yield* sql`SELECT apply_forward_amr_batch(${sql.array(sortedAmrIdsToApply)})`
-							} finally {
-								yield* sql`SELECT set_config('sync.disable_trigger', 'false', false)`
-							}
+							yield* Effect.acquireUseRelease(
+								sql`SELECT set_config('sync.disable_trigger', 'true', true)`,
+								() => sql`SELECT apply_forward_amr_batch(${sql.array(sortedAmrIdsToApply)})`,
+								() =>
+									sql`SELECT set_config('sync.disable_trigger', 'false', true)`.pipe(
+										Effect.catchAll(Effect.logError)
+									)
+							).pipe(sql.withTransaction)
 						} else {
 							yield* Effect.logDebug(
 								"Server: No forward patches to apply after filtering rollbacks."
@@ -252,8 +254,17 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				)
 				const isInitialSync = Object.keys(lastSyncedClock.vector).length === 0
 				//${isInitialSync ? sql`` : sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0`}
+
+				// Build WHERE clauses dynamically
+				const whereClauses = [sql`client_id != ${clientId}`] // Always exclude actions from the requesting client
+				if (!isInitialSync) {
+					// Only include actions newer than the client's last sync clock if not initial sync
+					whereClauses.push(sql`compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0`)
+				}
+
 				const actions = yield* sql<ActionRecord>`
 						SELECT * FROM action_records
+						${whereClauses.length > 0 ? sql`WHERE ${sql.and(whereClauses)}` : sql``}
 						ORDER BY sortable_clock ASC
           			`.pipe(
 					Effect.mapError(

@@ -14,7 +14,8 @@ DECLARE
 	disable_tracking BOOLEAN;
 BEGIN
 	-- Check if the trigger is disabled for this session
-	-- Use COALESCE for robustness and add a NOTICE for debugging
+	-- Check session-level setting (removed 'true' from current_setting)
+	-- Revert to checking transaction-local setting only
 	IF COALESCE(current_setting('sync.disable_trigger', true), 'false') = 'true' THEN
 		RAISE NOTICE '[generate_patches] Trigger disabled by sync.disable_trigger setting.';
 		RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END; -- Return appropriate value without doing anything

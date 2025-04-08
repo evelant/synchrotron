@@ -70,7 +70,6 @@ export function useService<T extends AppServices, U>(tag: Context.Tag<T, U>): U 
 			runtime
 				.runPromise(tag)
 				.then((s) => {
-					console.log(`useService got service`, tag, s)
 					svc.current = s
 					set(true)
 				})

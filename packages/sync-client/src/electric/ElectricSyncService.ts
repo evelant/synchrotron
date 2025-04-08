@@ -1,6 +1,9 @@
-import { ShapeStream } from "@electric-sql/client"
+import type { Message, Row } from "@electric-sql/client" // Import ShapeStreamOptions
+// Removed unused import: SyncShapeToTableResult
+import { ActionModifiedRow, ActionRecord, SyncService } from "@synchrotron/sync-core" // Added ActionModifiedRow, ActionRecord
 import { ClockService } from "@synchrotron/sync-core/ClockService"
-import { Effect, Schema } from "effect"
+import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
+import { Effect, Schema, Stream } from "effect" // Added Cause
 import { PgLiteSyncTag } from "../db/connection"
 
 export class ElectricSyncError extends Schema.TaggedError<ElectricSyncError>()(
@@ -11,264 +14,139 @@ export class ElectricSyncError extends Schema.TaggedError<ElectricSyncError>()(
 	}
 ) {}
 
-export interface ElectricShape {
-	unsubscribe: () => void
-	isUpToDate: boolean
-	subscribe: (callback: () => void, errorCallback: (error: unknown) => void) => void
-	stream: ShapeStream
-}
-
 export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 	"ElectricSyncService",
 	{
 		scoped: Effect.gen(function* () {
 			yield* Effect.logInfo(`creating ElectricSyncService`)
 			const clockService = yield* ClockService
-			const clientId = yield* clockService.getNodeId
+			const syncService = yield* SyncService
+			const config = yield* SynchrotronClientConfig
 			const pgLiteClient = yield* PgLiteSyncTag
-			// Track active shape subscriptions
-			const activeShapes: Record<string, { unsubscribe: () => void; isUpToDate: boolean }> = {}
+			const electricUrl = config.electricSyncUrl
+			yield* Effect.logInfo(`Creating TransactionalMultiShapeStream`)
 
-			const createShape = Effect.gen(function* () {})
+			const multiShapeSync = yield* Effect.tryPromise({
+				try: async () => {
+					return pgLiteClient.extensions.electric.syncShapesToTables({
+						key: "synchrotron-sync",
+						shapes: {
+							action_records: {
+								shape: {
+									url: `${electricUrl}/v1/shape`,
+									params: { table: "action_records" }
+								},
 
-			const syncActionRecords = (baseUrl: string) =>
-				Effect.gen(function* () {
-					// Get the last synced clock to use in the where clause
-					const lastSyncedClock = yield* clockService.getLastSyncedClock
-
-					yield* Effect.logInfo(
-						`Setting up action_records sync with Electric using last synced clock: ${JSON.stringify(lastSyncedClock)}`
-					)
-
-					const actionRecordsStream = {
-						url: `${baseUrl}/v1/shape`,
-						params: {
-							table: "action_records"
-
-							// where: `clock > '${JSON.stringify(lastSyncedClock)}'::jsonb`
-						}
-					}
-
-					const columnMapping = {
-						id: "id",
-						_tag: "_tag",
-						client_id: "client_id",
-						transaction_id: "transaction_id",
-						clock: "clock",
-						args: "args",
-						created_at: "created_at",
-						synced: "synced",
-						sortable_clock: "sortable_clock"
-					}
-
-					// Using the PGlite electric sync module to sync the shape to our table
-					const createShapeEffect = Effect.tryPromise({
-						try: () =>
-							pgLiteClient.extensions.electric.syncShapeToTable({
-								shape: actionRecordsStream,
 								table: "action_records",
-								schema: "public",
-								mapColumns: columnMapping,
-								primaryKey: ["id"],
-								shapeKey: "action_records_sync",
-								useCopy: true,
-								onInitialSync: () => {
-									console.log("Initial action_records sync complete")
-								}
-							}),
-						catch: (error: unknown) =>
-							new ElectricSyncError({
-								message: `Failed to sync action_records: ${error instanceof Error ? error.message : String(error)}`,
-								cause: error
-							})
-					})
-
-					// Using acquireRelease for proper resource management
-					const actionRecordsShape = yield* Effect.acquireRelease(createShapeEffect, (shape) =>
-						Effect.sync(() => {
-							// Release function to clean up the subscription
-							if (shape.unsubscribe) {
-								shape.unsubscribe()
-							}
-							// Remove from active shapes
-							delete activeShapes["action_records"]
-						})
-					)
-
-					// Register the shape subscription for tracking
-					activeShapes["action_records"] = {
-						unsubscribe: actionRecordsShape.unsubscribe || (() => {}),
-						isUpToDate: Boolean(actionRecordsShape.isUpToDate)
-					}
-
-					// Set up a subscription to track when the shape is up to date
-					actionRecordsShape.stream.subscribe(
-						() => {
-							console.log("Action records sync is up to date")
-							if (activeShapes["action_records"]) {
-								activeShapes["action_records"].isUpToDate = true
-							}
-						},
-						(error) => {
-							console.error("Action records sync error:", error)
-						}
-					)
-
-					yield* Effect.logInfo("Action records sync setup complete")
-					return actionRecordsShape
-				}).pipe(
-					Effect.catchTag("ElectricSyncError", (error) => Effect.fail(error)),
-					Effect.catchAll((error) => {
-						const message = error instanceof Error ? error.message : String(error)
-						return Effect.fail(new ElectricSyncError({ message }))
-					}),
-					Effect.withSpan("electric.syncActionRecords")
-				)
-
-			const syncActionModifiedRows = (baseUrl: string) =>
-				Effect.gen(function* () {
-					// Get the last synced clock to use in the where clause
-					const lastSyncedClock = yield* clockService.getLastSyncedClock
-
-					yield* Effect.logInfo(
-						`Setting up action_modified_rows sync with Electric using last synced clock: ${JSON.stringify(lastSyncedClock)}`
-					)
-
-					const amrStream = {
-						url: `${baseUrl}/v1/shape`,
-						params: {
-							table: "action_modified_rows"
-
-							// where: `action_record_id IN (SELECT id FROM action_records WHERE clock > '${JSON.stringify(lastSyncedClock)}'::jsonb)`
-						}
-					}
-
-					const columnMapping = {
-						id: "id",
-						table_name: "table_name",
-						row_id: "row_id",
-						action_record_id: "action_record_id",
-						operation: "operation",
-						forward_patches: "forward_patches",
-						reverse_patches: "reverse_patches",
-						sequence: "sequence"
-					}
-
-					// Using the PGlite electric sync module to sync the shape to our table
-					const createShapeEffect = Effect.tryPromise({
-						try: () =>
-							pgLiteClient.extensions.electric.syncShapeToTable({
-								shape: amrStream,
+								primaryKey: ["id"]
+							},
+							action_modified_rows: {
+								shape: {
+									url: `${electricUrl}/v1/shape`,
+									params: { table: "action_modified_rows" }
+								},
 								table: "action_modified_rows",
-								schema: "public",
-								mapColumns: columnMapping,
-								primaryKey: ["id"],
-								shapeKey: "action_modified_rows_sync",
-								useCopy: true,
-								onInitialSync: () => {
-									console.log("Initial action_modified_rows sync complete")
-								}
-							}),
-						catch: (error: unknown) =>
-							new ElectricSyncError({
-								message: `Failed to sync action_modified_rows: ${error instanceof Error ? error.message : String(error)}`,
-								cause: error
-							})
-					})
-
-					// Using acquireRelease for proper resource management
-					const managedShape = Effect.acquireRelease(createShapeEffect, (shape) =>
-						Effect.sync(() => {
-							// Release function to clean up the subscription
-							if (shape.unsubscribe) {
-								shape.unsubscribe()
+								primaryKey: ["id"]
 							}
-							// Remove from active shapes
-							delete activeShapes["action_modified_rows"]
-						})
-					)
-
-					// Get the shape and set up tracking
-					const amrShape = yield* managedShape
-
-					// Register the shape subscription for tracking
-					activeShapes["action_modified_rows"] = {
-						unsubscribe: amrShape.unsubscribe || (() => {}),
-						isUpToDate: Boolean(amrShape.isUpToDate)
-					}
-
-					// Set up a subscription to track when the shape is up to date
-					amrShape.stream.subscribe(
-						() => {
-							console.log("Action modified rows sync is up to date")
-							if (activeShapes["action_modified_rows"]) {
-								activeShapes["action_modified_rows"].isUpToDate = true
-							}
-						},
-						(error) => {
-							console.error("Action modified rows sync error:", error)
 						}
+					})
+				},
+				catch: (e) =>
+					new ElectricSyncError({
+						message: `Failed to create TransactionalMultiShapeStream: ${e instanceof Error ? e.message : String(e)}`,
+						cause: e
+					})
+			})
+			const actionRecordStream = Stream.asyncScoped<
+				Message<Row<ActionRecord>>[],
+				ElectricSyncError
+			>((emit) =>
+				Effect.gen(function* () {
+					yield* Effect.logInfo("Subscribing to actionRecordStream")
+					return yield* Effect.acquireRelease(
+						Effect.gen(function* () {
+							return multiShapeSync.streams.action_records!.subscribe(
+								(messages: any) => {
+									emit.single(messages as Message<Row<ActionRecord>>[])
+								},
+								(error: unknown) => {
+									emit.fail(
+										new ElectricSyncError({
+											message: `actionRecordStream error: ${error instanceof Error ? error.message : String(error)}`,
+											cause: error
+										})
+									)
+								}
+							)
+						}),
+						(unsub) =>
+							Effect.gen(function* () {
+								yield* Effect.logInfo("Unsubscribing from actionRecordStream")
+								unsub()
+							})
 					)
-
-					yield* Effect.logInfo("Action modified rows sync setup complete")
-					return amrShape
-				}).pipe(
-					Effect.catchTag("ElectricSyncError", (error) => Effect.fail(error)),
-					Effect.catchAll((error) => {
-						const message = error instanceof Error ? error.message : String(error)
-						return Effect.fail(new ElectricSyncError({ message }))
-					}),
-					Effect.withSpan("electric.syncActionModifiedRows")
-				)
-
-			const setupSync = (baseUrl: string) =>
-				Effect.gen(function* () {
-					yield* Effect.logInfo(`Setting up Electric sync with base URL: ${baseUrl}`)
-
-					const [actionRecordsShape, amrShape] = yield* Effect.all([
-						syncActionRecords(baseUrl),
-						syncActionModifiedRows(baseUrl)
-					])
-
-					return { actionRecordsShape, amrShape }
-				}).pipe(
-					Effect.catchTag("ElectricSyncError", (error) => Effect.fail(error)),
-					Effect.withSpan("electric.setupSync")
-				)
-
-			const cleanup = () =>
-				Effect.gen(function* () {
-					const shapeEntries = Object.entries(activeShapes)
-
-					if (shapeEntries.length === 0) {
-						return true
-					}
-
-					for (const [key, { unsubscribe }] of shapeEntries) {
-						yield* Effect.sync(() => {
-							unsubscribe()
-							delete activeShapes[key]
-						})
-					}
-
-					yield* Effect.logInfo("Cleaned up all shape subscriptions")
-					return true
 				})
-
-			const isFullySynced = () =>
-				Effect.sync(() => {
-					const shapes = Object.values(activeShapes)
-					if (shapes.length === 0) return false
-					return shapes.every(({ isUpToDate }) => isUpToDate)
+			)
+			const actionModifiedRowsStream = Stream.asyncScoped<
+				Message<Row<ActionModifiedRow>>[],
+				ElectricSyncError
+			>((emit) =>
+				Effect.gen(function* () {
+					yield* Effect.logInfo("Subscribing to actionModifiedRowsStream")
+					return yield* Effect.acquireRelease(
+						Effect.gen(function* () {
+							yield* Effect.logInfo("Subscribing to actionModifiedRowsStream")
+							return multiShapeSync.streams.action_modified_rows!.subscribe(
+								(messages: any) => {
+									emit.single(messages as Message<Row<ActionModifiedRow>>[])
+								},
+								(error: unknown) => {
+									emit.fail(
+										new ElectricSyncError({
+											message: `actionModifiedRowsStream error: ${error instanceof Error ? error.message : String(error)}`,
+											cause: error
+										})
+									)
+								}
+							)
+						}),
+						(unsub) =>
+							Effect.gen(function* () {
+								yield* Effect.logInfo("Unsubscribing from actionModifiedRowsStream")
+								unsub()
+							})
+					)
 				})
+			)
 
-			return {
-				setupSync,
-				syncActionRecords,
-				syncActionModifiedRows,
-				cleanup,
-				isFullySynced
-			}
+			yield* actionRecordStream.pipe(
+				Stream.zipLatest(actionModifiedRowsStream),
+
+				Stream.tap((messages) =>
+					Effect.logTrace(
+						`Multi-shape sync batch received: ${JSON.stringify(messages, (_, v) => (typeof v === "bigint" ? `BIGINT: ${v.toString()}` : v), 2)}`
+					)
+				),
+				Stream.filter(
+					([ar, amr]) =>
+						ar.every((a) => a.headers.control === "up-to-date") &&
+						amr.every((a) => a.headers.control === "up-to-date")
+				),
+				Stream.tap((_) =>
+					Effect.logInfo("All shapes in multi-stream are synced. Triggering performSync.")
+				),
+				Stream.tap(() => syncService.performSync()),
+				Stream.catchAllCause((cause) => {
+					Effect.runFork(Effect.logError("Error in combined sync trigger stream", cause))
+					return Stream.empty
+				}),
+				Stream.runDrain,
+				Effect.forkScoped
+			)
+
+			yield* Effect.logInfo(`ElectricSyncService created`)
+
+			return {}
 		})
 	}
 ) {}

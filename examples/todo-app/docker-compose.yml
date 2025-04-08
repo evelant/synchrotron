@@ -1,5 +1,4 @@
-version: "3.3"
-name: "electric_example-${PROJECT_NAME:-default}"
+name: "${PROJECT_NAME:-synchrotron-example-default}"
 
 services:
   postgres:
