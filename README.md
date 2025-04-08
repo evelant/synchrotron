@@ -5,17 +5,20 @@ An opinionated approach to offline-first data sync with [PGlite](https://pglite.
 ## Status
 
 ### Experimental
+
 - This is an experimental project and is not ready for production use
 - There are comprehensive tests in packages/sync-core illustrating that the idea works
-- Packages are not organized, there is nothing useful in the client or server packages yet
-- Missing an example app
-
-
+- API is split into sync-client, sync-core, and sync-server
+- Example app is partially complete. It somewhat syncs content but still has some fundamental errors requiring further work.
+  - Run the example with:
+    - `cd examples/todo-app`
+    - `pnpm backend:up` (need docker running)
+    - `pnpm dev`
+    - Open http://localhost:5173 in your browser
 
 ## License
 
 MIT
-
 
 # Design Plan
 
@@ -78,6 +81,7 @@ This document outlines a plan for implementing an offline-first synchronization 
    - `synced`: Flag for tracking sync status
 
 2. **action_modified_rows Table**:
+
    - `id`: Primary key
    - `action_record_id`: Foreign key to action_records
    - `table_name`: Modified table
@@ -89,6 +93,7 @@ This document outlines a plan for implementing an offline-first synchronization 
 
 3. **local_applied_action_ids Table**
    - `action_record_id`: primary key, references action_records, indicates an action_record the client has applied locally
+
 ### Components
 
 1. **Action Registry**: Global map of action tags to implementations
