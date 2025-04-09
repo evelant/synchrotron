@@ -15,8 +15,8 @@
 		"@effect/rpc": "catalog:",
 		"@effect/sql": "catalog:",
 		"@effect/sql-pglite": "workspace:*",
-		"@electric-sql/pglite": "catalog:",
 		"@electric-sql/experimental": "catalog:",
+		"@electric-sql/pglite": "catalog:",
 		"@electric-sql/react": "^1.0.3",
 		"@fontsource/alegreya-sans": "^5.2.5",
 		"@radix-ui/themes": "^3.2.1",
@@ -34,6 +34,7 @@
 	},
 	"devDependencies": {
 		"@databases/pg-migrations": "^5.0.3",
+		"@electric-sql/pglite-repl": "^0.2.0",
 		"@types/node": "catalog:",
 		"@types/react": "^19.1.0",
 		"@types/react-dom": "^19.1.1",
@@ -72,6 +73,7 @@
 	},
 	"scripts": {
 		"clean": "rm -rf .tsbuildinfo build dist",
+		"clean:node_modules": "rm -rf node_modules",
 		"backend:up": "pnpm backend:down && docker compose -f ./docker-compose.yml up -d && pnpm db:migrate",
 		"backend:down": "docker compose -f ./docker-compose.yml down --volumes",
 		"build": "vite build",

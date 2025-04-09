@@ -62,6 +62,7 @@
 	},
 	"scripts": {
 		"clean": "rm -rf .tsbuildinfo build dist",
+		"clean:node_modules": "rm -rf node_modules",
 		"codegen": "build-utils prepare-v2",
 		"build": "pnpm build-esm && pnpm build-annotate && pnpm build-cjs && build-utils pack-v2",
 		"build-esm": "tsc -b tsconfig.build.json",
@@ -78,7 +79,6 @@
 		"@effect/platform": "catalog:",
 		"@effect/sql": "catalog:",
 		"@electric-sql/pglite": "catalog:",
-		"@electric-sql/pglite-sync": "catalog:",
 		"@electric-sql/pglite-tools": "^0.2.4",
 		"effect": "catalog:"
 	},

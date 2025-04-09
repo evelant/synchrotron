@@ -21,6 +21,7 @@
 	"scripts": {
 		"build": "vite build && tsc -p tsconfig.build.json",
 		"clean": "rm -rf .tsbuildinfo build dist",
+		"clean:node_modules": "rm -rf node_modules",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",

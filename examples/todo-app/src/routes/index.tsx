@@ -12,11 +12,13 @@ import {
 import { SyncService, type ActionExecutionError } from "@synchrotron/sync-core"
 import { useReactiveTodos } from "@synchrotron/todo-app/db/electric"
 import { Clock, Effect } from "effect"
-import { useCallback, useState, type ChangeEvent, type FormEvent } from "react"
+import React, { useCallback, useState, type ChangeEvent, type FormEvent } from "react"
 import { TodoActions } from "../actions"
 import logo from "../assets/logo.svg"
 import type { Todo } from "../db/schema"
-import { useRuntime } from "../main"
+import { useRuntime, useService } from "../main"
+import { PgLiteClient } from "@effect/sql-pglite"
+import { Repl } from "@electric-sql/pglite-repl"
 
 export default function Index() {
 	const runtime = useRuntime()
@@ -67,6 +69,7 @@ export default function Index() {
 					timestamp: timestamp
 				})
 				yield* syncService.executeAction(action)
+				yield* syncService.performSync()
 			})
 
 			runtime
@@ -89,6 +92,7 @@ export default function Index() {
 					timestamp: timestamp
 				})
 				yield* syncService.executeAction(action)
+				yield* syncService.performSync()
 			})
 
 			runtime
@@ -100,7 +104,9 @@ export default function Index() {
 	)
 
 	return (
-		<Container size="1">
+		<>
+			
+		<Container size="2">
 			<Flex gap="5" mt="5" direction="column">
 				<Flex align="center" justify="center">
 					<img src={logo} width="32px" alt="logo" />
@@ -160,6 +166,24 @@ export default function Index() {
 					</Flex>
 				</form>
 			</Flex>
-		</Container>
+
+			</Container>
+			<Container size="4" mt="5">
+			<DebugRepl />
+
+			</Container>
+
+		</>
+			
 	)
 }
+
+const DebugRepl = React.memo(() => {
+	const pglite = useService(PgLiteClient.PgLiteClient)
+	if (!pglite) return <p>Loading repl...</p>
+	return (
+		<>
+			<Repl pg={pglite.pg} border={true} theme={"dark"} />
+		</>
+	)
+})

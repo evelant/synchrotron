@@ -7,7 +7,7 @@ import React, {
 	type ReactNode
 } from "react"
 import ReactDOM from "react-dom/client"
-import { createBrowserRouter, RouterProvider } from "react-router"
+import { createBrowserRouter, RouterProvider, useRouteError } from "react-router"
 import ErrorPage from "./error-page"
 
 import "@fontsource/alegreya-sans/latin.css"
@@ -91,7 +91,7 @@ const router = createBrowserRouter([
 	{
 		path: `/`,
 		element: <Root />,
-		errorElement: <ErrorPage />,
+		// errorElement: <ErrorPage />,
 		children: [
 			{
 				index: true,

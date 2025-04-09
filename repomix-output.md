@@ -683,62 +683,6 @@ Disallow:
 </svg>
 ````
 
-## File: examples/todo-app/src/db/electric.tsx
-````typescript
-import { type LiveQueryResults } from "@electric-sql/pglite/live"
-import { PgLiteSyncTag } from "@synchrotron/sync-client/index"
-import { useRuntime, useService } from "examples/todo-app/src/main"
-import { useEffect, useState } from "react"
-import { Todo } from "./schema"
-
-export function useReactiveTodos() {
-	const [todos, setTodos] = useState<readonly Todo[]>([])
-	const [isLoading, setIsLoading] = useState(true)
-	const db = useService(PgLiteSyncTag)
-	const runtime = useRuntime()
-	useEffect(() => {
-		try {
-			if (db) {
-				const loadTodos = () => {
-					console.log(`loadTodos starting live query`)
-					db.extensions.live.query<Todo>("select * from todos").then((todos) => {
-						try {
-							setTodos(todos.initialResults.rows)
-							const callback = (newTodos: LiveQueryResults<Todo>) => {
-								console.log(`live query todos got new rows`, newTodos.rows)
-								setTodos(newTodos.rows)
-							}
-							todos.subscribe(callback)
-							return () => todos.unsubscribe(callback)
-						} catch (e) {
-							console.error(`Error setting up live query for todos`, e)
-						}
-					})
-				}
-
-				// Initial load
-				const unsub = loadTodos()
-
-				return unsub
-			} else {
-				console.warn("Electric SQL not available")
-				setIsLoading(false)
-			}
-		} catch (e) {
-			console.error("Error setting up Electric SQL subscription:", e)
-			setIsLoading(false)
-		}
-
-		return undefined
-	}, [db, runtime])
-
-	return {
-		todos,
-		isLoading
-	}
-}
-````
-
 ## File: examples/todo-app/src/db/repositories.ts
 ````typescript
 import { Model } from "@effect/sql"
@@ -2449,128 +2393,6 @@ const config: ViteUserConfig = {
 export default config
 ````
 
-## File: packages/sync-client/src/electric/ElectricSyncService.ts
-````typescript
-import type { Message, Row, ShapeStreamOptions } from "@electric-sql/client" // Import ShapeStreamOptions
-// Removed unused import: SyncShapeToTableResult
-import { ClockService } from "@synchrotron/sync-core/ClockService"
-import { ActionModifiedRow, ActionRecord, SyncService } from "@synchrotron/sync-core" // Added ActionModifiedRow, ActionRecord
-import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
-import {
-	MultiShapeMessages,
-	TransactionalMultiShapeStream // Added import
-} from "@electric-sql/experimental"
-import { Cause, Effect, Schema, Stream } from "effect" // Added Cause
-import { PgLiteSyncTag } from "../db/connection"
-
-export class ElectricSyncError extends Schema.TaggedError<ElectricSyncError>()(
-	"ElectricSyncError",
-	{
-		message: Schema.String,
-		cause: Schema.optional(Schema.Unknown)
-	}
-) {}
-
-type ShapeConfig = {
-	action_records: Row<ActionRecord>
-	action_modified_rows: Row<ActionModifiedRow>
-}
-
-export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
-	"ElectricSyncService",
-	{
-		scoped: Effect.gen(function* () {
-			yield* Effect.logInfo(`creating ElectricSyncService`)
-			const clockService = yield* ClockService
-			const syncService = yield* SyncService
-			const config = yield* SynchrotronClientConfig
-			const pgLiteClient = yield* PgLiteSyncTag
-			const electricUrl = config.electricSyncUrl
-			yield* Effect.logInfo(`Creating TransactionalMultiShapeStream`)
-
-			const multiShapeSync = yield* Effect.tryPromise({
-				try: async () => {
-					return new TransactionalMultiShapeStream<ShapeConfig>({
-						shapes: {
-							action_records: {
-								url: `${electricUrl}/v1/shape`,
-								params: { table: "action_records" }
-							},
-							action_modified_rows: {
-								url: `${electricUrl}/v1/shape`,
-								params: { table: "action_modified_rows" }
-							}
-						},
-						start: false
-					})
-				},
-				catch: (e) =>
-					new ElectricSyncError({
-						message: `Failed to create TransactionalMultiShapeStream: ${e instanceof Error ? e.message : String(e)}`,
-						cause: e
-					})
-			})
-
-			const multiShapeStream = Stream.asyncScoped<
-				MultiShapeMessages<ShapeConfig>[],
-				ElectricSyncError
-			>((emit) =>
-				Effect.gen(function* () {
-					yield* Effect.logInfo("Subscribing to TransactionalMultiShapeStream")
-					return yield* Effect.acquireRelease(
-						Effect.gen(function* () {
-							yield* Effect.logInfo("Subscribing to TransactionalMultiShapeStream")
-							return multiShapeSync.subscribe(
-								(messages: MultiShapeMessages<ShapeConfig>[]) => {
-									emit.single(messages)
-								},
-								(error: unknown) => {
-									console.error("TransactionalMultiShapeStream error:", error)
-									emit.fail(
-										new ElectricSyncError({
-											message: `TransactionalMultiShapeStream error: ${error instanceof Error ? error.message : String(error)}`,
-											cause: error
-										})
-									)
-								}
-							)
-						}),
-						(unsub) =>
-							Effect.gen(function* () {
-								yield* Effect.logInfo("Unsubscribing from TransactionalMultiShapeStream")
-								unsub()
-							})
-					)
-				})
-			)
-
-			yield* multiShapeStream.pipe(
-				Stream.tap((messages) =>
-					Effect.logTrace(
-						`Multi-shape sync batch received: ${JSON.stringify(messages, (_, v) => (typeof v === "bigint" ? `BIGINT: ${v.toString()}` : v), 2)}`
-					)
-				),
-				Stream.filter((messages) => messages.every((m) => m.headers.last === true)),
-				Stream.tap((_) =>
-					Effect.logInfo("All shapes in multi-stream are synced. Triggering performSync.")
-				),
-				Stream.tap(() => syncService.performSync()),
-				Stream.catchAllCause((cause) => {
-					Effect.runFork(Effect.logError("Error in combined sync trigger stream", cause))
-					return Stream.empty
-				}),
-				Stream.runDrain,
-				Effect.forkScoped
-			)
-
-			yield* Effect.logInfo(`ElectricSyncService created`)
-
-			return {}
-		})
-	}
-) {}
-````
-
 ## File: packages/sync-client/src/electric/index.ts
 ````typescript
 export * from "./ElectricSyncService"
@@ -3320,133 +3142,6 @@ BEGIN
 	END IF;
 
 	RETURN NEXT;
-END;
-$$ LANGUAGE plpgsql;
-````
-
-## File: packages/sync-core/src/db/sql/patch/generate_patches.sql
-````sql
-CREATE OR REPLACE FUNCTION generate_patches() RETURNS TRIGGER AS $$
-DECLARE
-	patches_data RECORD;
-	v_action_record_id TEXT;
-	current_transaction_id BIGINT;
-	amr_record RECORD;
-	v_sequence_number INT; -- Added sequence number variable
-	target_row_id TEXT;
-	old_row_data JSONB;
-	new_row_data JSONB;
-	operation_type TEXT;
-	v_table_name TEXT;
-	result JSONB;
-	disable_tracking BOOLEAN;
-BEGIN
-	-- Check if the trigger is disabled for this session
-	-- Check session-level setting (removed 'true' from current_setting)
-	-- Revert to checking transaction-local setting only
-	IF COALESCE(current_setting('sync.disable_trigger', true), 'false') = 'true' THEN
-		RAISE NOTICE '[generate_patches] Trigger disabled by sync.disable_trigger setting.';
-		RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END; -- Return appropriate value without doing anything
-	END IF;
-
-	RAISE NOTICE '[generate_patches] Trigger fired for OP: %, Table: %', 
-		TG_OP, 
-		TG_TABLE_NAME;
-
-
-	-- Check if tracking is disabled for testing
-	SELECT current_setting('test_disable_tracking', true) = 'true' INTO disable_tracking;
-	IF disable_tracking THEN
-		RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END; -- Return appropriate value without doing anything
-	END IF;
-
-	-- Determine operation type and prepare data based on trigger operation
-	IF TG_OP = 'DELETE' THEN
-		old_row_data := to_jsonb(OLD);
-		new_row_data := '{}'::JSONB;
-		operation_type := 'DELETE';
-		target_row_id := OLD.id;
-		RAISE NOTICE '[generate_patches] DELETE detected for RowID: %', target_row_id;
-	ELSIF TG_OP = 'INSERT' THEN
-		old_row_data := '{}'::JSONB;
-		new_row_data := to_jsonb(NEW);
-		operation_type := 'INSERT';
-		target_row_id := NEW.id;
-		RAISE NOTICE '[generate_patches] INSERT detected for RowID: %', target_row_id;
-	ELSIF TG_OP = 'UPDATE' THEN
-		-- Regular update (soft delete logic removed)
-		old_row_data := to_jsonb(OLD);
-		new_row_data := to_jsonb(NEW);
-		operation_type := 'UPDATE';
-		target_row_id := NEW.id;
-		RAISE NOTICE '[generate_patches] UPDATE detected for RowID: %', target_row_id;
-	END IF;
-
-	-- Get the current transaction ID
-	current_transaction_id := txid_current();
-
-	-- Find the most recent action_record for this transaction
-	SELECT id INTO v_action_record_id FROM action_records
-	WHERE transaction_id = current_transaction_id
-	ORDER BY created_at DESC
-	LIMIT 1;
-
-	-- If no action record exists for this transaction, we have a problem
-	IF v_action_record_id IS NULL THEN
-		RAISE WARNING '[generate_patches] No action_record found for transaction_id %', current_transaction_id;
-		RAISE EXCEPTION 'No action_record found for transaction_id %', current_transaction_id;
-	END IF;
-
-	-- Calculate the next sequence number for this action record
-	SELECT COALESCE(MAX(sequence), -1) + 1 INTO v_sequence_number
-	FROM action_modified_rows
-	WHERE action_record_id = v_action_record_id;
-
-	-- Store TG_TABLE_NAME in variable to avoid ambiguity
-	v_table_name := TG_TABLE_NAME;
-
-	-- Handle based on operation type
-	IF TG_OP = 'DELETE' THEN
-		-- Handle soft deletion by calling the handler function with the existing amr record
-		result := handle_remove_operation(
-			v_action_record_id, 
-			v_table_name, 
-			target_row_id, 
-			operation_type, 
-			old_row_data,
-			v_sequence_number -- Pass sequence number
-		);
-		RETURN OLD;
-	ELSIF TG_OP = 'INSERT' THEN
-		-- For new rows, delegate to the insert handler
-		-- We always call the handler, it will check for existing entries internally
-		result := handle_insert_operation(
-			v_action_record_id,
-			v_table_name,
-			target_row_id,
-			operation_type,
-			old_row_data,
-			new_row_data,
-			v_sequence_number -- Pass sequence number
-		);
-	ELSIF TG_OP = 'UPDATE' THEN
-		-- For modifications to existing rows, delegate to the update handler
-		result := handle_update_operation(
-			v_action_record_id,
-			v_table_name,
-			target_row_id,
-			old_row_data,
-			new_row_data,
-			operation_type,
-			v_sequence_number -- Pass sequence number
-		);
-	END IF;
-
-	IF TG_OP = 'DELETE' THEN
-		RETURN OLD;
-	ELSE
-		RETURN NEW;
-	END IF;
 END;
 $$ LANGUAGE plpgsql;
 ````
@@ -5320,491 +5015,6 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 }
 ````
 
-## File: README.md
-````markdown
-# Synchrotron
-
-An opinionated approach to offline-first data sync with [PGlite](https://pglite.dev/) and [Effect](https://effect.website/).
-
-## Status
-
-### Experimental
-- This is an experimental project and is not ready for production use
-- There are comprehensive tests in packages/sync-core illustrating that the idea works
-- Packages are not organized, there is nothing useful in the client or server packages yet
-- Missing an example app
-
-
-
-## License
-
-MIT
-
-
-# Design Plan
-
-## 1. Overview
-
-This document outlines a plan for implementing an offline-first synchronization system using Conflict-free Replicated Data Types (CRDTs) with Hybrid Logical Clocks (HLCs). The system enables deterministic conflict resolution while preserving user intentions across distributed clients.
-
-**Core Mechanism**: When conflicts occur, the system:
-
-1. Identifies a common ancestor state
-2. Rolls back to this state using reverse patches
-3. Replays all actions in HLC order
-4. Creates notes any divergences from expected end state as a new action
-
-## 2. System Goals
-
-- **Offline-First**: Enable optimistic writes to client-local databases (PgLite, single user postgresql in wasm) with eventual consistency guarantees
-- **Intention Preservation**: Maintain user intent during conflict resolution
-- **Deterministic Ordering**: Establish total ordering of events via HLCs
-- **Performance**: Prevent unbounded storage growth and minimize data transfer
-- **Security**: Enforce row-level security while maintaining client authority
-- **Consistency**: Ensure all clients eventually reach the same state
-
-## 3. Core Concepts
-
-### Key Terminology
-
-| Term                            | Definition                                                                                                                   |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Action Record**               | Database row representing a business logic action with unique tag, non-deterministic arguments, client ID, and HLC timestamp |
-| **Action Modified Row**         | Database row linking actions to affected data rows with forward/reverse patches                                              |
-| **Non-deterministic Arguments** | Values that would differ between clients if accessed inside an action (time, random values, user context)                    |
-| **HLC**                         | Hybrid Logical Clock combining physical timestamp and vector clock for total ordering across distributed clients             |
-| **Execute**                     | Run an action function and capture it as a new action record with modified rows                                              |
-| **Apply**                       | Run an action(s) function without capturing a new record (for fast-forwarding, may capture a SYNC action if required)        |
-| **SYNC Action**                 | Special action created when applying incoming actions produces different results due to private data and conditional logic   |
-| **ROLLBACK Action**             | System action representing the complete set of patches to roll back to a common ancestor                                     |
-
-### Action Requirements
-
-1. **Deterministic**: Same inputs + same database state = same outputs
-2. **Pure**: No reading from external sources inside the action
-3. **Immutable**: Action definitions never change (to modify an action, create a new one with a different tag)
-4. **Explicit Arguments**: All non-deterministic values must be passed as arguments
-5. **Proper Scoping**: Include appropriate WHERE clauses to respect data boundaries
-
-## 4. System Architecture
-
-### Database Schema
-
-1. **action_records Table**:
-
-   - `id`: Primary key
-   - `_tag`: Action identifier
-   - `arguments`: Serialized non-deterministic inputs
-   - `client_id`: Originating client
-   - `hlc`: Hybrid logical clock for ordering (containing timestamp and vector clock)
-   - `created_at`: Creation timestamp
-   - `transaction_id`: For linking to modified rows
-   - `synced`: Flag for tracking sync status
-
-2. **action_modified_rows Table**:
-   - `id`: Primary key
-   - `action_record_id`: Foreign key to action_records
-   - `table_name`: Modified table
-   - `row_id`: ID of modified row
-   - `operation`: The overall type of change, INSERT for inserted rows, DELETE for deleted rows, UPDATE for everything else
-   - `forward_patches`: Changes to columns to apply (for server)
-   - `reverse_patches`: Changes to columns to undo (for rollback)
-   - `sequence`: Sequence number for ordering within a transaction (action)
-
-3. **local_applied_action_ids Table**
-   - `action_record_id`: primary key, references action_records, indicates an action_record the client has applied locally
-### Components
-
-1. **Action Registry**: Global map of action tags to implementations
-2. **Database Abstraction**: Using `@effect/sql` Model class, makeRepository, and SqlSchema functions
-3. **Trigger System**: PgLite triggers for capturing data changes
-4. **Patch Generation**: Forward and reverse patches via triggers
-5. **HLC Service**: For generating and comparing Hybrid Logical Clocks
-   - Implements Hybrid Logical Clock algorithm combining wall clock time with vector clocks
-   - Vector clock tracks logical counters for each client in the system
-   - Vectors never reset. On receiving data client updates own vector entry to max of all entries.
-   - On starting a mutation client increments their vector entry by +1
-   - Provides functions for timestamp generation, comparison, and merging
-   - Ensures total ordering across distributed systems with better causality tracking
-6. **Electric SQL Integration**: For syncing action tables between client and server
-
-### Backend Database State
-
-1. **Append-Only Records**:
-
-   - Action records are immutable once created
-   - New records are only added, never modified
-   - This preserves the history of all operations
-
-2. **Server-Side Processing**:
-   - Backend database state is maintained by applying forward patches
-   - All reconciliation happens on clients
-   - Server only needs to apply patches, not execute actions
-   - This ensures eventual consistency as clients sync
-
-## 5. Implementation Process
-
-### Step 1: Database Setup
-
-1. Create action_records and action_modified_rows tables
-2. Implement PgLite triggers on all synchronized tables
-3. Create PL/pgSQL functions for patch generation:
-   - Triggers on each table capture changes to rows
-   - Triggers call PL/pgSQL functions to convert row changes into JSON patch format
-   - Functions update action_records with the same txid as txid_current()
-   - Functions insert records into action_modified_rows with forward and reverse patches
-   - Each modification to a row is recorded as a separate action_modified_row with an incremented sequence number
-
-### Step 2: Core Services
-
-1. Implement HLC service for timestamp generation:
-
-   - Create functions for generating new timestamps with vector clocks
-   - Implement comparison logic for total ordering that respects causality
-   - Add merge function to handle incoming timestamps and preserve causal relationships
-   - Support vector clock operations (increment, merge, compare)
-
-2. Create action registry for storing and retrieving action definitions:
-
-   - Global map with action tags as keys
-   - Support for versioned action tags (e.g., 'update_tags_v1')
-   - Error handling for missing or invalid action tags
-   - Validation to ensure actions meet requirements
-
-3. Implement database abstraction layer using Effect-TS
-
-### Step 3: Action Execution
-
-1. Implement executeAction function:
-
-   - Start transaction
-   - Fetch txid_current()
-   - Insert action record with all fields
-   - Run action function
-   - Handle errors during execution (rollback transaction)
-   - Commit (triggers capture changes)
-   - Return success/failure status with error details if applicable
-
-2. Implement applyActions function:
-   - Similar to executeAction but without creating new records for each action
-   - Create a SYNC action:
-     - Triggers still capture changes during apply
-     - Compare captured changes with incoming action_modified_rows patches
-     - If differences exist (likely due to conditionals and private data) filter out identical patches and keep the SYNC action
-     - SYNC action contains the diff between expected and actual changes
-     - If there are no differences delete the SYNC action
-
-### Step 4: Synchronization
-
-1. Implement client-to-server sync:
-
-   - ActionRecords and ActionModifiedRows are streamed from the server to the client with applied: false
-   - Clients are responsible for applying the actions to their local state and resolving conlficts
-   - For testing purposes during development a test SyncNetworkService implementation is used to simulate getting new actions from the server
-
-2. Implement conflict detection:
-
-   - Compare incoming and local unsynced actions using vector clock causality
-   - Identify affected rows
-   - Detect concurrent modifications (neither action happens-before the other)
-
-3. Implement reconciliation process:
-   - Find common ancestor (latest synced action record before any incoming or unsynced records)
-   - Roll back to common state
-   - Replay actions in HLC order
-   - Create new action records
-
-## 6. Synchronization Protocol
-
-### Applying SYNC actions
-
-1. If there are incoming SYNC actions apply the forward patches to the local state without generating any new action records.
-2. This is because there is no action to run, the SYNC action is just a diff between expected and actual state to ensure consistency when modifications differ due to conditionals and private data.
-
-The overall flow for SYNC actions is as follows:
-
-1. Create one placeholder InternalSyncApply record at the start of the transaction.
-2. Apply all incoming actions (regular logic or SYNC patches) in HLC order.
-3. Fetch all patches generated within the transaction (generatedPatches).
-4. Fetch all original patches associated with all received actions (originalPatches).
-5. Compare generatedPatches and originalPatches.
-6. Keep/update or delete the placeholder SYNC based on the comparison result.
-7. If kept, send the SYNC action to the server and update the client's last_synced_clock.
-
-### Normal Sync (No Conflicts)
-
-1. Server syncs actions to the client with electric-sync (filtered by RLS to only include actions that the client has access to)
-2. Client applies incoming actions:
-   - If outcome differs from expected due to private data, create SYNC actions
-   - Mark actions as applied
-3. Client updates last_synced_hlc
-
-### Detailed cases:
-
-Here are the cases that need to be handled when syncing:
-
-1. If there are no local pending actions insert a SYNC action record, apply the remote actions, diff the patches from apply the actions against the patches incoming from the server for all actions that were applied. Remove any identical patches. If there are no differences in patches the SYNC action may be deleted. Otherwise commit the transaction and send the SYNC action.
-2. If there are local pending actions but no incoming remote actions then attempt to send the local pending actions to the backend and mark as synced.
-3. If there are incoming remote actions that happened before local pending actions (ordered by HLC) then a ROLLBACK action must be performed and actions re-applied in total order potentially also capturing a SYNC action if outcomes differ. Send rollback and new actions to server once this is done.
-4. If all remote actions happened after all local actions (by HLC order) do the same as 1. above
-5. If there are rollback actions in the incoming set find the one that refers to the oldest state and roll back to that state if it is older than any local action. This ensures that we only roll back once and roll back to a point where no actions will be missed in total order. Skip application of rollback actions during application of incoming actions.
-
-### Conflict Resolution
-
-1. Client detects conflicts between local and incoming actions:
-
-   - If there are any incoming actions that are causally concurrent or before local unsynced actions, conflict resolution is required
-   - Vector clocks allow precise detection of concurrent modifications
-   - If there are no local actions or all incoming actions happened after all local actions (by HLC order) then apply the incoming actions in a SYNC action as described above
-
-2. Client fetches all relevant action records and affected rows:
-   - All action records affecting rows in local DB dating back to last_synced_clock
-   - All rows impacted by incoming action records (filtered by Row Level Security)
-3. Client identifies common ancestor state
-4. Client performs reconciliation:
-   - Start transaction
-   - Apply reverse patches in reverse order to roll back to common ancestor
-   - Create a SINGLE ROLLBACK action containing no patches, just the id of the common ancestor action
-   - Determine total order of actions from common state to newest (local or incoming)
-   - Replay actions in HLC order with a placeholder SYNC action
-   - Check the generated patches against the set of patches for the actions replayed
-     - If the patches are identical, delete the SYNC action
-     - If there are differences (for example due to conditional logic) keep the SYNC action with only the patches that differ
-   - Send new actions (including rollback and SYNC if any) to server
-   - If rejected due to newer actions, rollback transaction and repeat reconciliation
-   - If accepted, commit transaction
-5. Server applies forward patches to keep rows in latest consistent state
-   1. Server also applies rollbacks when received from the client. It uses the same logic, finding the rollback action targeting the oldest state in the incoming set and rolling back to that state before applying _patches_ in total order.
-
-### Live Sync
-
-1. Use Electric SQL to sync action_record and action_modified_rows tables:
-   - Sync records newer than last_synced_clock
-   - Use up-to-date signals to ensure all action_modified_rows are received
-   - Utilize experimental multishapestream and transactionmultishapestream APIs
-2. Track applied status of incoming actions
-3. Apply actions as they arrive
-4. Perform reconciliation when needed
-5. Send local actions to server when up-to-date
-
-### Initial State Establishment
-
-1. Get current server HLC
-2. Sync current state of data tables via Electric SQL
-3. Merge client's last_synced_clock to current server HLC
-4. This establishes a clean starting point without historical action records
-
-## 7. Security & Data Privacy
-
-### Row-Level Security
-
-1. PostgreSQL RLS ensures users only access authorized rows
-2. RLS filters action_records and action_modified_rows
-3. Replayed actions only affect visible data
-
-### Patch Verification
-
-1. Verify reverse patches don't modify unauthorized rows:
-   - Run a PL/pgSQL function with user's permission level
-   - Check existence of all rows in reverse patch set
-   - RLS will filter unauthorized rows
-   - If any rows are missing, patches contain unauthorized modifications
-   - Return error for unauthorized patches
-
-### Patch Format
-
-1. JSON Patch Structure:
-   - Forward patches follow the simple format `{column_name: value}`. We only need to know the final value of any modified columns.
-   - Reverse patches use the same format but represent inverse operations. We only need to know the previous value of any modified columns.
-   - action_modified_rows includes an `operation` column "INSERT" | "DELETE" | "UDPATE" to capture adding/deleting/updating as the type of the overall operation against a row.
-     - If a row is updated and then deleted in the same transaction the action_modified_rows entry should have operation DELETE and the reverse patches should contain the original value (not the value from the update operation) of all the columns.
-     - If a row is inserted and then deleted in the same transaction the action_modified_row should be deleted because it is as if the row were never created
-     - If a row is updated more than once in a transaction the reverse patches must always contain the original values
-     - Reverse patches must always contain the necessary patches to restore a row to the exact state it was in before the transaction started
-   - Complex data types are serialized as JSON
-   - Relationships are represented by references to primary keys
-
-### Private Data Protection
-
-1. SYNC actions handle differences due to private data:
-   - Created when applying incoming actions produces different results
-   - Not created during reconciliation (new action records are created instead)
-2. Row-level security prevents exposure of private data
-3. Proper action scoping prevents unintended modifications
-
-## 8. Edge Cases & Solutions
-
-### Case: Cross-Client Private Data
-
-**Q: Do we need server-side action execution?**  
-A: No. Each client fully captures all relevant changes to data they can access.
-
-**Example:**
-
-1. Client B takes an action on shared data AND private data
-2. Client B syncs this action without conflict
-3. Client A takes an offline action modifying shared data
-4. Client A detects conflict, rolls back to common ancestor
-5. Client A records rollback and replays actions (can only see shared data)
-6. Client A syncs the rollback and potentially a SYNC action
-7. Client B applies the rollback (affecting both shared and private data)
-8. Client B replays actions in total order, restoring both shared and private data
-
-### Case: Unintended Data Modification
-
-**Q: Will replaying actions affect private data?**  
-A: Only if actions are improperly scoped. Solution: Always include user ID in WHERE clauses.
-
-**Example:**
-
-- An action defined as "mark all as complete" could affect other users' data
-- Proper scoping with `WHERE user_id = current_user_id` prevents this
-- Always capture user context in action arguments
-
-### Case: Data Privacy Concerns
-
-**Q: Will private data be exposed?**  
-A: No. Row-level security on action_modified_rows prevents seeing patches to private data, and SYNC actions handle conditional modifications.
-
-## 9. Storage Management
-
-1. **Unbounded Growth Prevention**:
-
-   - Drop action records older than 1 week
-   - Clients that sync after records are dropped will:
-     - Replay state against latest row versions
-     - Skip rollback/replay of historical actions
-     - Still preserve user intent in most cases
-
-2. **Delete Handling**:
-   - Flag rows as deleted instead of removing them
-   - Other clients may have pending operations against deleted rows
-   - Eventual garbage collection after synchronization
-
-### Business Logic Separation
-
-1. Actions implement pure business logic, similar to API endpoints
-2. They should be independent of CRDT/sync concerns
-3. Actions operate on whatever state exists when they run
-4. The same action may produce different results when replayed if state has changed
-5. Actions should properly scope queries with user context to prevent unintended data modification
-
-### Action Definition Structure
-
-1. **Action Interface**:
-
-   - Each action must have a unique tag identifier
-   - Must include an apply function that takes serializable arguments
-   - Apply function must return an Effect that modifies database state
-   - All non-deterministic inputs must be passed as arguments
-   - A timestamp is always provided as an argument to the apply function to avoid time based non-determinism
-
-2. **Action Registration**:
-   - Actions are registered in a global registry (provided via an Effect service)
-   - Registry maps tags to implementations
-   - Support for looking up actions by tag during replay
-
-## 11. Error Handling & Recovery
-
-1. **Action Execution Failures**:
-
-   - Rollback transaction on error
-   - Log detailed error information
-   - Provide retry mechanism with exponential backoff
-   - Handle specific error types differently (network vs. validation)
-
-## 13. Testing
-
-### Test setup
-
-- Use separate in-memory pglite instances to simulate multiple clients and a server
-- Use effect layers to provide separate instances of all services to each test client and server
-- Use a mock network service to synchronize data between test clients and fake server
-- Use Effect's TestClock API to simulate clock conflict scenarios and control ordering of actions
-
-### Important test cases
-
-    1. Database function tests
-       1. Triggers always capture reverse patches that can recreate state at transaction start regardless of how many modifications are made and in what order
-    2. Clock tests
-       1. Proper ordering of clocks with vector components
-       2. Clock conflict resolution for concurrent modifications
-       3. Causality detection between related actions
-       4. Client ID tiebreakers when timestamps and vectors are equal
-    3. Action sync tests
-       1. No local actions, apply remote actions with identical patches - no SYNC recorded
-       2. No local actions, apply remote actions with different patches - SYNC recorded
-       3. SYNC action applied directly to state via forward patches
-       4. Rollback action correctly rolls back all state exactly to common ancestor
-       5. After rollback actions are applied in total order
-       6. Server applies actions as forward patches only (with the exception of rollback which is handled the same way as the client does, find the earliest target state in any rollbacks, roll back to that, then apply patches in total order)
-       7. Server rejects actions that are older than other actions modifying the same rows (client must resolve conflict)
-       8. SYNC actions correctly handle conditionals in action functions to arrive at consistent state across clients
-       9. Concurrent modifications by different clients are properly ordered
-    4. Security tests
-       1. Row-level security prevents seeing private data
-       2. Row-level security prevents seeing patches to private data
-       3.
-
-# Update 1
-
-Revised the plan to alter the approach to rollbacks and action_modified_rows generation.
-
-### Rollback changes
-
-1.  Previous approach: record rollback action with all patches to roll back to a common ancestor then replay actions as _new_ actions.
-2.  New approach: Rollback action does not record patches, only the target action id to roll back to. Replay does not create new actions or patches. Instead, replay uses the same apply + SYNC action logic as the fast-forward case.
-
-### Server changes:
-
-1.  Previous approach: Server only applies forward patches. This included rollbacks as forward patches. This caused problems because rollbacks contained patches to state that only existed on the client at the time and would not exist on the server until after the rollback when the actions were applied. It also greatly increased the size of the patch set.
-2.  New approach: Server handles rollbacks the same way as the client. Analyze incoming actions, find the rollback (if any) that has the oldest target state. Roll back to that state then apply forward patches for actions in total order skipping any rollbacks.
-
-### Action_modified_rows changes:
-
-1.  Previous approach: only one action_modified_row per row modified in an action. Multiple modifications to the same row were merged into a single action_modified_row.
-2.  New approach: every modification to a row is recorded as a separate action_modified_row with an incremented sequence number. This allows us to sidestep potential constraint issues and ensure that application of forward patches is capturing the correct state on the server.
-
-## 14. Future Enhancements
-
-1. ESLint plugin to detect impure action functions
-2. Purity testing by replay:
-   - Make a savepoint
-   - Apply an action
-   - Roll back to savepoint
-   - Apply action again
-   - Ensure both runs produce identical results
-3. Helper functions for standardizing user context in actions
-4. Schema migration handling for action definitions
-5. Versioning strategy for the overall system
-6. Include clock drift detection with configurable maximum allowable drift
-7. Add support for manual conflict resolution
-8. Versioning convention for tags (e.g., 'action_name_v1')
-9. Optimize vector clock size by pruning entries for inactive clients
-
-### Performance Optimization
-
-1. **Patch Size Reduction**:
-
-   - Compress patches for large data sets
-   - Use differential encoding for similar patches
-   - Batch small changes into single patches
-
-2. **Sync Efficiency**:
-
-   - Prioritize syncing frequently accessed data
-   - Use incremental sync for large datasets
-   - Implement connection quality-aware sync strategies
-   - Optimize vector clock comparison for large action sets
-   - Prune vector clock entries that are no longer relevant
-
-3. **Storage Optimization**:
-   - Implement efficient garbage collection
-   - Use column-level patching for large tables
-   - Optimize index usage for action queries
-   - Compress vector clocks for storage efficiency
-````
-
 ## File: repomix.config.json
 ````json
 {
@@ -5863,6 +5073,62 @@ export default defineConfig({
 })
 ````
 
+## File: examples/todo-app/src/db/electric.tsx
+````typescript
+import { type LiveQueryResults } from "@electric-sql/pglite/live"
+import { PgLiteSyncTag } from "@synchrotron/sync-client/index"
+import { useRuntime, useService } from "examples/todo-app/src/main"
+import { useEffect, useState } from "react"
+import { Todo } from "./schema"
+
+export function useReactiveTodos() {
+	const [todos, setTodos] = useState<readonly Todo[]>([])
+	const [isLoading, setIsLoading] = useState(true)
+	const db = useService(PgLiteSyncTag)
+	const runtime = useRuntime()
+	useEffect(() => {
+		try {
+			if (db) {
+				const loadTodos = () => {
+					console.log(`loadTodos starting live query`)
+					db.extensions.live.query<Todo>("select * from todos").then((todos) => {
+						try {
+							setTodos(todos.initialResults.rows)
+							const callback = (newTodos: LiveQueryResults<Todo>) => {
+								console.log(`live query todos got new rows`, newTodos.rows)
+								setTodos(newTodos.rows)
+							}
+							todos.subscribe(callback)
+							return () => todos.unsubscribe(callback)
+						} catch (e) {
+							console.error(`Error setting up live query for todos`, e)
+						}
+					})
+				}
+
+				// Initial load
+				const unsub = loadTodos()
+
+				return unsub
+			} else {
+				console.warn("Electric SQL not available")
+				setIsLoading(false)
+			}
+		} catch (e) {
+			console.error("Error setting up Electric SQL subscription:", e)
+			setIsLoading(false)
+		}
+
+		return undefined
+	}, [db, runtime])
+
+	return {
+		todos,
+		isLoading
+	}
+}
+````
+
 ## File: examples/todo-app/src/db/setup.ts
 ````typescript
 import { SqlClient } from "@effect/sql"
@@ -5903,45 +5169,6 @@ import { Outlet } from "react-router"
 export default function Root() {
 	return <Outlet />
 }
-````
-
-## File: examples/todo-app/docker-compose.yml
-````yaml
-name: "${PROJECT_NAME:-synchrotron-example-default}"
-
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: electric
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    ports:
-      - 56321:5432
-    volumes:
-      - ./postgres.conf:/etc/postgresql/postgresql.conf:ro
-    tmpfs:
-      - /var/lib/postgresql/data
-      - /tmp
-    command:
-      - postgres
-      - -c
-      - config_file=/etc/postgresql/postgresql.conf
-
-  backend:
-    image: electricsql/electric:canary
-    environment:
-      DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
-      # Not suitable for production. Only use insecure mode in development or if you've otherwise secured the Electric API.
-      # See https://electric-sql.com/docs/guides/security
-      ELECTRIC_INSECURE: true
-      ELECTRIC_LOG_LEVEL: debug
-    ports:
-      - 5133:3000
-    build:
-      context: ../packages/sync-service/
-    depends_on:
-      - postgres
 ````
 
 ## File: packages/sql-pglite/src/PgLiteClient.ts
@@ -6395,6 +5622,162 @@ export interface PgLiteArray extends Custom<"PgLiteArray", [ReadonlyArray<Primit
 export const PgLiteArray = Statement.custom<PgLiteArray>("PgLiteArray")
 ````
 
+## File: packages/sync-client/src/electric/ElectricSyncService.ts
+````typescript
+import type { Message, Row } from "@electric-sql/client" // Import ShapeStreamOptions
+// Removed unused import: SyncShapeToTableResult
+import { ActionModifiedRow, ActionRecord, SyncService } from "@synchrotron/sync-core" // Added ActionModifiedRow, ActionRecord
+import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
+import { Effect, Schema, Stream } from "effect" // Added Cause
+import { PgLiteSyncTag } from "../db/connection"
+
+export class ElectricSyncError extends Schema.TaggedError<ElectricSyncError>()(
+	"ElectricSyncError",
+	{
+		message: Schema.String,
+		cause: Schema.optional(Schema.Unknown)
+	}
+) {}
+
+export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
+	"ElectricSyncService",
+	{
+		scoped: Effect.gen(function* () {
+			yield* Effect.logInfo(`creating ElectricSyncService`)
+			const clockService = yield* ClockService
+			const syncService = yield* SyncService
+			const config = yield* SynchrotronClientConfig
+			const pgLiteClient = yield* PgLiteSyncTag
+			const electricUrl = config.electricSyncUrl
+			yield* Effect.logInfo(`Creating TransactionalMultiShapeStream`)
+
+			const multiShapeSync = yield* Effect.tryPromise({
+				try: async () => {
+					return pgLiteClient.extensions.electric.syncShapesToTables({
+						key: "synchrotron-sync",
+						shapes: {
+							action_records: {
+								shape: {
+									url: `${electricUrl}/v1/shape`,
+									params: { table: "action_records" }
+								},
+
+								table: "action_records",
+								primaryKey: ["id"]
+							},
+							action_modified_rows: {
+								shape: {
+									url: `${electricUrl}/v1/shape`,
+									params: { table: "action_modified_rows" }
+								},
+								table: "action_modified_rows",
+								primaryKey: ["id"]
+							}
+						}
+					})
+				},
+				catch: (e) =>
+					new ElectricSyncError({
+						message: `Failed to create TransactionalMultiShapeStream: ${e instanceof Error ? e.message : String(e)}`,
+						cause: e
+					})
+			})
+			const actionRecordStream = Stream.asyncScoped<
+				Message<Row<ActionRecord>>[],
+				ElectricSyncError
+			>((emit) =>
+				Effect.gen(function* () {
+					yield* Effect.logInfo("Subscribing to actionRecordStream")
+					return yield* Effect.acquireRelease(
+						Effect.gen(function* () {
+							return multiShapeSync.streams.action_records!.subscribe(
+								(messages: any) => {
+									emit.single(messages as Message<Row<ActionRecord>>[])
+								},
+								(error: unknown) => {
+									emit.fail(
+										new ElectricSyncError({
+											message: `actionRecordStream error: ${error instanceof Error ? error.message : String(error)}`,
+											cause: error
+										})
+									)
+								}
+							)
+						}),
+						(unsub) =>
+							Effect.gen(function* () {
+								yield* Effect.logInfo("Unsubscribing from actionRecordStream")
+								unsub()
+							})
+					)
+				})
+			)
+			const actionModifiedRowsStream = Stream.asyncScoped<
+				Message<Row<ActionModifiedRow>>[],
+				ElectricSyncError
+			>((emit) =>
+				Effect.gen(function* () {
+					yield* Effect.logInfo("Subscribing to actionModifiedRowsStream")
+					return yield* Effect.acquireRelease(
+						Effect.gen(function* () {
+							yield* Effect.logInfo("Subscribing to actionModifiedRowsStream")
+							return multiShapeSync.streams.action_modified_rows!.subscribe(
+								(messages: any) => {
+									emit.single(messages as Message<Row<ActionModifiedRow>>[])
+								},
+								(error: unknown) => {
+									emit.fail(
+										new ElectricSyncError({
+											message: `actionModifiedRowsStream error: ${error instanceof Error ? error.message : String(error)}`,
+											cause: error
+										})
+									)
+								}
+							)
+						}),
+						(unsub) =>
+							Effect.gen(function* () {
+								yield* Effect.logInfo("Unsubscribing from actionModifiedRowsStream")
+								unsub()
+							})
+					)
+				})
+			)
+
+			// yield* actionRecordStream.pipe(
+			// 	Stream.zipLatest(actionModifiedRowsStream),
+
+			// 	Stream.tap((messages) =>
+			// 		Effect.logTrace(
+			// 			`Multi-shape sync batch received: ${JSON.stringify(messages, (_, v) => (typeof v === "bigint" ? `BIGINT: ${v.toString()}` : v), 2)}`
+			// 		)
+			// 	),
+			// 	Stream.filter(
+			// 		([ar, amr]) =>
+			// 			ar.every((a) => a.headers.control === "up-to-date") &&
+			// 			amr.every((a) => a.headers.control === "up-to-date")
+			// 	),
+			// 	Stream.tap((_) =>
+			// 		Effect.logInfo("All shapes in multi-stream are synced. Triggering performSync.")
+			// 	),
+			// 	Stream.tap(() => syncService.performSync()),
+			// 	Stream.catchAllCause((cause) => {
+			// 		Effect.runFork(Effect.logError("Error in combined sync trigger stream", cause))
+			// 		return Stream.empty
+			// 	}),
+			// 	Stream.runDrain,
+			// 	Effect.forkScoped
+			// )
+
+			yield* Effect.logInfo(`ElectricSyncService created`)
+
+			return {}
+		})
+	}
+) {}
+````
+
 ## File: packages/sync-client/src/test/TestLayers.ts
 ````typescript
 import { PgLiteClientLive } from "../db/connection"
@@ -6462,6 +5845,133 @@ const config: ViteUserConfig = {
 }
 
 export default mergeConfig(shared, config)
+````
+
+## File: packages/sync-core/src/db/sql/patch/generate_patches.sql
+````sql
+CREATE OR REPLACE FUNCTION generate_patches() RETURNS TRIGGER AS $$
+DECLARE
+	patches_data RECORD;
+	v_action_record_id TEXT;
+	current_transaction_id BIGINT;
+	amr_record RECORD;
+	v_sequence_number INT; -- Added sequence number variable
+	target_row_id TEXT;
+	old_row_data JSONB;
+	new_row_data JSONB;
+	operation_type TEXT;
+	v_table_name TEXT;
+	result JSONB;
+	disable_tracking BOOLEAN;
+BEGIN
+	-- Check if the trigger is disabled for this session
+	-- Check session-level setting (removed 'true' from current_setting)
+	-- Revert to checking transaction-local setting only
+	IF COALESCE(current_setting('sync.disable_trigger', true), 'false') = 'true' THEN
+		RAISE NOTICE '[generate_patches] Trigger disabled by sync.disable_trigger setting.';
+		RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END; -- Return appropriate value without doing anything
+	END IF;
+
+	RAISE NOTICE '[generate_patches] Trigger fired for OP: %, Table: %', 
+		TG_OP, 
+		TG_TABLE_NAME;
+
+
+	-- Check if tracking is disabled for testing
+	SELECT current_setting('test_disable_tracking', true) = 'true' INTO disable_tracking;
+	IF disable_tracking THEN
+		RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END; -- Return appropriate value without doing anything
+	END IF;
+
+	-- Determine operation type and prepare data based on trigger operation
+	IF TG_OP = 'DELETE' THEN
+		old_row_data := to_jsonb(OLD);
+		new_row_data := '{}'::JSONB;
+		operation_type := 'DELETE';
+		target_row_id := OLD.id;
+		RAISE NOTICE '[generate_patches] DELETE detected for RowID: %', target_row_id;
+	ELSIF TG_OP = 'INSERT' THEN
+		old_row_data := '{}'::JSONB;
+		new_row_data := to_jsonb(NEW);
+		operation_type := 'INSERT';
+		target_row_id := NEW.id;
+		RAISE NOTICE '[generate_patches] INSERT detected for RowID: %', target_row_id;
+	ELSIF TG_OP = 'UPDATE' THEN
+		-- Regular update (soft delete logic removed)
+		old_row_data := to_jsonb(OLD);
+		new_row_data := to_jsonb(NEW);
+		operation_type := 'UPDATE';
+		target_row_id := NEW.id;
+		RAISE NOTICE '[generate_patches] UPDATE detected for RowID: %', target_row_id;
+	END IF;
+
+	-- Get the current transaction ID
+	current_transaction_id := txid_current();
+
+	-- Find the most recent action_record for this transaction
+	SELECT id INTO v_action_record_id FROM action_records
+	WHERE transaction_id = current_transaction_id
+	ORDER BY created_at DESC
+	LIMIT 1;
+
+	-- If no action record exists for this transaction, we have a problem
+	IF v_action_record_id IS NULL THEN
+		RAISE WARNING '[generate_patches] No action_record found for transaction_id %', current_transaction_id;
+		RAISE EXCEPTION 'No action_record found for transaction_id %', current_transaction_id;
+	END IF;
+
+	-- Calculate the next sequence number for this action record
+	SELECT COALESCE(MAX(sequence), -1) + 1 INTO v_sequence_number
+	FROM action_modified_rows
+	WHERE action_record_id = v_action_record_id;
+
+	-- Store TG_TABLE_NAME in variable to avoid ambiguity
+	v_table_name := TG_TABLE_NAME;
+
+	-- Handle based on operation type
+	IF TG_OP = 'DELETE' THEN
+		-- Handle soft deletion by calling the handler function with the existing amr record
+		result := handle_remove_operation(
+			v_action_record_id, 
+			v_table_name, 
+			target_row_id, 
+			operation_type, 
+			old_row_data,
+			v_sequence_number -- Pass sequence number
+		);
+		RETURN OLD;
+	ELSIF TG_OP = 'INSERT' THEN
+		-- For new rows, delegate to the insert handler
+		-- We always call the handler, it will check for existing entries internally
+		result := handle_insert_operation(
+			v_action_record_id,
+			v_table_name,
+			target_row_id,
+			operation_type,
+			old_row_data,
+			new_row_data,
+			v_sequence_number -- Pass sequence number
+		);
+	ELSIF TG_OP = 'UPDATE' THEN
+		-- For modifications to existing rows, delegate to the update handler
+		result := handle_update_operation(
+			v_action_record_id,
+			v_table_name,
+			target_row_id,
+			old_row_data,
+			new_row_data,
+			operation_type,
+			v_sequence_number -- Pass sequence number
+		);
+	END IF;
+
+	IF TG_OP = 'DELETE' THEN
+		RETURN OLD;
+	ELSE
+		RETURN NEW;
+	END IF;
+END;
+$$ LANGUAGE plpgsql;
 ````
 
 ## File: packages/sync-core/src/db/action-functions.ts
@@ -11267,6 +10777,496 @@ export default ts.config(
 )
 ````
 
+## File: README.md
+````markdown
+# Synchrotron
+
+An opinionated approach to offline-first data sync with [PGlite](https://pglite.dev/) and [Effect](https://effect.website/).
+
+## Status
+
+### Experimental
+
+- This is an experimental project and is not ready for production use
+- There are comprehensive tests in packages/sync-core illustrating that the idea works
+- API is split into sync-client, sync-core, and sync-server
+- Example app is partially complete. It somewhat syncs content but still has some fundamental errors requiring further work.
+  - Run the example with:
+    - `cd examples/todo-app`
+    - `pnpm backend:up` (need docker running)
+    - `pnpm dev`
+    - Open http://localhost:5173 in your browser
+
+## License
+
+MIT
+
+# Design Plan
+
+## 1. Overview
+
+This document outlines a plan for implementing an offline-first synchronization system using Conflict-free Replicated Data Types (CRDTs) with Hybrid Logical Clocks (HLCs). The system enables deterministic conflict resolution while preserving user intentions across distributed clients.
+
+**Core Mechanism**: When conflicts occur, the system:
+
+1. Identifies a common ancestor state
+2. Rolls back to this state using reverse patches
+3. Replays all actions in HLC order
+4. Creates notes any divergences from expected end state as a new action
+
+## 2. System Goals
+
+- **Offline-First**: Enable optimistic writes to client-local databases (PgLite, single user postgresql in wasm) with eventual consistency guarantees
+- **Intention Preservation**: Maintain user intent during conflict resolution
+- **Deterministic Ordering**: Establish total ordering of events via HLCs
+- **Performance**: Prevent unbounded storage growth and minimize data transfer
+- **Security**: Enforce row-level security while maintaining client authority
+- **Consistency**: Ensure all clients eventually reach the same state
+
+## 3. Core Concepts
+
+### Key Terminology
+
+| Term                            | Definition                                                                                                                   |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Action Record**               | Database row representing a business logic action with unique tag, non-deterministic arguments, client ID, and HLC timestamp |
+| **Action Modified Row**         | Database row linking actions to affected data rows with forward/reverse patches                                              |
+| **Non-deterministic Arguments** | Values that would differ between clients if accessed inside an action (time, random values, user context)                    |
+| **HLC**                         | Hybrid Logical Clock combining physical timestamp and vector clock for total ordering across distributed clients             |
+| **Execute**                     | Run an action function and capture it as a new action record with modified rows                                              |
+| **Apply**                       | Run an action(s) function without capturing a new record (for fast-forwarding, may capture a SYNC action if required)        |
+| **SYNC Action**                 | Special action created when applying incoming actions produces different results due to private data and conditional logic   |
+| **ROLLBACK Action**             | System action representing the complete set of patches to roll back to a common ancestor                                     |
+
+### Action Requirements
+
+1. **Deterministic**: Same inputs + same database state = same outputs
+2. **Pure**: No reading from external sources inside the action
+3. **Immutable**: Action definitions never change (to modify an action, create a new one with a different tag)
+4. **Explicit Arguments**: All non-deterministic values must be passed as arguments
+5. **Proper Scoping**: Include appropriate WHERE clauses to respect data boundaries
+
+## 4. System Architecture
+
+### Database Schema
+
+1. **action_records Table**:
+
+   - `id`: Primary key
+   - `_tag`: Action identifier
+   - `arguments`: Serialized non-deterministic inputs
+   - `client_id`: Originating client
+   - `hlc`: Hybrid logical clock for ordering (containing timestamp and vector clock)
+   - `created_at`: Creation timestamp
+   - `transaction_id`: For linking to modified rows
+   - `synced`: Flag for tracking sync status
+
+2. **action_modified_rows Table**:
+
+   - `id`: Primary key
+   - `action_record_id`: Foreign key to action_records
+   - `table_name`: Modified table
+   - `row_id`: ID of modified row
+   - `operation`: The overall type of change, INSERT for inserted rows, DELETE for deleted rows, UPDATE for everything else
+   - `forward_patches`: Changes to columns to apply (for server)
+   - `reverse_patches`: Changes to columns to undo (for rollback)
+   - `sequence`: Sequence number for ordering within a transaction (action)
+
+3. **local_applied_action_ids Table**
+   - `action_record_id`: primary key, references action_records, indicates an action_record the client has applied locally
+
+### Components
+
+1. **Action Registry**: Global map of action tags to implementations
+2. **Database Abstraction**: Using `@effect/sql` Model class, makeRepository, and SqlSchema functions
+3. **Trigger System**: PgLite triggers for capturing data changes
+4. **Patch Generation**: Forward and reverse patches via triggers
+5. **HLC Service**: For generating and comparing Hybrid Logical Clocks
+   - Implements Hybrid Logical Clock algorithm combining wall clock time with vector clocks
+   - Vector clock tracks logical counters for each client in the system
+   - Vectors never reset. On receiving data client updates own vector entry to max of all entries.
+   - On starting a mutation client increments their vector entry by +1
+   - Provides functions for timestamp generation, comparison, and merging
+   - Ensures total ordering across distributed systems with better causality tracking
+6. **Electric SQL Integration**: For syncing action tables between client and server
+
+### Backend Database State
+
+1. **Append-Only Records**:
+
+   - Action records are immutable once created
+   - New records are only added, never modified
+   - This preserves the history of all operations
+
+2. **Server-Side Processing**:
+   - Backend database state is maintained by applying forward patches
+   - All reconciliation happens on clients
+   - Server only needs to apply patches, not execute actions
+   - This ensures eventual consistency as clients sync
+
+## 5. Implementation Process
+
+### Step 1: Database Setup
+
+1. Create action_records and action_modified_rows tables
+2. Implement PgLite triggers on all synchronized tables
+3. Create PL/pgSQL functions for patch generation:
+   - Triggers on each table capture changes to rows
+   - Triggers call PL/pgSQL functions to convert row changes into JSON patch format
+   - Functions update action_records with the same txid as txid_current()
+   - Functions insert records into action_modified_rows with forward and reverse patches
+   - Each modification to a row is recorded as a separate action_modified_row with an incremented sequence number
+
+### Step 2: Core Services
+
+1. Implement HLC service for timestamp generation:
+
+   - Create functions for generating new timestamps with vector clocks
+   - Implement comparison logic for total ordering that respects causality
+   - Add merge function to handle incoming timestamps and preserve causal relationships
+   - Support vector clock operations (increment, merge, compare)
+
+2. Create action registry for storing and retrieving action definitions:
+
+   - Global map with action tags as keys
+   - Support for versioned action tags (e.g., 'update_tags_v1')
+   - Error handling for missing or invalid action tags
+   - Validation to ensure actions meet requirements
+
+3. Implement database abstraction layer using Effect-TS
+
+### Step 3: Action Execution
+
+1. Implement executeAction function:
+
+   - Start transaction
+   - Fetch txid_current()
+   - Insert action record with all fields
+   - Run action function
+   - Handle errors during execution (rollback transaction)
+   - Commit (triggers capture changes)
+   - Return success/failure status with error details if applicable
+
+2. Implement applyActions function:
+   - Similar to executeAction but without creating new records for each action
+   - Create a SYNC action:
+     - Triggers still capture changes during apply
+     - Compare captured changes with incoming action_modified_rows patches
+     - If differences exist (likely due to conditionals and private data) filter out identical patches and keep the SYNC action
+     - SYNC action contains the diff between expected and actual changes
+     - If there are no differences delete the SYNC action
+
+### Step 4: Synchronization
+
+1. Implement client-to-server sync:
+
+   - ActionRecords and ActionModifiedRows are streamed from the server to the client with applied: false
+   - Clients are responsible for applying the actions to their local state and resolving conlficts
+   - For testing purposes during development a test SyncNetworkService implementation is used to simulate getting new actions from the server
+
+2. Implement conflict detection:
+
+   - Compare incoming and local unsynced actions using vector clock causality
+   - Identify affected rows
+   - Detect concurrent modifications (neither action happens-before the other)
+
+3. Implement reconciliation process:
+   - Find common ancestor (latest synced action record before any incoming or unsynced records)
+   - Roll back to common state
+   - Replay actions in HLC order
+   - Create new action records
+
+## 6. Synchronization Protocol
+
+### Applying SYNC actions
+
+1. If there are incoming SYNC actions apply the forward patches to the local state without generating any new action records.
+2. This is because there is no action to run, the SYNC action is just a diff between expected and actual state to ensure consistency when modifications differ due to conditionals and private data.
+
+The overall flow for SYNC actions is as follows:
+
+1. Create one placeholder InternalSyncApply record at the start of the transaction.
+2. Apply all incoming actions (regular logic or SYNC patches) in HLC order.
+3. Fetch all patches generated within the transaction (generatedPatches).
+4. Fetch all original patches associated with all received actions (originalPatches).
+5. Compare generatedPatches and originalPatches.
+6. Keep/update or delete the placeholder SYNC based on the comparison result.
+7. If kept, send the SYNC action to the server and update the client's last_synced_clock.
+
+### Normal Sync (No Conflicts)
+
+1. Server syncs actions to the client with electric-sync (filtered by RLS to only include actions that the client has access to)
+2. Client applies incoming actions:
+   - If outcome differs from expected due to private data, create SYNC actions
+   - Mark actions as applied
+3. Client updates last_synced_hlc
+
+### Detailed cases:
+
+Here are the cases that need to be handled when syncing:
+
+1. If there are no local pending actions insert a SYNC action record, apply the remote actions, diff the patches from apply the actions against the patches incoming from the server for all actions that were applied. Remove any identical patches. If there are no differences in patches the SYNC action may be deleted. Otherwise commit the transaction and send the SYNC action.
+2. If there are local pending actions but no incoming remote actions then attempt to send the local pending actions to the backend and mark as synced.
+3. If there are incoming remote actions that happened before local pending actions (ordered by HLC) then a ROLLBACK action must be performed and actions re-applied in total order potentially also capturing a SYNC action if outcomes differ. Send rollback and new actions to server once this is done.
+4. If all remote actions happened after all local actions (by HLC order) do the same as 1. above
+5. If there are rollback actions in the incoming set find the one that refers to the oldest state and roll back to that state if it is older than any local action. This ensures that we only roll back once and roll back to a point where no actions will be missed in total order. Skip application of rollback actions during application of incoming actions.
+
+### Conflict Resolution
+
+1. Client detects conflicts between local and incoming actions:
+
+   - If there are any incoming actions that are causally concurrent or before local unsynced actions, conflict resolution is required
+   - Vector clocks allow precise detection of concurrent modifications
+   - If there are no local actions or all incoming actions happened after all local actions (by HLC order) then apply the incoming actions in a SYNC action as described above
+
+2. Client fetches all relevant action records and affected rows:
+   - All action records affecting rows in local DB dating back to last_synced_clock
+   - All rows impacted by incoming action records (filtered by Row Level Security)
+3. Client identifies common ancestor state
+4. Client performs reconciliation:
+   - Start transaction
+   - Apply reverse patches in reverse order to roll back to common ancestor
+   - Create a SINGLE ROLLBACK action containing no patches, just the id of the common ancestor action
+   - Determine total order of actions from common state to newest (local or incoming)
+   - Replay actions in HLC order with a placeholder SYNC action
+   - Check the generated patches against the set of patches for the actions replayed
+     - If the patches are identical, delete the SYNC action
+     - If there are differences (for example due to conditional logic) keep the SYNC action with only the patches that differ
+   - Send new actions (including rollback and SYNC if any) to server
+   - If rejected due to newer actions, rollback transaction and repeat reconciliation
+   - If accepted, commit transaction
+5. Server applies forward patches to keep rows in latest consistent state
+   1. Server also applies rollbacks when received from the client. It uses the same logic, finding the rollback action targeting the oldest state in the incoming set and rolling back to that state before applying _patches_ in total order.
+
+### Live Sync
+
+1. Use Electric SQL to sync action_record and action_modified_rows tables:
+   - Sync records newer than last_synced_clock
+   - Use up-to-date signals to ensure all action_modified_rows are received
+   - Utilize experimental multishapestream and transactionmultishapestream APIs
+2. Track applied status of incoming actions
+3. Apply actions as they arrive
+4. Perform reconciliation when needed
+5. Send local actions to server when up-to-date
+
+### Initial State Establishment
+
+1. Get current server HLC
+2. Sync current state of data tables via Electric SQL
+3. Merge client's last_synced_clock to current server HLC
+4. This establishes a clean starting point without historical action records
+
+## 7. Security & Data Privacy
+
+### Row-Level Security
+
+1. PostgreSQL RLS ensures users only access authorized rows
+2. RLS filters action_records and action_modified_rows
+3. Replayed actions only affect visible data
+
+### Patch Verification
+
+1. Verify reverse patches don't modify unauthorized rows:
+   - Run a PL/pgSQL function with user's permission level
+   - Check existence of all rows in reverse patch set
+   - RLS will filter unauthorized rows
+   - If any rows are missing, patches contain unauthorized modifications
+   - Return error for unauthorized patches
+
+### Patch Format
+
+1. JSON Patch Structure:
+   - Forward patches follow the simple format `{column_name: value}`. We only need to know the final value of any modified columns.
+   - Reverse patches use the same format but represent inverse operations. We only need to know the previous value of any modified columns.
+   - action_modified_rows includes an `operation` column "INSERT" | "DELETE" | "UDPATE" to capture adding/deleting/updating as the type of the overall operation against a row.
+     - If a row is updated and then deleted in the same transaction the action_modified_rows entry should have operation DELETE and the reverse patches should contain the original value (not the value from the update operation) of all the columns.
+     - If a row is inserted and then deleted in the same transaction the action_modified_row should be deleted because it is as if the row were never created
+     - If a row is updated more than once in a transaction the reverse patches must always contain the original values
+     - Reverse patches must always contain the necessary patches to restore a row to the exact state it was in before the transaction started
+   - Complex data types are serialized as JSON
+   - Relationships are represented by references to primary keys
+
+### Private Data Protection
+
+1. SYNC actions handle differences due to private data:
+   - Created when applying incoming actions produces different results
+   - Not created during reconciliation (new action records are created instead)
+2. Row-level security prevents exposure of private data
+3. Proper action scoping prevents unintended modifications
+
+## 8. Edge Cases & Solutions
+
+### Case: Cross-Client Private Data
+
+**Q: Do we need server-side action execution?**  
+A: No. Each client fully captures all relevant changes to data they can access.
+
+**Example:**
+
+1. Client B takes an action on shared data AND private data
+2. Client B syncs this action without conflict
+3. Client A takes an offline action modifying shared data
+4. Client A detects conflict, rolls back to common ancestor
+5. Client A records rollback and replays actions (can only see shared data)
+6. Client A syncs the rollback and potentially a SYNC action
+7. Client B applies the rollback (affecting both shared and private data)
+8. Client B replays actions in total order, restoring both shared and private data
+
+### Case: Unintended Data Modification
+
+**Q: Will replaying actions affect private data?**  
+A: Only if actions are improperly scoped. Solution: Always include user ID in WHERE clauses.
+
+**Example:**
+
+- An action defined as "mark all as complete" could affect other users' data
+- Proper scoping with `WHERE user_id = current_user_id` prevents this
+- Always capture user context in action arguments
+
+### Case: Data Privacy Concerns
+
+**Q: Will private data be exposed?**  
+A: No. Row-level security on action_modified_rows prevents seeing patches to private data, and SYNC actions handle conditional modifications.
+
+## 9. Storage Management
+
+1. **Unbounded Growth Prevention**:
+
+   - Drop action records older than 1 week
+   - Clients that sync after records are dropped will:
+     - Replay state against latest row versions
+     - Skip rollback/replay of historical actions
+     - Still preserve user intent in most cases
+
+2. **Delete Handling**:
+   - Flag rows as deleted instead of removing them
+   - Other clients may have pending operations against deleted rows
+   - Eventual garbage collection after synchronization
+
+### Business Logic Separation
+
+1. Actions implement pure business logic, similar to API endpoints
+2. They should be independent of CRDT/sync concerns
+3. Actions operate on whatever state exists when they run
+4. The same action may produce different results when replayed if state has changed
+5. Actions should properly scope queries with user context to prevent unintended data modification
+
+### Action Definition Structure
+
+1. **Action Interface**:
+
+   - Each action must have a unique tag identifier
+   - Must include an apply function that takes serializable arguments
+   - Apply function must return an Effect that modifies database state
+   - All non-deterministic inputs must be passed as arguments
+   - A timestamp is always provided as an argument to the apply function to avoid time based non-determinism
+
+2. **Action Registration**:
+   - Actions are registered in a global registry (provided via an Effect service)
+   - Registry maps tags to implementations
+   - Support for looking up actions by tag during replay
+
+## 11. Error Handling & Recovery
+
+1. **Action Execution Failures**:
+
+   - Rollback transaction on error
+   - Log detailed error information
+   - Provide retry mechanism with exponential backoff
+   - Handle specific error types differently (network vs. validation)
+
+## 13. Testing
+
+### Test setup
+
+- Use separate in-memory pglite instances to simulate multiple clients and a server
+- Use effect layers to provide separate instances of all services to each test client and server
+- Use a mock network service to synchronize data between test clients and fake server
+- Use Effect's TestClock API to simulate clock conflict scenarios and control ordering of actions
+
+### Important test cases
+
+    1. Database function tests
+       1. Triggers always capture reverse patches that can recreate state at transaction start regardless of how many modifications are made and in what order
+    2. Clock tests
+       1. Proper ordering of clocks with vector components
+       2. Clock conflict resolution for concurrent modifications
+       3. Causality detection between related actions
+       4. Client ID tiebreakers when timestamps and vectors are equal
+    3. Action sync tests
+       1. No local actions, apply remote actions with identical patches - no SYNC recorded
+       2. No local actions, apply remote actions with different patches - SYNC recorded
+       3. SYNC action applied directly to state via forward patches
+       4. Rollback action correctly rolls back all state exactly to common ancestor
+       5. After rollback actions are applied in total order
+       6. Server applies actions as forward patches only (with the exception of rollback which is handled the same way as the client does, find the earliest target state in any rollbacks, roll back to that, then apply patches in total order)
+       7. Server rejects actions that are older than other actions modifying the same rows (client must resolve conflict)
+       8. SYNC actions correctly handle conditionals in action functions to arrive at consistent state across clients
+       9. Concurrent modifications by different clients are properly ordered
+    4. Security tests
+       1. Row-level security prevents seeing private data
+       2. Row-level security prevents seeing patches to private data
+       3.
+
+# Update 1
+
+Revised the plan to alter the approach to rollbacks and action_modified_rows generation.
+
+### Rollback changes
+
+1.  Previous approach: record rollback action with all patches to roll back to a common ancestor then replay actions as _new_ actions.
+2.  New approach: Rollback action does not record patches, only the target action id to roll back to. Replay does not create new actions or patches. Instead, replay uses the same apply + SYNC action logic as the fast-forward case.
+
+### Server changes:
+
+1.  Previous approach: Server only applies forward patches. This included rollbacks as forward patches. This caused problems because rollbacks contained patches to state that only existed on the client at the time and would not exist on the server until after the rollback when the actions were applied. It also greatly increased the size of the patch set.
+2.  New approach: Server handles rollbacks the same way as the client. Analyze incoming actions, find the rollback (if any) that has the oldest target state. Roll back to that state then apply forward patches for actions in total order skipping any rollbacks.
+
+### Action_modified_rows changes:
+
+1.  Previous approach: only one action_modified_row per row modified in an action. Multiple modifications to the same row were merged into a single action_modified_row.
+2.  New approach: every modification to a row is recorded as a separate action_modified_row with an incremented sequence number. This allows us to sidestep potential constraint issues and ensure that application of forward patches is capturing the correct state on the server.
+
+## 14. Future Enhancements
+
+1. ESLint plugin to detect impure action functions
+2. Purity testing by replay:
+   - Make a savepoint
+   - Apply an action
+   - Roll back to savepoint
+   - Apply action again
+   - Ensure both runs produce identical results
+3. Helper functions for standardizing user context in actions
+4. Schema migration handling for action definitions
+5. Versioning strategy for the overall system
+6. Include clock drift detection with configurable maximum allowable drift
+7. Add support for manual conflict resolution
+8. Versioning convention for tags (e.g., 'action_name_v1')
+9. Optimize vector clock size by pruning entries for inactive clients
+
+### Performance Optimization
+
+1. **Patch Size Reduction**:
+
+   - Compress patches for large data sets
+   - Use differential encoding for similar patches
+   - Batch small changes into single patches
+
+2. **Sync Efficiency**:
+
+   - Prioritize syncing frequently accessed data
+   - Use incremental sync for large datasets
+   - Implement connection quality-aware sync strategies
+   - Optimize vector clock comparison for large action sets
+   - Prune vector clock entries that are no longer relevant
+
+3. **Storage Optimization**:
+   - Implement efficient garbage collection
+   - Use column-level patching for large tables
+   - Optimize index usage for action queries
+   - Compress vector clocks for storage efficiency
+````
+
 ## File: tsconfig.json
 ````json
 {
@@ -11312,6 +11312,45 @@ export default function ErrorPage() {
 		</div>
 	)
 }
+````
+
+## File: examples/todo-app/docker-compose.yml
+````yaml
+name: "${PROJECT_NAME:-synchrotron-example-default}"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: electric
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - 56321:5432
+    volumes:
+      - ./postgres.conf:/etc/postgresql/postgresql.conf:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+      - /tmp
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+
+  backend:
+    image: electricsql/electric:canary
+    environment:
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
+      # Not suitable for production. Only use insecure mode in development or if you've otherwise secured the Electric API.
+      # See https://electric-sql.com/docs/guides/security
+      ELECTRIC_INSECURE: true
+      ELECTRIC_LOG_LEVEL: debug
+    ports:
+      - 5133:3000
+    build:
+      context: ../packages/sync-service/
+    depends_on:
+      - postgres
 ````
 
 ## File: examples/todo-app/tsconfig.json
@@ -11383,60 +11422,6 @@ export default mergeConfig(
 export * from "./db/connection"
 export * from "./SyncNetworkService"
 export * from "./layer" // Added export for the main client layer
-````
-
-## File: packages/sync-client/package.json
-````json
-{
-	"name": "@synchrotron/sync-client",
-	"version": "0.0.1",
-	"private": true,
-	"type": "module",
-	"description": "Client-side services and components for the synchrotron sync system.",
-	"exports": {
-		".": "./dist/index.js",
-		"./*": "./dist/*.js"
-	},
-	"typesVersions": {
-		"*": {
-			"*": [
-				"dist/*"
-			]
-		}
-	},
-	"files": [
-		"dist"
-	],
-	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
-		"clean": "rm -rf .tsbuildinfo build dist",
-		"dev": "vite build --watch",
-		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"lint": "prettier --check . && eslint .",
-		"format": "prettier --write ."
-	},
-	"dependencies": {
-		"@effect/experimental": "catalog:",
-		"@effect/platform": "catalog:",
-		"@effect/platform-browser": "catalog:",
-		"@effect/sql": "catalog:",
-		"@effect/rpc": "catalog:",
-		"@electric-sql/client": "catalog:",
-		"@electric-sql/experimental": "catalog:",
-		"@electric-sql/pglite": "catalog:",
-		"@electric-sql/pglite-sync": "catalog:",
-		"effect": "catalog:",
-		"@synchrotron/sync-core": "workspace:*",
-		"@effect/sql-pglite": "workspace:*"
-	},
-	"devDependencies": {
-		"typescript": "catalog:",
-		"vite": "catalog:",
-		"vitest": "catalog:"
-	}
-}
 ````
 
 ## File: packages/sync-client/tsconfig.src.json
@@ -12277,170 +12262,58 @@ export const SyncNetworkServiceLive = Layer.scoped(
 ).pipe(Layer.provide(ProtocolLive)) // Provide the configured protocol layer
 ````
 
-## File: packages/sync-core/src/db/sql/schema/create_sync_tables.sql
-````sql
--- Create action_records table
-CREATE TABLE IF NOT EXISTS action_records (
-	id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
-	_tag TEXT NOT NULL,
-	client_id TEXT NOT NULL,
-	transaction_id FLOAT NOT NULL,
-	clock JSONB NOT NULL,
-	args JSONB NOT NULL,
-	created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-	synced BOOLEAN DEFAULT FALSE,
-	-- Sortable string representation of HLC
-	-- Correctly orders by timestamp, then by version vector, then by client ID alphabetically
-	sortable_clock TEXT
-);
-
-CREATE OR REPLACE FUNCTION compute_sortable_clock(clock JSONB)
-RETURNS TEXT AS $$
-DECLARE
-	ts TEXT;
-	max_counter INT := 0;
-	max_counter_key TEXT := ''; -- Default key
-	row_num INT := 0; -- Default row number
-	sortable_clock TEXT;
-	vector_is_empty BOOLEAN;
-BEGIN
-	ts := lpad((clock->>'timestamp'), 15, '0');
-
-	-- Check if vector exists and is not empty
-	-- Correct way to check if the jsonb object is empty or null
-	vector_is_empty := (clock->'vector' IS NULL) OR (clock->'vector' = '{}'::jsonb);
-
-	IF NOT vector_is_empty THEN
-		-- Find the max counter and its alphabetical first key
-		SELECT key, (value::INT) INTO max_counter_key, max_counter
-		FROM jsonb_each_text(clock->'vector')
-		ORDER BY value::INT DESC, key ASC
-		LIMIT 1;
-
-		-- Determine row number (alphabetical order) of max_counter_key
-		-- Ensure max_counter_key is not null or empty before using it
-		IF max_counter_key IS NOT NULL AND max_counter_key != '' THEN
-			 SELECT rn INTO row_num FROM (
-				SELECT key, ROW_NUMBER() OVER (ORDER BY key ASC) as rn
-				FROM jsonb_each_text(clock->'vector')
-			) AS sub
-			WHERE key = max_counter_key;
-		ELSE
-			 -- Handle case where vector might exist but query didn't return expected key (shouldn't happen if not empty)
-			 max_counter_key := ''; -- Reset to default if something went wrong
-			 max_counter := 0;
-			 row_num := 0;
-		END IF;
-	END IF; -- Defaults are used if vector_is_empty
-
-	-- Build the sortable clock explicitly
-	-- Use COALESCE to handle potential nulls just in case, though defaults should prevent this
-	sortable_clock := ts || '-' ||
-						  lpad(COALESCE(max_counter, 0)::TEXT, 10, '0') || '-' ||
-						  lpad(COALESCE(row_num, 0)::TEXT, 5, '0') || '-' ||
-						  COALESCE(max_counter_key, ''); -- Use empty string if key is null
-
-	RETURN sortable_clock;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION compute_sortable_clock()
-RETURNS TRIGGER AS $$
-DECLARE
-    ts TEXT;
-    max_counter INT := 0;
-    max_counter_key TEXT := '';
-    row_num INT := 0;
-BEGIN
-	-- Ensure the input clock is not null before calling the computation function
-	IF NEW.clock IS NOT NULL THEN
-		NEW.sortable_clock = compute_sortable_clock(NEW.clock);
-	ELSE
-		-- Decide how to handle null input clock, maybe set sortable_clock to NULL or a default?
-		NEW.sortable_clock = NULL; -- Or some default string like '000000000000000-0000000000-00000-'
-	END IF;
-	RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS action_records_sortable_clock_trigger ON action_records;
-CREATE TRIGGER action_records_sortable_clock_trigger
-BEFORE INSERT OR UPDATE ON action_records
-FOR EACH ROW EXECUTE FUNCTION compute_sortable_clock();
-
-CREATE INDEX IF NOT EXISTS action_records_sortable_clock_idx ON action_records(sortable_clock);
-
-
--- Create indexes for action_records
-CREATE INDEX IF NOT EXISTS action_records_synced_idx ON action_records(synced);
-CREATE INDEX IF NOT EXISTS action_records_client_id_idx ON action_records(client_id);
-CREATE INDEX IF NOT EXISTS action_records_transaction_id_idx ON action_records(transaction_id);
-
--- Create action_modified_rows table
-CREATE TABLE IF NOT EXISTS action_modified_rows (
-	id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
-	table_name TEXT NOT NULL,
-	row_id TEXT NOT NULL,
-	action_record_id TEXT NOT NULL,
-	operation TEXT NOT NULL,
-	forward_patches JSONB DEFAULT '{}'::jsonb,
-	reverse_patches JSONB DEFAULT '{}'::jsonb,
-	sequence INT NOT NULL, -- Added sequence number
-	FOREIGN KEY (action_record_id) REFERENCES action_records(id) ON DELETE CASCADE
-);
-
--- Create indexes for action_modified_rows
-CREATE INDEX IF NOT EXISTS action_modified_rows_action_idx ON action_modified_rows(action_record_id);
--- Removed old unique index as multiple rows per action/row are now allowed
--- Add new unique index including sequence
-CREATE UNIQUE INDEX IF NOT EXISTS action_modified_rows_unique_idx ON action_modified_rows(table_name, row_id, action_record_id, sequence);
-
--- Create client_sync_status table for vector clocks
-CREATE TABLE IF NOT EXISTS client_sync_status (
-	client_id TEXT PRIMARY KEY,
-	current_clock JSONB NOT NULL,
-	last_synced_clock JSONB NOT NULL,
-	sortable_current_clock TEXT,
-	sortable_last_synced_clock TEXT
-
-);
-
-CREATE OR REPLACE FUNCTION compute_sortable_clocks_on_sync_status()
-RETURNS TRIGGER AS $$
-DECLARE
-    ts TEXT;
-    max_counter INT := 0;
-    max_counter_key TEXT := '';
-    row_num INT := 0;
-BEGIN
-	IF NEW.current_clock IS NOT NULL THEN
-		NEW.sortable_current_clock = compute_sortable_clock(NEW.current_clock);
-	ELSE
-		NEW.sortable_current_clock = NULL;
-	END IF;
-
-	IF NEW.last_synced_clock IS NOT NULL THEN
-		NEW.sortable_last_synced_clock = compute_sortable_clock(NEW.last_synced_clock);
-	ELSE
-		NEW.sortable_last_synced_clock = NULL;
-	END IF;
-
-	RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS client_sync_status_sortable_clock_trigger ON client_sync_status;
-CREATE TRIGGER client_sync_status_sortable_clock_trigger
-BEFORE INSERT OR UPDATE ON client_sync_status
-FOR EACH ROW EXECUTE FUNCTION compute_sortable_clocks_on_sync_status();
-
-CREATE INDEX IF NOT EXISTS client_sync_status_sortable_clock_idx ON client_sync_status(sortable_current_clock);
-CREATE INDEX IF NOT EXISTS client_sync_status_sortable_last_synced_clock_idx ON client_sync_status(sortable_last_synced_clock);
-
--- Create client-local table to track applied actions
-CREATE TABLE IF NOT EXISTS local_applied_action_ids (
-	action_record_id TEXT PRIMARY KEY
-);
+## File: packages/sync-client/package.json
+````json
+{
+	"name": "@synchrotron/sync-client",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "Client-side services and components for the synchrotron sync system.",
+	"exports": {
+		".": "./dist/index.js",
+		"./*": "./dist/*.js"
+	},
+	"typesVersions": {
+		"*": {
+			"*": [
+				"dist/*"
+			]
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"clean": "rm -rf .tsbuildinfo build dist",
+		"dev": "vite build --watch",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "prettier --check . && eslint .",
+		"format": "prettier --write ."
+	},
+	"dependencies": {
+		"@effect/experimental": "catalog:",
+		"@effect/platform": "catalog:",
+		"@effect/platform-browser": "catalog:",
+		"@effect/sql": "catalog:",
+		"@effect/rpc": "catalog:",
+		"@electric-sql/client": "catalog:",
+		"@electric-sql/experimental": "catalog:",
+		"@electric-sql/pglite": "catalog:",
+		"@electric-sql/pglite-sync": "catalog:",
+		"effect": "catalog:",
+		"@synchrotron/sync-core": "workspace:*",
+		"@effect/sql-pglite": "workspace:*"
+	},
+	"devDependencies": {
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
+	}
+}
 ````
 
 ## File: packages/sync-core/src/db/clock-functions.ts
@@ -13152,94 +13025,6 @@ const Main = HttpRouter.Default.serve(middlewares).pipe(
 BunRuntime.runMain(Layer.launch(Main2) as any)
 ````
 
-## File: examples/todo-app/package.json
-````json
-{
-	"name": "@electric-examples/todo-app",
-	"description": "Somewhat opinionated starter for ElectricSQL with Vite, and React Router",
-	"version": "1.0.1",
-	"type": "module",
-	"author": "Kyle Mathews <mathews.kyle@gmail.com>",
-	"private": true,
-	"bugs": {
-		"url": "https://github.com/electric-sql/electric/issues"
-	},
-	"dependencies": {
-		"@effect/platform": "catalog:",
-		"@effect/platform-bun": "catalog:",
-		"@effect/platform-node": "catalog:",
-		"@effect/rpc": "catalog:",
-		"@effect/sql": "catalog:",
-		"@effect/sql-pglite": "workspace:*",
-		"@electric-sql/pglite": "catalog:",
-		"@electric-sql/experimental": "catalog:",
-		"@electric-sql/react": "^1.0.3",
-		"@fontsource/alegreya-sans": "^5.2.5",
-		"@radix-ui/themes": "^3.2.1",
-		"@synchrotron/sync-client": "workspace:*",
-		"@synchrotron/sync-core": "workspace:*",
-		"body-parser": "^2.2.0",
-		"cors": "^2.8.5",
-		"effect": "catalog:",
-		"express": "^5.1.0",
-		"react": "^19.1.0",
-		"react-dom": "^19.1.0",
-		"react-router": "^7.5.0",
-		"sst": "^3.13.2",
-		"uuid": "^11.1.0"
-	},
-	"devDependencies": {
-		"@databases/pg-migrations": "^5.0.3",
-		"@types/node": "catalog:",
-		"@types/react": "^19.1.0",
-		"@types/react-dom": "^19.1.1",
-		"@types/uuid": "^10.0.0",
-		"@typescript-eslint/eslint-plugin": "^8.29.1",
-		"@typescript-eslint/parser": "^8.29.1",
-		"@vitejs/plugin-react-swc": "^3.8.1",
-		"bun": "^1.2.8",
-		"concurrently": "^9.1.2",
-		"dotenv-cli": "^8.0.0",
-		"eslint": "^9.24.0",
-		"eslint-config-prettier": "^10.1.1",
-		"eslint-plugin-prettier": "^5.2.6",
-		"eslint-plugin-react-hooks": "^5.2.0",
-		"eslint-plugin-react-refresh": "^0.4.19",
-		"pg": "^8.14.1",
-		"shelljs": "^0.9.2",
-		"typescript": "catalog:",
-		"vite": "catalog:"
-	},
-	"homepage": "https://github.com/KyleAMathews/vite-react-router-electric-sql-starter#readme",
-	"keywords": [
-		"electric-sql",
-		"javascript",
-		"react",
-		"react-router",
-		"starter",
-		"typescript",
-		"vite"
-	],
-	"license": "MIT",
-	"main": "index.js",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/KyleAMathews/vite-react-router-electric-sql-starter.git"
-	},
-	"scripts": {
-		"clean": "rm -rf .tsbuildinfo build dist",
-		"backend:up": "pnpm backend:down && docker compose -f ./docker-compose.yml up -d && pnpm db:migrate",
-		"backend:down": "docker compose -f ./docker-compose.yml down --volumes",
-		"build": "vite build",
-		"db:migrate": "pnpm exec pg-migrations apply --directory ./db/migrations",
-		"dev:frontend": "vite --force",
-		"dev:backend": "pnpx bun --bun --watch src/server.ts",
-		"dev": "pnpm run --parallel \"/dev:(frontend|backend)/\"",
-		"typecheck": "tsc --noEmit"
-	}
-}
-````
-
 ## File: packages/sync-client/src/db/connection.ts
 ````typescript
 import { PgLiteClient } from "@effect/sql-pglite"
@@ -13284,81 +13069,170 @@ export const PgLiteClientLive = Layer.unwrapEffect(
 )
 ````
 
-## File: packages/sync-client/src/layer.ts
-````typescript
-import { BrowserKeyValueStore } from "@effect/platform-browser"
-import {
-	ActionModifiedRowRepo,
-	ActionRecordRepo,
-	ActionRegistry,
-	ClockService,
-	SyncService
-} from "@synchrotron/sync-core"
-import {
-	SynchrotronClientConfig,
-	SynchrotronClientConfigData,
-	createSynchrotronConfig
-} from "@synchrotron/sync-core/config"
-import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
-import { Effect, Layer } from "effect"
-import { PgLiteClientLive } from "./db/connection"
-import { ElectricSyncService } from "./electric/ElectricSyncService"
-import { SyncNetworkServiceLive } from "./SyncNetworkService"
+## File: packages/sync-core/src/db/sql/schema/create_sync_tables.sql
+````sql
+-- Create action_records table
+CREATE TABLE IF NOT EXISTS action_records (
+	id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+	_tag TEXT NOT NULL,
+	client_id TEXT NOT NULL,
+	transaction_id FLOAT NOT NULL,
+	clock JSONB NOT NULL,
+	args JSONB NOT NULL,
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+	synced BOOLEAN DEFAULT FALSE,
+	-- Sortable string representation of HLC
+	-- Correctly orders by timestamp, then by version vector, then by client ID alphabetically
+	sortable_clock TEXT
+);
 
-/**
- * Layer that automatically starts Electric sync after schema initialization
- */
-export const ElectricSyncLive = Layer.scopedDiscard(
-	Effect.gen(function* () {
-		yield* Effect.logInfo(`Starting electric sync setup`)
-		const service = yield* ElectricSyncService
-		const config = yield* SynchrotronClientConfig
+CREATE OR REPLACE FUNCTION compute_sortable_clock(clock JSONB)
+RETURNS TEXT AS $$
+DECLARE
+	ts TEXT;
+	max_counter INT := 0;
+	max_counter_key TEXT := ''; -- Default key
+	row_num INT := 0; -- Default row number
+	sortable_clock TEXT;
+	vector_is_empty BOOLEAN;
+BEGIN
+	ts := lpad((clock->>'timestamp'), 15, '0');
 
-		yield* initializeDatabaseSchema
-		yield* Effect.logInfo("Database schema initialized, starting Electric sync")
+	-- Check if vector exists and is not empty
+	-- Correct way to check if the jsonb object is empty or null
+	vector_is_empty := (clock->'vector' IS NULL) OR (clock->'vector' = '{}'::jsonb);
 
-		return service
-	}).pipe(Effect.withSpan("ElectricSyncLive"))
-)
+	IF NOT vector_is_empty THEN
+		-- Find the max counter and its alphabetical first key
+		SELECT key, (value::INT) INTO max_counter_key, max_counter
+		FROM jsonb_each_text(clock->'vector')
+		ORDER BY value::INT DESC, key ASC
+		LIMIT 1;
 
-/**
- * Creates a fully configured Synchrotron client layer with custom configuration
- *
- * @example
- * ```ts
- * // Create a custom configured client
- * const customClient = makeSynchrotronClientLayer({
- *   electricSyncUrl: "https://my-sync-server.com",
- *   pglite: {
- *     dataDir: "idb://my-custom-db"
- *   }
- * })
- * ```
- */
-export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConfigData> = {}) => {
-	// Create the config layer with custom config merged with defaults
-	const configLayer = createSynchrotronConfig(config)
+		-- Determine row number (alphabetical order) of max_counter_key
+		-- Ensure max_counter_key is not null or empty before using it
+		IF max_counter_key IS NOT NULL AND max_counter_key != '' THEN
+			 SELECT rn INTO row_num FROM (
+				SELECT key, ROW_NUMBER() OVER (ORDER BY key ASC) as rn
+				FROM jsonb_each_text(clock->'vector')
+			) AS sub
+			WHERE key = max_counter_key;
+		ELSE
+			 -- Handle case where vector might exist but query didn't return expected key (shouldn't happen if not empty)
+			 max_counter_key := ''; -- Reset to default if something went wrong
+			 max_counter := 0;
+			 row_num := 0;
+		END IF;
+	END IF; -- Defaults are used if vector_is_empty
 
-	return ElectricSyncService.Default.pipe(
-		Layer.provideMerge(SyncService.Default),
-		Layer.provideMerge(SyncNetworkServiceLive),
-		Layer.provideMerge(ActionRegistry.Default),
-		Layer.provideMerge(ActionRecordRepo.Default),
-		Layer.provideMerge(ActionModifiedRowRepo.Default),
-		Layer.provideMerge(ClockService.Default),
+	-- Build the sortable clock explicitly
+	-- Use COALESCE to handle potential nulls just in case, though defaults should prevent this
+	sortable_clock := ts || '-' ||
+						  lpad(COALESCE(max_counter, 0)::TEXT, 10, '0') || '-' ||
+						  lpad(COALESCE(row_num, 0)::TEXT, 5, '0') || '-' ||
+						  COALESCE(max_counter_key, ''); -- Use empty string if key is null
 
-		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
+	RETURN sortable_clock;
+END;
+$$ LANGUAGE plpgsql;
 
-		Layer.provideMerge(PgLiteClientLive),
+CREATE OR REPLACE FUNCTION compute_sortable_clock()
+RETURNS TRIGGER AS $$
+DECLARE
+    ts TEXT;
+    max_counter INT := 0;
+    max_counter_key TEXT := '';
+    row_num INT := 0;
+BEGIN
+	-- Ensure the input clock is not null before calling the computation function
+	IF NEW.clock IS NOT NULL THEN
+		NEW.sortable_clock = compute_sortable_clock(NEW.clock);
+	ELSE
+		-- Decide how to handle null input clock, maybe set sortable_clock to NULL or a default?
+		NEW.sortable_clock = NULL; -- Or some default string like '000000000000000-0000000000-00000-'
+	END IF;
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
-		Layer.provideMerge(configLayer)
-	)
-}
+DROP TRIGGER IF EXISTS action_records_sortable_clock_trigger ON action_records;
+CREATE TRIGGER action_records_sortable_clock_trigger
+BEFORE INSERT OR UPDATE ON action_records
+FOR EACH ROW EXECUTE FUNCTION compute_sortable_clock();
 
-/**
- * Default Synchrotron client layer with standard configuration
- */
-export const SynchrotronClientLive = makeSynchrotronClientLayer()
+CREATE INDEX IF NOT EXISTS action_records_sortable_clock_idx ON action_records(sortable_clock);
+
+
+-- Create indexes for action_records
+CREATE INDEX IF NOT EXISTS action_records_synced_idx ON action_records(synced);
+CREATE INDEX IF NOT EXISTS action_records_client_id_idx ON action_records(client_id);
+CREATE INDEX IF NOT EXISTS action_records_transaction_id_idx ON action_records(transaction_id);
+
+-- Create action_modified_rows table
+CREATE TABLE IF NOT EXISTS action_modified_rows (
+	id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+	table_name TEXT NOT NULL,
+	row_id TEXT NOT NULL,
+	action_record_id TEXT NOT NULL,
+	operation TEXT NOT NULL,
+	forward_patches JSONB DEFAULT '{}'::jsonb,
+	reverse_patches JSONB DEFAULT '{}'::jsonb,
+	sequence INT NOT NULL, -- Added sequence number
+	FOREIGN KEY (action_record_id) REFERENCES action_records(id) ON DELETE CASCADE
+);
+
+-- Create indexes for action_modified_rows
+CREATE INDEX IF NOT EXISTS action_modified_rows_action_idx ON action_modified_rows(action_record_id);
+-- Removed old unique index as multiple rows per action/row are now allowed
+-- Add new unique index including sequence
+CREATE UNIQUE INDEX IF NOT EXISTS action_modified_rows_unique_idx ON action_modified_rows(table_name, row_id, action_record_id, sequence);
+
+-- Create client_sync_status table for vector clocks
+CREATE TABLE IF NOT EXISTS client_sync_status (
+	client_id TEXT PRIMARY KEY,
+	current_clock JSONB NOT NULL,
+	last_synced_clock JSONB NOT NULL,
+	sortable_current_clock TEXT,
+	sortable_last_synced_clock TEXT
+
+);
+
+CREATE OR REPLACE FUNCTION compute_sortable_clocks_on_sync_status()
+RETURNS TRIGGER AS $$
+DECLARE
+    ts TEXT;
+    max_counter INT := 0;
+    max_counter_key TEXT := '';
+    row_num INT := 0;
+BEGIN
+	IF NEW.current_clock IS NOT NULL THEN
+		NEW.sortable_current_clock = compute_sortable_clock(NEW.current_clock);
+	ELSE
+		NEW.sortable_current_clock = NULL;
+	END IF;
+
+	IF NEW.last_synced_clock IS NOT NULL THEN
+		NEW.sortable_last_synced_clock = compute_sortable_clock(NEW.last_synced_clock);
+	ELSE
+		NEW.sortable_last_synced_clock = NULL;
+	END IF;
+
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS client_sync_status_sortable_clock_trigger ON client_sync_status;
+CREATE TRIGGER client_sync_status_sortable_clock_trigger
+BEFORE INSERT OR UPDATE ON client_sync_status
+FOR EACH ROW EXECUTE FUNCTION compute_sortable_clocks_on_sync_status();
+
+CREATE INDEX IF NOT EXISTS client_sync_status_sortable_clock_idx ON client_sync_status(sortable_current_clock);
+CREATE INDEX IF NOT EXISTS client_sync_status_sortable_last_synced_clock_idx ON client_sync_status(sortable_last_synced_clock);
+
+-- Create client-local table to track applied actions
+CREATE TABLE IF NOT EXISTS local_applied_action_ids (
+	action_record_id TEXT PRIMARY KEY
+);
 ````
 
 ## File: packages/sync-core/src/ClockService.ts
@@ -13711,6 +13585,232 @@ export const PgClientLive = PgClient.layerConfig(config).pipe(Layer.tapErrorCaus
 }
 ````
 
+## File: examples/todo-app/package.json
+````json
+{
+	"name": "@electric-examples/todo-app",
+	"description": "Somewhat opinionated starter for ElectricSQL with Vite, and React Router",
+	"version": "1.0.1",
+	"type": "module",
+	"author": "Kyle Mathews <mathews.kyle@gmail.com>",
+	"private": true,
+	"bugs": {
+		"url": "https://github.com/electric-sql/electric/issues"
+	},
+	"dependencies": {
+		"@effect/platform": "catalog:",
+		"@effect/platform-bun": "catalog:",
+		"@effect/platform-node": "catalog:",
+		"@effect/rpc": "catalog:",
+		"@effect/sql": "catalog:",
+		"@effect/sql-pglite": "workspace:*",
+		"@electric-sql/pglite": "catalog:",
+		"@electric-sql/experimental": "catalog:",
+		"@electric-sql/react": "^1.0.3",
+		"@fontsource/alegreya-sans": "^5.2.5",
+		"@radix-ui/themes": "^3.2.1",
+		"@synchrotron/sync-client": "workspace:*",
+		"@synchrotron/sync-core": "workspace:*",
+		"body-parser": "^2.2.0",
+		"cors": "^2.8.5",
+		"effect": "catalog:",
+		"express": "^5.1.0",
+		"react": "^19.1.0",
+		"react-dom": "^19.1.0",
+		"react-router": "^7.5.0",
+		"sst": "^3.13.2",
+		"uuid": "^11.1.0"
+	},
+	"devDependencies": {
+		"@databases/pg-migrations": "^5.0.3",
+		"@types/node": "catalog:",
+		"@types/react": "^19.1.0",
+		"@types/react-dom": "^19.1.1",
+		"@types/uuid": "^10.0.0",
+		"@typescript-eslint/eslint-plugin": "^8.29.1",
+		"@typescript-eslint/parser": "^8.29.1",
+		"@vitejs/plugin-react-swc": "^3.8.1",
+		"bun": "^1.2.8",
+		"concurrently": "^9.1.2",
+		"dotenv-cli": "^8.0.0",
+		"eslint": "^9.24.0",
+		"eslint-config-prettier": "^10.1.1",
+		"eslint-plugin-prettier": "^5.2.6",
+		"eslint-plugin-react-hooks": "^5.2.0",
+		"eslint-plugin-react-refresh": "^0.4.19",
+		"pg": "^8.14.1",
+		"shelljs": "^0.9.2",
+		"typescript": "catalog:",
+		"vite": "catalog:"
+	},
+	"homepage": "https://github.com/KyleAMathews/vite-react-router-electric-sql-starter#readme",
+	"keywords": [
+		"electric-sql",
+		"javascript",
+		"react",
+		"react-router",
+		"starter",
+		"typescript",
+		"vite"
+	],
+	"license": "MIT",
+	"main": "index.js",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/KyleAMathews/vite-react-router-electric-sql-starter.git"
+	},
+	"scripts": {
+		"clean": "rm -rf .tsbuildinfo build dist",
+		"backend:up": "pnpm backend:down && docker compose -f ./docker-compose.yml up -d && pnpm db:migrate",
+		"backend:down": "docker compose -f ./docker-compose.yml down --volumes",
+		"build": "vite build",
+		"db:migrate": "pnpm exec pg-migrations apply --directory ./db/migrations",
+		"dev:frontend": "vite --force",
+		"dev:backend": "pnpx bun --bun --watch src/server.ts",
+		"dev": "pnpm run --parallel \"/dev:(frontend|backend)/\"",
+		"typecheck": "tsc --noEmit"
+	}
+}
+````
+
+## File: packages/sync-client/src/layer.ts
+````typescript
+import { BrowserKeyValueStore } from "@effect/platform-browser"
+import {
+	ActionModifiedRowRepo,
+	ActionRecordRepo,
+	ActionRegistry,
+	ClockService,
+	SyncService
+} from "@synchrotron/sync-core"
+import {
+	SynchrotronClientConfig,
+	SynchrotronClientConfigData,
+	createSynchrotronConfig
+} from "@synchrotron/sync-core/config"
+import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
+import { Effect, Layer } from "effect"
+import { PgLiteClientLive } from "./db/connection"
+import { ElectricSyncService } from "./electric/ElectricSyncService"
+import { SyncNetworkServiceLive } from "./SyncNetworkService"
+
+/**
+ * Layer that automatically starts Electric sync after schema initialization
+ */
+export const ElectricSyncLive = Layer.scopedDiscard(
+	Effect.gen(function* () {
+		yield* Effect.logInfo(`Starting electric sync setup`)
+		const service = yield* ElectricSyncService
+		const config = yield* SynchrotronClientConfig
+
+		yield* initializeDatabaseSchema
+		yield* Effect.logInfo("Database schema initialized, starting Electric sync")
+
+		return service
+	}).pipe(Effect.withSpan("ElectricSyncLive"))
+)
+
+/**
+ * Creates a fully configured Synchrotron client layer with custom configuration
+ *
+ * @example
+ * ```ts
+ * // Create a custom configured client
+ * const customClient = makeSynchrotronClientLayer({
+ *   electricSyncUrl: "https://my-sync-server.com",
+ *   pglite: {
+ *     dataDir: "idb://my-custom-db"
+ *   }
+ * })
+ * ```
+ */
+export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConfigData> = {}) => {
+	// Create the config layer with custom config merged with defaults
+	const configLayer = createSynchrotronConfig(config)
+
+	return ElectricSyncService.Default.pipe(
+		Layer.provideMerge(SyncService.Default),
+		Layer.provideMerge(SyncNetworkServiceLive),
+		Layer.provideMerge(ActionRegistry.Default),
+		Layer.provideMerge(ActionRecordRepo.Default),
+		Layer.provideMerge(ActionModifiedRowRepo.Default),
+		Layer.provideMerge(ClockService.Default),
+
+		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
+
+		Layer.provideMerge(PgLiteClientLive),
+
+		Layer.provideMerge(configLayer)
+	)
+}
+
+/**
+ * Default Synchrotron client layer with standard configuration
+ */
+export const SynchrotronClientLive = makeSynchrotronClientLayer()
+````
+
+## File: package.json
+````json
+{
+	"name": "synchrotron",
+	"private": true,
+	"author": {
+		"name": "Andrew Morsillo",
+		"url": "https://github.com/evelant/synchrotron"
+	},
+	"bugs": {
+		"url": "https://github.com/evelant/synchrotron/issues"
+	},
+	"description": "A ",
+	"homepage": "https://github.com/evelant/synchrotron",
+	"license": "MIT",
+	"version": "0.0.1",
+	"type": "module",
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"dev": "pnpm run --cwd packages/app dev",
+		"dev:electric": "pnpm run --cwd packages/app dev:electric",
+		"build": "pnpm run -r build",
+		"clean": "rm -rf .tsbuildinfo build dist && pnpm run --filter=./packages/* clean",
+		"start": "vinxi start",
+		"format": "prettier --write .",
+		"check": "tsc -b",
+		"check:watch": "tsc -b --watch",
+		"generate-supabase-types": "supabase gen types typescript --local > src/lib/types/database.types.ts",
+		"lint": "prettier --check . && eslint .",
+		"test": "vitest run -c vitest.config.ts",
+		"test:watch": "vitest -c vitest.config.ts",
+		"test:coverage": "vitest run --coverage -c vitest.config.ts",
+		"changeset": "changeset",
+		"version": "changeset version",
+		"release": "changeset publish"
+	},
+	"devDependencies": {
+		"@changesets/cli": "^2.28.1",
+		"@effect/language-service": "^0.6.0",
+		"@types/bun": "^1.2.8",
+		"@types/node": "22.14.0",
+		"@types/uuid": "^10.0.0",
+		"blob-polyfill": "^9.0.20240710",
+		"eslint": "^9.24.0",
+		"eslint-config-prettier": "^10.0.1",
+		"prettier": "^3.4.2",
+		"typescript": "^5.8.3",
+		"typescript-eslint": "^8.29.1",
+		"vite": "^6.0.0",
+		"vite-plugin-top-level-await": "^1.5.0",
+		"vite-plugin-wasm": "^3.4.1",
+		"vite-tsconfig-paths": "^5.1.4",
+		"vitest": "^3.0.0",
+		"repomix": "^0.3.1"
+	},
+	"packageManager": "pnpm@10.7.1+sha512.2d92c86b7928dc8284f53494fb4201f983da65f0fb4f0d40baafa5cf628fa31dae3e5968f12466f17df7e97310e30f343a648baea1b9b350685dafafffdf5808"
+}
+````
+
 ## File: examples/todo-app/src/main.tsx
 ````typescript
 import React, {
@@ -13831,6 +13931,127 @@ ReactDOM.createRoot(rootElement).render(
 		</Theme>
 	</React.StrictMode>
 )
+````
+
+## File: packages/sync-server/src/rpcRouter.ts
+````typescript
+import { KeyValueStore } from "@effect/platform"
+import { HLC } from "@synchrotron/sync-core/HLC"
+import { ActionRecord } from "@synchrotron/sync-core/models"
+import {
+	FetchRemoteActions,
+	SendLocalActions,
+	SyncNetworkRpcGroup
+} from "@synchrotron/sync-core/SyncNetworkRpc"
+import {
+	NetworkRequestError,
+	RemoteActionFetchError
+} from "@synchrotron/sync-core/SyncNetworkService"
+import { Effect, Layer } from "effect"
+import { ServerConflictError, ServerInternalError, SyncServerService } from "./SyncServerService"
+
+export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
+	Effect.gen(function* () {
+		const serverService = yield* SyncServerService
+
+		const FetchRemoteActionsHandler = (payload: FetchRemoteActions) =>
+			Effect.gen(function* (_) {
+				const clientId = payload.clientId
+
+				yield* Effect.logInfo(`FetchRemoteActionsHandler: ${clientId}`)
+				const result = yield* serverService.getActionsSince(clientId, payload.lastSyncedClock)
+
+				yield* Effect.logInfo(
+					`Fetched ${result.actions.length} remote actions for client ${clientId} and ${result.modifiedRows.length} AMRs\n ${JSON.stringify(result.actions[0], null, 2)}`
+				)
+
+				// return { actions: [], modifiedRows: [] }
+				return {
+					actions: result.actions.map(
+						(a) => ActionRecord.make({ ...a, clock: HLC.make(a.clock) } as any) as any
+					),
+					// actions: [],
+					modifiedRows: result.modifiedRows
+				}
+			}).pipe(
+				Effect.tapErrorCause((c) => Effect.logError(`error in FetchRemoteActions handler`, c)),
+				Effect.catchTag("ServerInternalError", (e: ServerInternalError) =>
+					Effect.fail(
+						new RemoteActionFetchError({
+							message: `Server internal error fetching actions: ${e.message}`,
+							cause: e.cause
+						})
+					)
+				),
+				Effect.withSpan("RpcHandler.FetchRemoteActions")
+			)
+
+		const SendLocalActionsHandler = (payload: SendLocalActions) =>
+			Effect.gen(function* (_) {
+				yield* Effect.logInfo(`SendLocalActionsHandler`)
+				const clientId = payload.clientId
+
+				yield* serverService.receiveActions(clientId, payload.actions, payload.amrs)
+
+				return true
+			}).pipe(
+				Effect.tapErrorCause((c) => Effect.logError(`error in SendLocalActions handler`, c)),
+				Effect.catchTags({
+					ServerConflictError: (e: ServerConflictError) =>
+						Effect.fail(
+							new NetworkRequestError({
+								message: `Conflict receiving actions: ${e.message}`,
+								cause: e
+							})
+						),
+					ServerInternalError: (e: ServerInternalError) =>
+						Effect.fail(
+							new NetworkRequestError({
+								message: `Server internal error receiving actions: ${e.message}`,
+								cause: e.cause
+							})
+						)
+				}),
+				Effect.withSpan("RpcHandler.SendLocalActions")
+			)
+
+		return {
+			FetchRemoteActions: FetchRemoteActionsHandler,
+			SendLocalActions: SendLocalActionsHandler
+		}
+	})
+).pipe(
+	Layer.tapErrorCause((e) => Effect.logError(`error in SyncNetworkRpcHandlersLive`, e)),
+	Layer.provideMerge(SyncServerService.Default),
+	Layer.provideMerge(KeyValueStore.layerMemory)
+)
+
+/*
+ * Conceptual Integration Point:
+ * This SyncNetworkRpcHandlersLive layer would typically be merged with
+ * an HttpRouter layer and served via an HttpServer in `packages/sync-server/src/index.ts`
+ * or a similar entry point.
+ *
+ * Example (Conceptual):
+ *
+ * import { HttpRouter, HttpServer } from "@effect/platform";
+ * import { NodeHttpServer } from "@effect/platform-node";
+ * import { RpcServer } from "@effect/rpc";
+ * import { SyncServerServiceLive } from "./SyncServerService";
+ * import { SyncNetworkRpcHandlersLive } from "./rpcRouter";
+ *
+ * const RpcAppLive = RpcServer.layer(SyncNetworkRpcGroup).pipe(
+ *      Layer.provide(SyncNetworkRpcHandlersLive),
+ *      Layer.provide(SyncServerServiceLive)
+ *  );
+ *
+ * const HttpAppLive = HttpRouter.empty.pipe(
+ *   HttpRouter.rpc(RpcAppLive, { path: "/api/sync/rpc" }),
+ *   HttpServer.serve(),
+ *   Layer.provide(NodeHttpServer.layer(...))
+ * );
+ *
+ */
 ````
 
 ## File: packages/sync-server/src/SyncServerService.ts
@@ -14091,8 +14312,17 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				)
 				const isInitialSync = Object.keys(lastSyncedClock.vector).length === 0
 				//${isInitialSync ? sql`` : sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0`}
+
+				// Build WHERE clauses dynamically
+				const whereClauses = [sql`client_id != ${clientId}`] // Always exclude actions from the requesting client
+				if (!isInitialSync) {
+					// Only include actions newer than the client's last sync clock if not initial sync
+					whereClauses.push(sql`compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0`)
+				}
+
 				const actions = yield* sql<ActionRecord>`
 						SELECT * FROM action_records
+						${whereClauses.length > 0 ? sql`WHERE ${sql.and(whereClauses)}` : sql``}
 						ORDER BY sortable_clock ASC
           			`.pipe(
 					Effect.mapError(
@@ -14166,67 +14396,6 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 }) {}
 ````
 
-## File: package.json
-````json
-{
-	"name": "synchrotron",
-	"private": true,
-	"author": {
-		"name": "Andrew Morsillo",
-		"url": "https://github.com/evelant/synchrotron"
-	},
-	"bugs": {
-		"url": "https://github.com/evelant/synchrotron/issues"
-	},
-	"description": "A ",
-	"homepage": "https://github.com/evelant/synchrotron",
-	"license": "MIT",
-	"version": "0.0.1",
-	"type": "module",
-	"workspaces": [
-		"packages/*"
-	],
-	"scripts": {
-		"dev": "pnpm run --cwd packages/app dev",
-		"dev:electric": "pnpm run --cwd packages/app dev:electric",
-		"build": "pnpm run -r build",
-		"clean": "rm -rf .tsbuildinfo build dist && pnpm run --filter=./packages/* clean",
-		"start": "vinxi start",
-		"format": "prettier --write .",
-		"check": "tsc -b",
-		"check:watch": "tsc -b --watch",
-		"generate-supabase-types": "supabase gen types typescript --local > src/lib/types/database.types.ts",
-		"lint": "prettier --check . && eslint .",
-		"test": "vitest run -c vitest.config.ts",
-		"test:watch": "vitest -c vitest.config.ts",
-		"test:coverage": "vitest run --coverage -c vitest.config.ts",
-		"changeset": "changeset",
-		"version": "changeset version",
-		"release": "changeset publish"
-	},
-	"devDependencies": {
-		"@changesets/cli": "^2.28.1",
-		"@effect/language-service": "^0.6.0",
-		"@types/bun": "^1.2.8",
-		"@types/node": "22.14.0",
-		"@types/uuid": "^10.0.0",
-		"blob-polyfill": "^9.0.20240710",
-		"eslint": "^9.24.0",
-		"eslint-config-prettier": "^10.0.1",
-		"prettier": "^3.4.2",
-		"typescript": "^5.8.3",
-		"typescript-eslint": "^8.29.1",
-		"vite": "^6.0.0",
-		"vite-plugin-top-level-await": "^1.5.0",
-		"vite-plugin-wasm": "^3.4.1",
-		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.0.0",
-		"repomix": "^0.3.1"
-	},
-	"packageManager": "pnpm@10.7.1+sha512.2d92c86b7928dc8284f53494fb4201f983da65f0fb4f0d40baafa5cf628fa31dae3e5968f12466f17df7e97310e30f343a648baea1b9b350685dafafffdf5808"
-}
-````
-
 ## File: pnpm-workspace.yaml
 ````yaml
 packages:
@@ -14256,127 +14425,6 @@ catalog:
   "@opentelemetry/semantic-conventions": 1.30.0
 onlyBuiltDependencies:
   - esbuild
-````
-
-## File: packages/sync-server/src/rpcRouter.ts
-````typescript
-import { KeyValueStore } from "@effect/platform"
-import { HLC } from "@synchrotron/sync-core/HLC"
-import { ActionRecord } from "@synchrotron/sync-core/models"
-import {
-	FetchRemoteActions,
-	SendLocalActions,
-	SyncNetworkRpcGroup
-} from "@synchrotron/sync-core/SyncNetworkRpc"
-import {
-	NetworkRequestError,
-	RemoteActionFetchError
-} from "@synchrotron/sync-core/SyncNetworkService"
-import { Effect, Layer } from "effect"
-import { ServerConflictError, ServerInternalError, SyncServerService } from "./SyncServerService"
-
-export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
-	Effect.gen(function* () {
-		const serverService = yield* SyncServerService
-
-		const FetchRemoteActionsHandler = (payload: FetchRemoteActions) =>
-			Effect.gen(function* (_) {
-				const clientId = payload.clientId
-
-				yield* Effect.logInfo(`FetchRemoteActionsHandler: ${clientId}`)
-				const result = yield* serverService.getActionsSince(clientId, payload.lastSyncedClock)
-
-				yield* Effect.logInfo(
-					`Fetched ${result.actions.length} remote actions for client ${clientId} and ${result.modifiedRows.length} AMRs\n ${JSON.stringify(result.actions[0], null, 2)}`
-				)
-
-				// return { actions: [], modifiedRows: [] }
-				return {
-					actions: result.actions.map(
-						(a) => ActionRecord.make({ ...a, clock: HLC.make(a.clock) } as any) as any
-					),
-					// actions: [],
-					modifiedRows: result.modifiedRows
-				}
-			}).pipe(
-				Effect.tapErrorCause((c) => Effect.logError(`error in FetchRemoteActions handler`, c)),
-				Effect.catchTag("ServerInternalError", (e: ServerInternalError) =>
-					Effect.fail(
-						new RemoteActionFetchError({
-							message: `Server internal error fetching actions: ${e.message}`,
-							cause: e.cause
-						})
-					)
-				),
-				Effect.withSpan("RpcHandler.FetchRemoteActions")
-			)
-
-		const SendLocalActionsHandler = (payload: SendLocalActions) =>
-			Effect.gen(function* (_) {
-				yield* Effect.logInfo(`SendLocalActionsHandler`)
-				const clientId = payload.clientId
-
-				yield* serverService.receiveActions(clientId, payload.actions, payload.amrs)
-
-				return true
-			}).pipe(
-				Effect.tapErrorCause((c) => Effect.logError(`error in SendLocalActions handler`, c)),
-				Effect.catchTags({
-					ServerConflictError: (e: ServerConflictError) =>
-						Effect.fail(
-							new NetworkRequestError({
-								message: `Conflict receiving actions: ${e.message}`,
-								cause: e
-							})
-						),
-					ServerInternalError: (e: ServerInternalError) =>
-						Effect.fail(
-							new NetworkRequestError({
-								message: `Server internal error receiving actions: ${e.message}`,
-								cause: e.cause
-							})
-						)
-				}),
-				Effect.withSpan("RpcHandler.SendLocalActions")
-			)
-
-		return {
-			FetchRemoteActions: FetchRemoteActionsHandler,
-			SendLocalActions: SendLocalActionsHandler
-		}
-	})
-).pipe(
-	Layer.tapErrorCause((e) => Effect.logError(`error in SyncNetworkRpcHandlersLive`, e)),
-	Layer.provideMerge(SyncServerService.Default),
-	Layer.provideMerge(KeyValueStore.layerMemory)
-)
-
-/*
- * Conceptual Integration Point:
- * This SyncNetworkRpcHandlersLive layer would typically be merged with
- * an HttpRouter layer and served via an HttpServer in `packages/sync-server/src/index.ts`
- * or a similar entry point.
- *
- * Example (Conceptual):
- *
- * import { HttpRouter, HttpServer } from "@effect/platform";
- * import { NodeHttpServer } from "@effect/platform-node";
- * import { RpcServer } from "@effect/rpc";
- * import { SyncServerServiceLive } from "./SyncServerService";
- * import { SyncNetworkRpcHandlersLive } from "./rpcRouter";
- *
- * const RpcAppLive = RpcServer.layer(SyncNetworkRpcGroup).pipe(
- *      Layer.provide(SyncNetworkRpcHandlersLive),
- *      Layer.provide(SyncServerServiceLive)
- *  );
- *
- * const HttpAppLive = HttpRouter.empty.pipe(
- *   HttpRouter.rpc(RpcAppLive, { path: "/api/sync/rpc" }),
- *   HttpServer.serve(),
- *   Layer.provide(NodeHttpServer.layer(...))
- * );
- *
- */
 ````
 
 ## File: packages/sync-core/src/SyncService.ts

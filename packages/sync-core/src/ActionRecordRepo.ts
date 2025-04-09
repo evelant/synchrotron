@@ -45,6 +45,12 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 				sql`SELECT * FROM action_records WHERE synced = true ORDER BY sortable_clock DESC LIMIT 1`
 		})
 
+		const findLatest = SqlSchema.findOne({
+			Request: Schema.Void,
+			Result: ActionRecord,
+			execute: () => sql`SELECT * FROM action_records ORDER BY sortable_clock DESC LIMIT 1`
+		})
+
 		const findByTransactionId = SqlSchema.findOne({
 			Request: Schema.Number,
 			Result: ActionRecord,
@@ -133,6 +139,7 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 			findByTransactionId,
 			findLatestSynced,
 			allUnsynced,
+			findLatest,
 			findByTag,
 			findOlderThan,
 			markAsSynced,

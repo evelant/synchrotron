@@ -72,6 +72,7 @@ export interface PgLiteClient<Extensions extends Record<string, any> = {}>
 	extends Client.SqlClient {
 	readonly [TypeId]: TypeId
 	readonly config: PgLiteClientConfig
+	readonly pg: PGlite
 	readonly json: (_: unknown) => Fragment
 	readonly array: (_: ReadonlyArray<Primitive>) => Fragment
 	readonly listen: (channel: string) => Stream.Stream<string, SqlError>
@@ -194,7 +195,7 @@ export const make = <Extensions extends Record<string, any> = object>(
 		yield* Effect.addFinalizer(() => Effect.succeed(void 0))
 
 		class ConnectionImpl implements Connection {
-			constructor(private readonly pg: PGlite) {}
+			constructor(readonly pg: PGlite) {}
 
 			private run(query: Promise<any>) {
 				return Effect.async<ReadonlyArray<any>, SqlError>((resume) => {
@@ -290,6 +291,7 @@ export const make = <Extensions extends Record<string, any> = object>(
 				config: {
 					...options
 				},
+				pg: client,
 				json: (_: unknown) => PgLiteJson([_]),
 				array: (_: ReadonlyArray<Primitive>) => PgLiteArray([_]),
 				extensions: options.extensions ? (client as any) : ({} as any),

@@ -13,7 +13,8 @@ const config: ViteUserConfig = {
 	},
 	optimizeDeps: {
 		exclude: [
-			"@electric-sql/pglite"
+			"@electric-sql/pglite",
+			"@electric-sql/pglite-repl"
 			// 	"@effect/sync-client",
 			// 	"@effect/sync-core",
 			// 	"@effect/sql-pglite",

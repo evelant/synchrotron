@@ -19,6 +19,7 @@
 	"scripts": {
 		"dev": "pnpm run --cwd packages/app dev",
 		"dev:electric": "pnpm run --cwd packages/app dev:electric",
+		"clean:node_modules": "pnpm run -r clean:node_modules",
 		"build": "pnpm run -r build",
 		"clean": "rm -rf .tsbuildinfo build dist && pnpm run --filter=./packages/* clean",
 		"start": "vinxi start",

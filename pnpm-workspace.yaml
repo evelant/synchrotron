@@ -2,26 +2,50 @@ packages:
   - packages/*
   - examples/*
 catalog:
-  effect: ^3.14.6
-  "@effect/experimental": ^0.44.6
-  "@effect/platform": ^0.80.6
-  "@effect/platform-browser": ^0.59.6
-  "@effect/platform-node": ^0.76.11
-  "@effect/platform-bun": ^0.60.11
-  "@effect/rpc": ^0.55.9
-  "@effect/sql": ^0.33.6
-  "@effect/vitest": ^0.20.6
-  "@types/node": ^22.14.0
+  effect: ^3.14.7
+  '@effect/experimental': ^0.44.7
+  '@effect/platform': ^0.80.7
+  '@effect/platform-browser': ^0.59.7
+  '@effect/platform-node': ^0.76.12
+  '@effect/platform-bun': ^0.60.12
+  '@effect/rpc': ^0.55.10
+  '@effect/sql': ^0.33.7
+  '@effect/vitest': ^0.20.7
+  '@types/node': ^22.14.0
   typescript: ^5.8.3
   vite: ^6.2.5
   vitest: ^3.1.1
-  "@electric-sql/client": ^1.0.3
-  "@electric-sql/pglite": ^0.2.17
-  "@electric-sql/pglite-sync": ^0.3.1
-  "@electric-sql/experimental": ^1.0.3
+  '@electric-sql/client': ^1.0.3
+  '@electric-sql/pglite': ^0.2.17
+  '@electric-sql/pglite-sync': ^0.3.1
+  '@electric-sql/experimental': ^1.0.3
   uuid: ^11.1.0
   msgpackr: ^1.11.2
-  fast-check: ^4.1.0
-  "@opentelemetry/semantic-conventions": 1.30.0
+  fast-check: ^4.1.1
+  '@opentelemetry/semantic-conventions': 1.30.0
 onlyBuiltDependencies:
   - esbuild
+overrides:
+  '@electric-sql/client': 'catalog:'
+  '@electric-sql/pglite': 'catalog:'
+  '@electric-sql/pglite-sync': 'catalog:'
+  '@electric-sql/experimental': 'catalog:'
+  effect: 'catalog:'
+  '@effect/experimental': 'catalog:'
+  '@effect/platform': 'catalog:'
+  '@effect/platform-browser': 'catalog:'
+  '@effect/platform-node': 'catalog:'
+  '@effect/platform-bun': 'catalog:'
+  '@effect/rpc': 'catalog:'
+  '@effect/sql': 'catalog:'
+  '@effect/vitest': 'catalog:'
+  '@types/node': 'catalog:'
+  typescript: 'catalog:'
+  vite: 'catalog:'
+  vitest: 'catalog:'
+  uuid: 'catalog:'
+  msgpackr: 'catalog:'
+  fast-check: 'catalog:'
+  '@opentelemetry/semantic-conventions': 'catalog:'
+patchedDependencies:
+  '@electric-sql/pglite-repl': patches/@electric-sql__pglite-repl.patch

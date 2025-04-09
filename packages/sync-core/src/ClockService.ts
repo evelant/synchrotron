@@ -33,11 +33,15 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			const existingIdOption = yield* keyValueStore.get("sync_client_id")
 
 			if (existingIdOption._tag === "Some") {
-				yield* Effect.logInfo(`using clientid override ${existingIdOption.value}`)
+				// yield* Effect.logInfo(`using clientid  ${existingIdOption.value}`)
 				return ClientId.make(existingIdOption.value)
 			}
 
 			const newClientId = crypto.randomUUID()
+			yield* Effect.logInfo(
+				`No client id found in key-value store. Generating new. Client id: ${newClientId}`
+			)
+
 			yield* keyValueStore.set("sync_client_id", newClientId)
 			const clientId = ClientId.make(newClientId)
 			return clientId
@@ -128,17 +132,25 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 		 */
 		const updateLastSyncedClock = () =>
 			Effect.gen(function* () {
-				const latestSyncedClock = yield* actionRecordRepo
-					.findLatestSynced()
-					.pipe(
-						Effect.map(Option.map((a) => a.clock)),
-						Effect.flatMap(
-							Effect.orElseFail(
-								() =>
-									new SyncError({ message: "No latest clock found to update last_synced_clock" })
+				// Get latest synced clock, or if none latest unsynced clock
+				const latestSyncedClock = yield* actionRecordRepo.findLatestSynced().pipe(
+					Effect.map(Option.map((a) => a.clock)),
+					Effect.flatMap(
+						Effect.orElse(() =>
+							actionRecordRepo.findLatest().pipe(
+								Effect.map(Option.map((a) => a.clock)),
+								Effect.flatMap(
+									Effect.orElseFail(
+										() =>
+											new SyncError({
+												message: "No latest clock found to update last_synced_clock"
+											})
+									)
+								)
 							)
 						)
 					)
+				)
 
 				const currentState = yield* getClientClockState
 

@@ -1,5 +1,6 @@
 import { FetchHttpClient } from "@effect/platform"
 import { RpcClient, RpcSerialization } from "@effect/rpc"
+import { PgLiteClient } from "@effect/sql-pglite"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
 import {
@@ -29,6 +30,7 @@ export const SyncNetworkServiceLive = Layer.scoped(
 		const clientId = yield* clockService.getNodeId
 		// Get the RPC client instance using the schema
 		const client = yield* RpcClient.make(SyncNetworkRpcGroup)
+		const sql = yield* PgLiteClient.PgLiteClient
 
 		const sendLocalActions = (
 			actions: ReadonlyArray<ActionRecord>,
@@ -62,6 +64,12 @@ export const SyncNetworkServiceLive = Layer.scoped(
 				const actions = yield* client.FetchRemoteActions({ clientId, lastSyncedClock })
 				yield* Effect.logInfo(
 					`fetched remote actions ${actions.actions.length} actions and ${actions.modifiedRows.length} AMRs`
+				)
+				yield* Effect.all(
+					actions.actions.map((a) => sql`insert into action_records ${sql.insert(a)}`)
+				)
+				yield* Effect.all(
+					actions.modifiedRows.map((a) => sql`insert into action_modified_rows ${sql.insert(a)}`)
 				)
 				return actions
 			}).pipe(

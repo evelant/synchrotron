@@ -106,7 +106,7 @@ export class ActionRegistry extends Effect.Service<ActionRegistry>()("ActionRegi
 					// The actual database state rollback happens in SyncService.rollbackToCommonAncestor
 					// *before* this action is executed.
 					yield* Effect.logInfo(
-						`Executing (recording) RollbackAction targeting ancestor: ${args.target_action_id}`
+						`Executing no-op RollbackAction targeting ancestor: ${args.target_action_id}`
 					)
 					// No database operations or trigger disabling needed here.
 				})
