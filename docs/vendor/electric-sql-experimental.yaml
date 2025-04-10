@@ -1,0 +1,2379 @@
+size:
+  tokens: 14793
+  totalTokens: 14802
+  characters: 74010
+  lines: 2114
+tree:
+  packages:
+    experimental:
+      .eslintrc.cjs: null
+      .prettierignore: null
+      .prettierrc: null
+      CHANGELOG.md: null
+      README.md: null
+      package.json: null
+      src:
+        bigint-utils.ts: null
+        index.ts: null
+        match.ts: null
+        multi-shape-stream.ts: null
+      test:
+        bigint-utils.test.ts: null
+        match.test.ts: null
+        multi-shape-stream.test-d.ts: null
+        multi-shape-stream.test.ts: null
+        support:
+          global-setup.ts: null
+          test-context.ts: null
+          test-helpers.ts: null
+      tsconfig.build.json: null
+      tsconfig.json: null
+      tsup.config.ts: null
+      vitest.config.ts: null
+files:
+  /packages/experimental/.eslintrc.cjs:
+    type: content
+    content: |
+      module.exports = {
+        env: {
+          browser: true,
+          es2021: true,
+          node: true,
+        },
+        extends: [
+          `eslint:recommended`,
+          `plugin:@typescript-eslint/recommended`,
+          `plugin:prettier/recommended`,
+        ],
+        parserOptions: {
+          ecmaVersion: 2022,
+          requireConfigFile: false,
+          sourceType: `module`,
+          ecmaFeatures: {
+            jsx: true,
+          },
+        },
+        parser: `@typescript-eslint/parser`,
+        plugins: [`prettier`],
+        rules: {
+          quotes: [`error`, `backtick`],
+          'no-unused-vars': `off`,
+          '@typescript-eslint/no-unused-vars': [
+            `error`,
+            {
+              argsIgnorePattern: `^_`,
+              varsIgnorePattern: `^_`,
+              caughtErrorsIgnorePattern: `^_`,
+            },
+          ],
+        },
+        ignorePatterns: [
+          '**/node_modules/**',
+          '**/dist/**',
+          'tsup.config.ts',
+          'vitest.config.ts',
+          '.eslintrc.js'
+        ],
+      }
+    hash: fe20bebfc593a68180325413ca25c394c4526efe59c95d155e6751be828434a6
+    size: 826
+  /packages/experimental/.prettierignore:
+    type: content
+    content: |-
+      node_modules
+      .vscode
+    hash: edad1135f9c7311fe1d0406f88acd6d4055e8d26f3ce3690373070a544add2d1
+    size: 20
+  /packages/experimental/.prettierrc:
+    type: content
+    content: |
+      {
+        "trailingComma": "es5",
+        "semi": false,
+        "tabWidth": 2,
+        "singleQuote": true
+      }
+    hash: 4a02ec74d73a1b3bf054c2516fbbc640ff6a6eb30cc1aaa4c737660e68bbeec0
+    size: 86
+  /packages/experimental/CHANGELOG.md:
+    type: content
+    content: >
+      # @electric-sql/experimental
+
+
+      ## 1.0.3
+
+
+      ### Patch Changes
+
+
+      - Updated dependencies [22cde89]
+        - @electric-sql/client@1.0.3
+
+      ## 1.0.2
+
+
+      ### Patch Changes
+
+
+      - Updated dependencies [d278b9f]
+        - @electric-sql/client@1.0.2
+
+      ## 1.0.1
+
+
+      ### Patch Changes
+
+
+      - 96b502e: Fix stack limit issue when using functions with array arg
+      destructuring.
+
+      - Updated dependencies [56c338a]
+        - @electric-sql/client@1.0.1
+
+      ## 1.0.0
+
+
+      ### Patch Changes
+
+
+      - 6616b81: New experimental MultiShapeStream and
+      TransactionalMultiShapeStream APIs that combine multiple shapes streams
+      into a single stream. Note: these two APIs are experimental and are likely
+      to change in a future version of the package.
+
+      - c2b01c1: Encode LSN as string in JSON responses for correct handling of
+      large values (>53 bits) in Javascript.
+
+      - Updated dependencies [1255205]
+
+      - Updated dependencies [ade15b9]
+
+      - Updated dependencies [91774d3]
+
+      - Updated dependencies [0dd1f0c]
+
+      - Updated dependencies [1c28aee]
+
+      - Updated dependencies [ade15b9]
+
+      - Updated dependencies [19a7ab3]
+
+      - Updated dependencies [6616b81]
+
+      - Updated dependencies [f1a9247]
+
+      - Updated dependencies [dcd8a9f]
+
+      - Updated dependencies [dd5aeab]
+        - @electric-sql/client@1.0.0
+
+      ## 0.1.2-beta.4
+
+
+      ### Patch Changes
+
+
+      - Updated dependencies [91774d3]
+
+      - Updated dependencies [19a7ab3]
+        - @electric-sql/client@1.0.0-beta.5
+
+      ## 0.1.2-beta.3
+
+
+      ### Patch Changes
+
+
+      - 6616b81: New experimental MultiShapeStream and
+      TransactionalMultiShapeStream APIs that combine multiple shapes streams
+      into a single stream. Note: these two APIs are experimental and are likely
+      to change in a future version of the package.
+
+      - Updated dependencies [6616b81]
+
+      - Updated dependencies [dcd8a9f]
+        - @electric-sql/client@1.0.0-beta.4
+
+      ## 0.1.2-beta.2
+
+
+      ### Patch Changes
+
+
+      - Updated dependencies [f1a9247]
+        - @electric-sql/client@1.0.0-beta.3
+
+      ## 0.1.2-beta.1
+
+
+      ### Patch Changes
+
+
+      - Updated dependencies [ade15b9]
+
+      - Updated dependencies [1c28aee]
+
+      - Updated dependencies [ade15b9]
+
+      - Updated dependencies [dd5aeab]
+        - @electric-sql/client@1.0.0-beta.2
+
+      ## 0.1.2-beta.0
+
+
+      ### Patch Changes
+
+
+      - Updated dependencies [1255205]
+        - @electric-sql/client@1.0.0-beta.1
+
+      ## 0.1.1
+
+
+      ### Patch Changes
+
+
+      - Updated dependencies [9886b08]
+
+      - Updated dependencies [dae3b0d]
+
+      - Updated dependencies [fbb66e9]
+        - @electric-sql/client@0.9.1
+    hash: 917bb970311f1a661d85d8a4a3b192c4dfd80d4fda96863e338d99655d1c088c
+    size: 2281
+  /packages/experimental/README.md:
+    type: content
+    content: >
+
+      # Experimental TypeScript features for ElectricSQL
+
+
+      ## Install
+
+
+      The client is published on NPM as
+      [`@electric-sql/experimental`](https://www.npmjs.com/package/@electric-sql/experimental):
+
+
+      ```sh
+
+      npm i @electric-sql/experimental
+
+      ```
+
+
+      ## Develop
+
+
+      Install the pnpm workspace at the repo root:
+
+
+      ```shell
+
+      pnpm install
+
+      ```
+
+
+      Build the package:
+
+
+      ```shell
+
+      cd packages/typescript-client
+
+      pnpm build
+
+      ```
+
+
+      ## Test
+
+
+      In one terminal, start the backend running:
+
+
+      ```shell
+
+      cd ../sync-service
+
+      mix deps.get
+
+      mix stop_dev && mix compile && mix start_dev && ies -S mix
+
+      ```
+
+
+      Then in this folder:
+
+
+      ```shell
+
+      pnpm test
+
+      ```
+    hash: 2bb2850a49ae38537bfbf4fef031409c5819ca30dfd35f3eaab10dbdadf8233c
+    size: 598
+  /packages/experimental/package.json:
+    type: content
+    content: |
+      {
+        "name": "@electric-sql/experimental",
+        "description": "Experimental TypeScript features for ElectricSQL.",
+        "version": "1.0.3",
+        "author": "ElectricSQL team and contributors.",
+        "bugs": {
+          "url": "https://github.com/electric-sql/electric/issues"
+        },
+        "devDependencies": {
+          "@electric-sql/client": "workspace:*",
+          "@types/pg": "^8.11.6",
+          "@types/uuid": "^10.0.0",
+          "@typescript-eslint/eslint-plugin": "^7.14.1",
+          "@typescript-eslint/parser": "^7.14.1",
+          "concurrently": "^8.2.2",
+          "eslint": "^8.57.0",
+          "eslint-config-prettier": "^9.1.0",
+          "eslint-plugin-prettier": "^5.1.3",
+          "glob": "^10.3.10",
+          "pg": "^8.12.0",
+          "prettier": "^3.3.2",
+          "shx": "^0.3.4",
+          "tsup": "^8.0.1",
+          "typescript": "^5.5.2",
+          "uuid": "^10.0.0",
+          "vitest": "^2.0.2"
+        },
+        "peerDependencies": {
+          "@electric-sql/client": "workspace:*"
+        },
+        "peerDependenciesMeta": {
+          "@electric-sql/client": {
+            "optional": false
+          }
+        },
+        "exports": {
+          "./package.json": "./package.json",
+          ".": {
+            "import": {
+              "types": "./dist/index.d.ts",
+              "default": "./dist/index.mjs"
+            },
+            "require": {
+              "types": "./dist/cjs/index.d.cts",
+              "default": "./dist/cjs/index.cjs"
+            }
+          }
+        },
+        "files": [
+          "dist",
+          "src"
+        ],
+        "homepage": "https://electric-sql.com",
+        "license": "Apache-2.0",
+        "main": "dist/cjs/index.cjs",
+        "module": "dist/index.legacy-esm.js",
+        "optionalDependencies": {
+          "@rollup/rollup-darwin-arm64": "^4.18.1"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/electric-sql/electric.git"
+        },
+        "scripts": {
+          "build": "shx rm -rf dist && tsup && tsc -p tsconfig.build.json",
+          "format": "eslint . --fix",
+          "prepack": "pnpm build",
+          "stylecheck": "eslint . --quiet",
+          "test": "pnpm exec vitest",
+          "typecheck": "tsc -p tsconfig.json"
+        },
+        "sideEffects": false,
+        "type": "module",
+        "types": "dist/index.d.ts",
+        "typesVersions": {
+          "*": {
+            "*": [
+              "./dist/index.d.ts"
+            ]
+          }
+        }
+      }
+    hash: 8c0bae06d03c67986a09c85b944fe9c17c797b3fcc7d8f0c8d418b8254bdf7f1
+    size: 2056
+    json:
+      name: "@electric-sql/experimental"
+      description: Experimental TypeScript features for ElectricSQL.
+      version: 1.0.3
+      author: ElectricSQL team and contributors.
+      bugs:
+        url: https://github.com/electric-sql/electric/issues
+      devDependencies:
+        "@electric-sql/client": workspace:*
+        "@types/pg": ^8.11.6
+        "@types/uuid": ^10.0.0
+        "@typescript-eslint/eslint-plugin": ^7.14.1
+        "@typescript-eslint/parser": ^7.14.1
+        concurrently: ^8.2.2
+        eslint: ^8.57.0
+        eslint-config-prettier: ^9.1.0
+        eslint-plugin-prettier: ^5.1.3
+        glob: ^10.3.10
+        pg: ^8.12.0
+        prettier: ^3.3.2
+        shx: ^0.3.4
+        tsup: ^8.0.1
+        typescript: ^5.5.2
+        uuid: ^10.0.0
+        vitest: ^2.0.2
+      peerDependencies:
+        "@electric-sql/client": workspace:*
+      peerDependenciesMeta:
+        "@electric-sql/client":
+          optional: false
+      exports:
+        ./package.json: ./package.json
+        .:
+          import:
+            types: ./dist/index.d.ts
+            default: ./dist/index.mjs
+          require:
+            types: ./dist/cjs/index.d.cts
+            default: ./dist/cjs/index.cjs
+      files:
+        - dist
+        - src
+      homepage: https://electric-sql.com
+      license: Apache-2.0
+      main: dist/cjs/index.cjs
+      module: dist/index.legacy-esm.js
+      optionalDependencies:
+        "@rollup/rollup-darwin-arm64": ^4.18.1
+      repository:
+        type: git
+        url: git+https://github.com/electric-sql/electric.git
+      scripts:
+        build: shx rm -rf dist && tsup && tsc -p tsconfig.build.json
+        format: eslint . --fix
+        prepack: pnpm build
+        stylecheck: eslint . --quiet
+        test: pnpm exec vitest
+        typecheck: tsc -p tsconfig.json
+      sideEffects: false
+      type: module
+      types: dist/index.d.ts
+      typesVersions:
+        "*":
+          "*":
+            - ./dist/index.d.ts
+  /packages/experimental/src/bigint-utils.ts:
+    type: content
+    content: |
+      export function bigIntMax(nums: Array<bigint | number>): bigint {
+        return BigInt(nums.reduce((m, e) => (e > m ? e : m)))
+      }
+
+      export function bigIntMin(nums: Array<bigint | number>): bigint {
+        return BigInt(nums.reduce((m, e) => (e < m ? e : m)))
+      }
+
+      export function bigIntCompare(a: bigint, b: bigint): 1 | -1 | 0 {
+        return a > b ? 1 : a < b ? -1 : 0
+      }
+    hash: 50f3a5962bbc38044c84a07880b8d2a74f6e17cdea0c213cba0246c1071f6f86
+    size: 354
+  /packages/experimental/src/index.ts:
+    type: content
+    content: |
+      export * from './match'
+      export * from './multi-shape-stream'
+    hash: 59f5f2eda72d736084b89f7c746cb61414e2f3bbf8805a99326d87a76239c493
+    size: 61
+  /packages/experimental/src/match.ts:
+    type: content
+    content: |
+      import {
+        isChangeMessage,
+        type ShapeStreamInterface,
+        type ChangeMessage,
+        type GetExtensions,
+        type Operation,
+        type Row,
+        type Value,
+        type Message,
+      } from '@electric-sql/client'
+
+      export function matchStream<T extends Row<unknown>>(
+        stream: ShapeStreamInterface<T>,
+        operations: Array<Operation>,
+        matchFn: (message: ChangeMessage<T>) => boolean,
+        timeout = 60000 // ms
+      ): Promise<ChangeMessage<T>> {
+        return new Promise<ChangeMessage<T>>((resolve, reject) => {
+          const unsubscribe: () => void = stream.subscribe(
+            (messages: Array<unknown>) => {
+              const message = messages
+                .filter((msg): msg is ChangeMessage<T> =>
+                  isChangeMessage(msg as Message<Row<never>>)
+                )
+                .find((message) => {
+                  const operation: Operation = message.headers.operation
+
+                  return operations.includes(operation) && matchFn(message)
+                })
+
+              if (message) {
+                return finish(message)
+              }
+            }
+          )
+
+          const timeoutId: NodeJS.Timeout = setTimeout(() => {
+            const msg: string = `matchStream timed out after ${timeout}ms`
+
+            console.error(msg)
+
+            reject(msg)
+          }, timeout)
+
+          function finish(message: ChangeMessage<T>): void {
+            clearTimeout(timeoutId)
+
+            unsubscribe()
+
+            return resolve(message)
+          }
+        })
+      }
+
+      export function matchBy<T extends Row<unknown>>(
+        column: string,
+        value: Value<GetExtensions<T>>
+      ): (message: ChangeMessage<T>) => boolean {
+        return (message: ChangeMessage<T>) => message.value[column] === value
+      }
+    hash: 5c7131cbb3d928b0f9b91a0103f2a30d1e48e668e031a6632c16b478ffe18bc5
+    size: 1546
+  /packages/experimental/src/multi-shape-stream.ts:
+    type: content
+    content: >
+      import { bigIntCompare, bigIntMax, bigIntMin } from './bigint-utils'
+
+      import {
+        ShapeStream,
+        isChangeMessage,
+        isControlMessage,
+      } from '@electric-sql/client'
+
+      import type {
+        ChangeMessage,
+        ControlMessage,
+        FetchError,
+        MaybePromise,
+        Row,
+        ShapeStreamOptions,
+      } from '@electric-sql/client'
+
+
+      interface MultiShapeStreamOptions<
+        TShapeRows extends {
+          [K: string]: Row<unknown>
+        } = {
+          [K: string]: Row<unknown>
+        },
+      > {
+        shapes: {
+          [K in keyof TShapeRows]:
+            | ShapeStreamOptions<TShapeRows[K]>
+            | ShapeStream<TShapeRows[K]>
+        }
+        start?: boolean
+        checkForUpdatesAfterMs?: number // milliseconds
+      }
+
+
+      interface MultiShapeChangeMessage<
+        T extends Row<unknown>,
+        ShapeNames extends string,
+      > extends ChangeMessage<T> {
+        shape: ShapeNames
+      }
+
+
+      interface MultiShapeControlMessage<ShapeNames extends string>
+        extends ControlMessage {
+        shape: ShapeNames
+      }
+
+
+      type MultiShapeMessage<T extends Row<unknown>, ShapeNames extends string>
+      =
+        | MultiShapeChangeMessage<T, ShapeNames>
+        | MultiShapeControlMessage<ShapeNames>
+
+      export type MultiShapeMessages<
+        TShapeRows extends {
+          [K: string]: Row<unknown>
+        },
+      > = {
+        [K in keyof TShapeRows & string]: MultiShapeMessage<TShapeRows[K], K>
+      }[keyof TShapeRows & string]
+
+
+      export interface MultiShapeStreamInterface<
+        TShapeRows extends {
+          [K: string]: Row<unknown>
+        },
+      > {
+        shapes: { [K in keyof TShapeRows]: ShapeStream<TShapeRows[K]> }
+        checkForUpdatesAfterMs?: number
+
+        subscribe(
+          callback: (
+            messages: MultiShapeMessages<TShapeRows>[]
+          ) => MaybePromise<void>,
+          onError?: (error: FetchError | Error) => void
+        ): () => void
+        unsubscribeAll(): void
+
+        lastSyncedAt(): number | undefined
+        lastSynced(): number
+        isConnected(): boolean
+        isLoading(): boolean
+
+        isUpToDate: boolean
+      }
+
+
+      /**
+       * A multi-shape stream is a stream that can subscribe to multiple shapes.
+       * It ensures that all shapes will receive at least an `up-to-date` message from
+       * Electric within the `checkForUpdatesAfterMs` interval.
+       *
+       * @constructor
+       * @param {MultiShapeStreamOptions} options - configure the multi-shape stream
+       * @example
+       * ```ts
+       * const multiShapeStream = new MultiShapeStream({
+       *   shapes: {
+       *     shape1: {
+       *       url: 'http://localhost:3000/v1/shape1',
+       *     },
+       *     shape2: {
+       *       url: 'http://localhost:3000/v1/shape2',
+       *     },
+       *   },
+       * })
+       *
+       * multiShapeStream.subscribe((msgs) => {
+       *   console.log(msgs)
+       * })
+       *
+       * // or with ShapeStream instances
+       * const multiShapeStream = new MultiShapeStream({
+       *   shapes: {
+       *     shape1: new ShapeStream({ url: 'http://localhost:3000/v1/shape1' }),
+       *     shape2: new ShapeStream({ url: 'http://localhost:3000/v1/shape2' }),
+       *   },
+       * })
+       * ```
+       */
+
+      export class MultiShapeStream<
+        TShapeRows extends {
+          [K: string]: Row<unknown>
+        },
+      > implements MultiShapeStreamInterface<TShapeRows>
+
+      {
+        #shapes: { [K in keyof TShapeRows]: ShapeStream<TShapeRows[K]> }
+        #started = false
+        checkForUpdatesAfterMs?: number
+
+        #checkForUpdatesTimeout?: ReturnType<typeof setTimeout> | undefined
+
+        // We keep track of the last lsn of data and up-to-date messages for each shape
+        // so that we can skip checkForUpdates if the lsn of the up-to-date message is
+        // greater than the last lsn of data.
+        #lastDataLsns: { [K in keyof TShapeRows]: bigint }
+        #lastUpToDateLsns: { [K in keyof TShapeRows]: bigint }
+
+        readonly #subscribers = new Map<
+          number,
+          [
+            (messages: MultiShapeMessages<TShapeRows>[]) => MaybePromise<void>,
+            ((error: Error) => void) | undefined,
+          ]
+        >()
+
+        constructor(options: MultiShapeStreamOptions<TShapeRows>) {
+          const {
+            start = true, // By default we start the multi-shape stream
+            checkForUpdatesAfterMs = 100, // Force a check for updates after 100ms
+            shapes,
+          } = options
+          this.checkForUpdatesAfterMs = checkForUpdatesAfterMs
+          this.#shapes = Object.fromEntries(
+            Object.entries(shapes).map(([key, shape]) => [
+              key,
+              shape instanceof ShapeStream
+                ? shape
+                : new ShapeStream<TShapeRows[typeof key]>({
+                    ...shape,
+                    start: false,
+                  }),
+            ])
+          ) as { [K in keyof TShapeRows]: ShapeStream<TShapeRows[K]> }
+          this.#lastDataLsns = Object.fromEntries(
+            Object.entries(shapes).map(([key]) => [key, BigInt(-1)])
+          ) as { [K in keyof TShapeRows]: bigint }
+          this.#lastUpToDateLsns = Object.fromEntries(
+            Object.entries(shapes).map(([key]) => [key, BigInt(-1)])
+          ) as { [K in keyof TShapeRows]: bigint }
+          if (start) this.#start()
+        }
+
+        #start() {
+          if (this.#started) throw new Error(`Cannot start multi-shape stream twice`)
+          for (const [key, shape] of this.#shapeEntries()) {
+            if (shape.hasStarted()) {
+              // The multi-shape stream needs to be started together as a whole, and so we
+              // have to check that a shape is not already started.
+              throw new Error(`Shape ${key} already started`)
+            }
+            shape.subscribe(
+              async (messages) => {
+                // Whats the max lsn of the up-to-date messages?
+                const upToDateLsns = messages
+                  .filter(isControlMessage)
+                  .map(({ headers }) =>
+                    typeof headers.global_last_seen_lsn === `string`
+                      ? BigInt(headers.global_last_seen_lsn)
+                      : BigInt(0)
+                  )
+                if (upToDateLsns.length > 0) {
+                  const maxUpToDateLsn = bigIntMax(upToDateLsns)
+                  const lastMaxUpToDateLsn = this.#lastUpToDateLsns[key]
+                  if (maxUpToDateLsn > lastMaxUpToDateLsn) {
+                    this.#lastUpToDateLsns[key] = maxUpToDateLsn
+                  }
+                }
+
+                // Whats the max lsn of the data messages?
+                const dataLsns = messages
+                  .filter(isChangeMessage)
+                  .map(({ headers }) =>
+                    typeof headers.lsn === `string` ? BigInt(headers.lsn) : BigInt(0)
+                  )
+                if (dataLsns.length > 0) {
+                  const maxDataLsn = bigIntMax(dataLsns)
+                  const lastMaxDataLsn = this.#lastDataLsns[key]
+                  if (maxDataLsn > lastMaxDataLsn) {
+                    this.#lastDataLsns[key] = maxDataLsn
+                  }
+                  // There is new data, so we need to schedule a check for updates on
+                  // other shapes
+                  this.#scheduleCheckForUpdates()
+                }
+
+                // Publish the messages to the multi-shape stream subscribers
+                const multiShapeMessages = messages.map(
+                  (message) =>
+                    ({
+                      ...message,
+                      shape: key,
+                    }) as MultiShapeMessages<TShapeRows>
+                )
+                await this._publish(multiShapeMessages)
+              },
+              (error) => this.#onError(error)
+            )
+          }
+          this.#started = true
+        }
+
+        #scheduleCheckForUpdates() {
+          this.#checkForUpdatesTimeout ??= setTimeout(() => {
+            this.#checkForUpdates()
+            this.#checkForUpdatesTimeout = undefined
+          }, this.checkForUpdatesAfterMs)
+        }
+
+        async #checkForUpdates() {
+          const maxDataLsn = bigIntMax(Object.values(this.#lastDataLsns))
+          const refreshPromises = this.#shapeEntries()
+            .filter(([key]) => {
+              // We only need to refresh shapes that have not seen an up-to-date message
+              // lower than the max lsn of the data messages we have received.
+              const lastUpToDateLsn = this.#lastUpToDateLsns[key]
+              return lastUpToDateLsn < maxDataLsn
+            })
+            .map(([_, shape]) => {
+              return shape.forceDisconnectAndRefresh()
+            })
+          await Promise.all(refreshPromises)
+        }
+
+        #onError(error: Error) {
+          // TODO: we probably want to disconnect all shapes here on the first error
+          this.#subscribers.forEach(([_, errorFn]) => {
+            errorFn?.(error)
+          })
+        }
+
+        protected async _publish(
+          messages: MultiShapeMessages<TShapeRows>[]
+        ): Promise<void> {
+          await Promise.all(
+            Array.from(this.#subscribers.values()).map(async ([callback, __]) => {
+              try {
+                await callback(messages)
+              } catch (err) {
+                queueMicrotask(() => {
+                  throw err
+                })
+              }
+            })
+          )
+        }
+
+        /**
+         * Returns an array of the shape entries.
+         * Ensures that the shape entries are typed, as `Object.entries`
+         * will not type the entries correctly.
+         */
+        #shapeEntries() {
+          return Object.entries(this.#shapes) as [
+            keyof TShapeRows & string,
+            ShapeStream<TShapeRows[string]>,
+          ][]
+        }
+
+        /**
+         * The ShapeStreams that are being subscribed to.
+         */
+        get shapes() {
+          return this.#shapes
+        }
+
+        subscribe(
+          callback: (
+            messages: MultiShapeMessages<TShapeRows>[]
+          ) => MaybePromise<void>,
+          onError?: (error: FetchError | Error) => void
+        ) {
+          const subscriptionId = Math.random()
+
+          this.#subscribers.set(subscriptionId, [callback, onError])
+          if (!this.#started) this.#start()
+
+          return () => {
+            this.#subscribers.delete(subscriptionId)
+          }
+        }
+
+        unsubscribeAll(): void {
+          this.#subscribers.clear()
+        }
+
+        /** Unix time at which we last synced. Undefined when `isLoading` is true. */
+        lastSyncedAt(): number | undefined {
+          // Min of all the lastSyncedAt values
+          const shapeEntries = this.#shapeEntries()
+          if (shapeEntries.length === 0) return
+          return shapeEntries.reduce((minLastSyncedAt, [_, shape]) => {
+            return Math.min(minLastSyncedAt, shape.lastSyncedAt() ?? Infinity)
+          }, Infinity)
+        }
+
+        /** Time elapsed since last sync (in ms). Infinity if we did not yet sync. */
+        lastSynced(): number {
+          const lastSyncedAt = this.lastSyncedAt()
+          if (lastSyncedAt === undefined) return Infinity
+          return Date.now() - lastSyncedAt
+        }
+
+        /** Indicates if we are connected to the Electric sync service. */
+        isConnected(): boolean {
+          return this.#shapeEntries().every(([_, shape]) => shape.isConnected())
+        }
+
+        /** True during initial fetch. False afterwise. */
+        isLoading(): boolean {
+          return this.#shapeEntries().some(([_, shape]) => shape.isLoading())
+        }
+
+        get isUpToDate() {
+          return this.#shapeEntries().every(([_, shape]) => shape.isUpToDate)
+        }
+      }
+
+
+      /**
+       * A transactional multi-shape stream is a multi-shape stream that emits the
+       * messages in transactional batches, ensuring that all shapes will receive
+       * at least an `up-to-date` message from Electric within the `checkForUpdatesAfterMs`
+       * interval.
+       * It uses the `lsn` metadata to infer transaction boundaries, and the `op_position`
+       * metadata to sort the messages within a transaction.
+       *
+       * @constructor
+       * @param {MultiShapeStreamOptions} options - configure the multi-shape stream
+       * @example
+       * ```ts
+       * const transactionalMultiShapeStream = new TransactionalMultiShapeStream({
+       *   shapes: {
+       *     shape1: {
+       *       url: 'http://localhost:3000/v1/shape1',
+       *     },
+       *     shape2: {
+       *       url: 'http://localhost:3000/v1/shape2',
+       *     },
+       *   },
+       * })
+       *
+       * transactionalMultiShapeStream.subscribe((msgs) => {
+       *   console.log(msgs)
+       * })
+       *
+       * // or with ShapeStream instances
+       * const transactionalMultiShapeStream = new TransactionalMultiShapeStream({
+       *   shapes: {
+       *     shape1: new ShapeStream({ url: 'http://localhost:3000/v1/shape1' }),
+       *     shape2: new ShapeStream({ url: 'http://localhost:3000/v1/shape2' }),
+       *   },
+       * })
+       * ```
+       */
+
+      export class TransactionalMultiShapeStream<
+        TShapeRows extends {
+          [K: string]: Row<unknown>
+        },
+      > extends MultiShapeStream<TShapeRows> {
+        #changeMessages = new Map<bigint, MultiShapeMessage<Row<unknown>, string>[]>()
+        #completeLsns: {
+          [K in keyof TShapeRows]: bigint
+        }
+
+        constructor(options: MultiShapeStreamOptions<TShapeRows>) {
+          super(options)
+          this.#completeLsns = Object.fromEntries(
+            Object.entries(options.shapes).map(([key]) => [key, BigInt(-1)])
+          ) as { [K in keyof TShapeRows]: bigint }
+        }
+
+        #getLowestCompleteLsn() {
+          return bigIntMin(Object.values(this.#completeLsns))
+        }
+
+        protected async _publish(
+          messages: MultiShapeMessages<TShapeRows>[]
+        ): Promise<void> {
+          this.#accumulate(messages)
+          const lowestCompleteLsn = this.#getLowestCompleteLsn()
+          const lsnsToPublish = [...this.#changeMessages.keys()].filter(
+            (lsn) => lsn <= lowestCompleteLsn
+          )
+          const messagesToPublish = lsnsToPublish
+            .sort((a, b) => bigIntCompare(a, b))
+            .map((lsn) =>
+              this.#changeMessages.get(lsn)?.sort((a, b) => {
+                const { headers: aHeaders } = a
+                const { headers: bHeaders } = b
+                if (
+                  typeof aHeaders.op_position !== `number` ||
+                  typeof bHeaders.op_position !== `number`
+                ) {
+                  return 0 // op_position is not present on the snapshot message
+                }
+                return aHeaders.op_position - bHeaders.op_position
+              })
+            )
+            .filter((messages) => messages !== undefined)
+            .flat() as MultiShapeMessages<TShapeRows>[]
+          lsnsToPublish.forEach((lsn) => {
+            this.#changeMessages.delete(lsn)
+          })
+          if (messagesToPublish.length > 0) {
+            await super._publish(messagesToPublish)
+          }
+        }
+
+        #accumulate(messages: MultiShapeMessages<TShapeRows>[]) {
+          const isUpToDate = this.isUpToDate
+          messages.forEach((message) => {
+            const { shape, headers } = message
+            if (isChangeMessage(message)) {
+              // The snapshot message does not have an lsn, so we use 0
+              const lsn =
+                typeof headers.lsn === `string` ? BigInt(headers.lsn) : BigInt(0)
+              if (!this.#changeMessages.has(lsn)) {
+                this.#changeMessages.set(lsn, [])
+              }
+              this.#changeMessages.get(lsn)?.push(message)
+              if (
+                isUpToDate && // All shapes must be up to date
+                typeof headers.last === `boolean` &&
+                headers.last === true
+              ) {
+                this.#completeLsns[shape] = bigIntMax([
+                  this.#completeLsns[shape],
+                  lsn,
+                ])
+              }
+            } else if (isControlMessage(message)) {
+              if (headers.control === `up-to-date`) {
+                if (typeof headers.global_last_seen_lsn !== `string`) {
+                  throw new Error(`global_last_seen_lsn is not a number`)
+                }
+                this.#completeLsns[shape] = bigIntMax([
+                  this.#completeLsns[shape],
+                  BigInt(headers.global_last_seen_lsn),
+                ])
+              }
+            }
+          })
+        }
+      }
+    hash: a9bc246defec23dfc9f654ff44457b97d76626435410f48699fb6c949e58c058
+    size: 14190
+  /packages/experimental/test/bigint-utils.test.ts:
+    type: content
+    content: >
+      import { describe, expect, it } from 'vitest'
+
+      import { bigIntCompare, bigIntMax, bigIntMin } from '../src/bigint-utils'
+
+
+      // Number of args where destructuring them would cause a stack overflow
+
+      const STACK_LIMIT_ARG_DESTRUCTURE_NUM = 150000
+
+
+      describe(`bigIntMax`, () => {
+        it(`should return the maximum of bigint and number arguments as a bigint`, () => {
+          expect(bigIntMax([BigInt(1), BigInt(2), BigInt(3)])).toBe(BigInt(3))
+          expect(bigIntMax([5, 10, 2])).toBe(BigInt(10))
+          expect(bigIntMax([BigInt(1), 2, BigInt(3), 4])).toBe(BigInt(4))
+        })
+
+        it(`should return the only element as a bigint when there is one argument`, () => {
+          expect(bigIntMax([BigInt(42)])).toBe(BigInt(42))
+          expect(bigIntMax([99])).toBe(BigInt(99))
+        })
+
+        it(`should handle negative numbers and bigints`, () => {
+          expect(bigIntMax([BigInt(-10), BigInt(-5), BigInt(-1)])).toBe(BigInt(-1))
+          expect(bigIntMax([-100, -50, -10])).toBe(BigInt(-10))
+        })
+
+        it(`should handle very large number of comparisons`, () => {
+          const largeArray = Array.from(
+            { length: STACK_LIMIT_ARG_DESTRUCTURE_NUM },
+            (_, idx) => BigInt(idx)
+          )
+
+          expect(bigIntMax(largeArray)).toBe(
+            BigInt(STACK_LIMIT_ARG_DESTRUCTURE_NUM - 1)
+          )
+        })
+      })
+
+
+      describe(`bigIntMin`, () => {
+        it(`should return the minimum of bigint and number arguments as a bigint`, () => {
+          expect(bigIntMin([BigInt(1), BigInt(2), BigInt(3)])).toBe(BigInt(1))
+          expect(bigIntMin([5, 10, 2])).toBe(BigInt(2))
+          expect(bigIntMin([BigInt(1), 2, BigInt(3), 4])).toBe(BigInt(1))
+        })
+
+        it(`should return the only element as a bigint when there is one argument`, () => {
+          expect(bigIntMin([BigInt(42)])).toBe(BigInt(42))
+          expect(bigIntMin([99])).toBe(BigInt(99))
+        })
+
+        it(`should handle negative numbers and bigints`, () => {
+          expect(bigIntMin([BigInt(-10), BigInt(-5), BigInt(-1)])).toBe(BigInt(-10))
+          expect(bigIntMin([-100, -50, -10])).toBe(BigInt(-100))
+        })
+
+        it(`should handle very large number of comparisons`, () => {
+          const largeArray = Array.from(
+            { length: STACK_LIMIT_ARG_DESTRUCTURE_NUM },
+            (_, idx) => BigInt(idx)
+          )
+          expect(bigIntMin(largeArray)).toBe(BigInt(0))
+        })
+      })
+
+
+      describe(`bigIntCompare`, () => {
+        it(`should return 1 when the first bigint is greater than the second`, () => {
+          expect(bigIntCompare(BigInt(5), BigInt(3))).toBe(1)
+          expect(bigIntCompare(BigInt(100), BigInt(99))).toBe(1)
+        })
+
+        it(`should return -1 when the first bigint is less than the second`, () => {
+          expect(bigIntCompare(BigInt(3), BigInt(5))).toBe(-1)
+          expect(bigIntCompare(BigInt(99), BigInt(100))).toBe(-1)
+        })
+
+        it(`should return 0 when both bigints are equal`, () => {
+          expect(bigIntCompare(BigInt(42), BigInt(42))).toBe(0)
+          expect(bigIntCompare(BigInt(0), BigInt(0))).toBe(0)
+        })
+      })
+    hash: cb584feb0ed57389059c1413c0ea5907a09b59b2afeae47c7bbbe62862ea4268
+    size: 2805
+  /packages/experimental/test/match.test.ts:
+    type: content
+    content: |
+      import { describe, expect, inject } from 'vitest'
+      import { v4 as uuidv4 } from 'uuid'
+      import { ShapeStream } from '@electric-sql/client'
+      import { testWithIssuesTable as it } from './support/test-context'
+
+      import { matchBy, matchStream } from '../src/match'
+
+      const BASE_URL = inject(`baseUrl`)
+
+      describe(`matchStream`, () => {
+        it(`should match`, async ({ insertIssues, issuesTableUrl }) => {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-nocheck
+          const stream = new ShapeStream({
+            url: `${BASE_URL}/v1/shape`,
+            params: {
+              table: issuesTableUrl,
+            },
+          })
+
+          const id = uuidv4()
+          const issue = {
+            id: id,
+            title: `test title`,
+          }
+
+          setTimeout(() => {
+            insertIssues(issue)
+          }, 10)
+
+          const matchFn = matchBy(`id`, id)
+          const result = await matchStream(stream, [`insert`], matchFn, 200)
+
+          expect(result.value.title).toEqual(`test title`)
+        })
+      })
+    hash: 247ecf011179cc94fbcae5f5322cb0d10a7cc1d68c3a57a87a0966c0e5b1abb7
+    size: 938
+  /packages/experimental/test/multi-shape-stream.test-d.ts:
+    type: content
+    content: >
+      import { describe, expectTypeOf, test } from 'vitest'
+
+      import { Row, ShapeStream, ShapeStreamOptions } from
+      '@electric-sql/client'
+
+      import { MultiShapeStream } from '../src/multi-shape-stream'
+
+
+      interface UserRow extends Row {
+        id: string
+        name: string
+      }
+
+
+      interface PostRow extends Row {
+        id: string
+        content: string
+      }
+
+
+      describe(`MultiShapeStream`, () => {
+        test(`type inference with ShapeStream instances`, () => {
+          const stream = new MultiShapeStream({
+            shapes: {
+              users: new ShapeStream<UserRow>({ url: `users` }),
+              posts: new ShapeStream<PostRow>({ url: `posts` }),
+            },
+          })
+
+          expectTypeOf(stream.shapes.users).toEqualTypeOf<ShapeStream<UserRow>>()
+          expectTypeOf(stream.shapes.posts).toEqualTypeOf<ShapeStream<PostRow>>()
+        })
+
+        test(`type inference with ShapeStreamOptions`, () => {
+          const stream = new MultiShapeStream({
+            shapes: {
+              users: { url: `users` } as ShapeStreamOptions<UserRow>,
+              posts: { url: `posts` } as ShapeStreamOptions<PostRow>,
+            },
+          })
+
+          expectTypeOf(stream.shapes.users).toEqualTypeOf<ShapeStream<UserRow>>()
+          expectTypeOf(stream.shapes.posts).toEqualTypeOf<ShapeStream<PostRow>>()
+        })
+
+        test(`type inference with mixed ShapeStream and ShapeStreamOptions`, () => {
+          const stream = new MultiShapeStream({
+            shapes: {
+              users: new ShapeStream<UserRow>({ url: `users` }),
+              posts: { url: `posts` } as ShapeStreamOptions<PostRow>,
+            },
+          })
+
+          expectTypeOf(stream.shapes.users).toEqualTypeOf<ShapeStream<UserRow>>()
+          expectTypeOf(stream.shapes.posts).toEqualTypeOf<ShapeStream<PostRow>>()
+        })
+      })
+    hash: a32491cf9c3d629a3fec516b3e3f4bbd8003c8b75d9ba2a5c58daaf9e9cffdc0
+    size: 1624
+  /packages/experimental/test/multi-shape-stream.test.ts:
+    type: content
+    content: >
+      import { describe, expect, inject, vi } from 'vitest'
+
+      import { setTimeout as sleep } from 'node:timers/promises'
+
+      import { testWithIssuesTable as it } from './support/test-context'
+
+      import {
+        MultiShapeStream,
+        TransactionalMultiShapeStream,
+      } from '../src/multi-shape-stream'
+
+      import { Row } from '@electric-sql/client'
+
+      import type { MultiShapeMessages } from '../src/multi-shape-stream'
+
+      import { v4 as uuidv4 } from 'uuid'
+
+
+      const BASE_URL = inject(`baseUrl`)
+
+
+      interface IssueRow extends Row {
+        id: string
+        title: string
+        priority: number
+      }
+
+
+      describe(`MultiShapeStream`, () => {
+        it(`should sync multiple empty shapes`, async ({
+          issuesTableUrl,
+          clearIssuesShape,
+        }) => {
+          const start = Date.now()
+          const multiShapeStream = new MultiShapeStream<{
+            shape1: IssueRow
+            shape2: IssueRow
+          }>({
+            shapes: {
+              shape1: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                  where: `priority <= 10`,
+                },
+              },
+              shape2: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                  where: `priority > 10`,
+                },
+              },
+            },
+          })
+
+          // Subscribe to start the stream
+          const hasNotified = new Promise((resolve) => {
+            multiShapeStream.subscribe(resolve)
+          })
+
+          await hasNotified
+          await clearIssuesShape(multiShapeStream.shapes.shape2.shapeHandle)
+          await clearIssuesShape(multiShapeStream.shapes.shape1.shapeHandle)
+
+          expect(multiShapeStream.lastSyncedAt()).toBeGreaterThanOrEqual(start)
+          expect(multiShapeStream.lastSyncedAt()).toBeLessThanOrEqual(Date.now())
+          expect(multiShapeStream.lastSynced()).toBeLessThanOrEqual(
+            Date.now() - start
+          )
+        })
+
+        it(`should notify with initial values from multiple shapes`, async ({
+          issuesTableUrl,
+          insertIssues,
+          aborter,
+        }) => {
+          const [id1] = await insertIssues({ title: `test title 1`, priority: 5 })
+          const [id2] = await insertIssues({ title: `test title 2`, priority: 15 })
+
+          const start = Date.now()
+          type ShapeConfig = {
+            lowPriority: IssueRow
+            highPriority: IssueRow
+          }
+
+          const multiShapeStream = new MultiShapeStream<ShapeConfig>({
+            shapes: {
+              lowPriority: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                  where: `priority <= 10`,
+                },
+                signal: aborter.signal,
+              },
+              highPriority: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                  where: `priority > 10`,
+                },
+                signal: aborter.signal,
+              },
+            },
+          })
+
+          const messages: MultiShapeMessages<ShapeConfig>[] = []
+
+          await new Promise<void>((resolve) => {
+            multiShapeStream.subscribe((msgs) => {
+              messages.push(...msgs)
+              if (multiShapeStream.isUpToDate) {
+                resolve()
+              }
+            })
+          })
+
+          // Verify we get messages from both shapes with correct shape names
+          expect(messages.length).toBeGreaterThan(0)
+          const changeMessages = messages.filter(
+            (msg): msg is MultiShapeMessages<ShapeConfig> & { value: IssueRow } =>
+              `value` in msg
+          )
+
+          // Find messages for each shape
+          const lowPriorityMsg = changeMessages.find(
+            (msg) => msg.shape === `lowPriority`
+          )
+          const highPriorityMsg = changeMessages.find(
+            (msg) => msg.shape === `highPriority`
+          )
+
+          expect(lowPriorityMsg?.value).toEqual({
+            id: id1,
+            title: `test title 1`,
+            priority: 5,
+          })
+
+          expect(highPriorityMsg?.value).toEqual({
+            id: id2,
+            title: `test title 2`,
+            priority: 15,
+          })
+
+          expect(multiShapeStream.lastSyncedAt()).toBeGreaterThanOrEqual(start)
+          expect(multiShapeStream.lastSyncedAt()).toBeLessThanOrEqual(Date.now())
+          expect(multiShapeStream.lastSynced()).toBeLessThanOrEqual(
+            Date.now() - start
+          )
+        })
+
+        it(`should continually sync multiple shapes`, async ({
+          issuesTableUrl,
+          insertIssues,
+          updateIssue,
+          waitForIssues,
+          aborter,
+        }) => {
+          const [id1] = await insertIssues({ title: `test title 1`, priority: 5 })
+          const [id2] = await insertIssues({ title: `test title 2`, priority: 15 })
+          const streamState = await waitForIssues({ numChangesExpected: 2 })
+
+          type ShapeConfig = {
+            lowPriority: IssueRow
+            highPriority: IssueRow
+          }
+
+          const multiShapeStream = new MultiShapeStream<ShapeConfig>({
+            shapes: {
+              lowPriority: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                  where: `priority <= 10`,
+                },
+                signal: aborter.signal,
+              },
+              highPriority: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                  where: `priority > 10`,
+                },
+                signal: aborter.signal,
+              },
+            },
+          })
+
+          const messages: MultiShapeMessages<ShapeConfig>[] = []
+
+          await new Promise<void>((resolve) => {
+            multiShapeStream.subscribe((msgs) => {
+              messages.push(...msgs)
+              if (multiShapeStream.isUpToDate) {
+                resolve()
+              }
+            })
+          })
+
+          // Update that moves an issue from low to high priority
+          await updateIssue({ id: id1, title: `low priority`, priority: 20 })
+          // Update that moves an issue from high to low priority
+          await updateIssue({ id: id2, title: `high priority`, priority: 5 })
+
+          // some time for electric to catch up
+          await waitForIssues({
+            numChangesExpected: 2,
+            shapeStreamOptions: streamState,
+          })
+
+          // Verify we got update messages for both shapes
+          const [lowPriorityMsgs, highPriorityMsgs] = await vi.waitFor(() => {
+            const changeMessages = (
+              messages as MultiShapeMessages<ShapeConfig>[]
+            ).filter(
+              (msg): msg is MultiShapeMessages<ShapeConfig> & { value: IssueRow } =>
+                `value` in msg
+            )
+
+            // Should have updates in both shapes
+            const lowPriorityMsgs = changeMessages.filter(
+              (msg) => msg.shape === `lowPriority`
+            )
+            const highPriorityMsgs = changeMessages.filter(
+              (msg) => msg.shape === `highPriority`
+            )
+
+            expect(lowPriorityMsgs.length).toBe(3)
+            expect(highPriorityMsgs.length).toBe(3)
+            return [lowPriorityMsgs, highPriorityMsgs]
+          })
+
+          expect(
+            lowPriorityMsgs.filter((msg) => msg.headers.operation === `insert`).length
+          ).toBe(2)
+          expect(
+            lowPriorityMsgs.filter((msg) => msg.headers.operation === `delete`).length
+          ).toBe(1)
+
+          expect(
+            highPriorityMsgs.filter((msg) => msg.headers.operation === `insert`)
+              .length
+          ).toBe(2)
+          expect(
+            highPriorityMsgs.filter((msg) => msg.headers.operation === `delete`)
+              .length
+          ).toBe(1)
+        })
+
+        it(`should support unsubscribe`, async ({
+          issuesTableUrl,
+          insertIssues,
+          waitForIssues,
+        }) => {
+          const multiShapeStream = new MultiShapeStream<{
+            shape1: IssueRow
+          }>({
+            shapes: {
+              shape1: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                },
+              },
+            },
+          })
+
+          const subFn = vi.fn((_) => void 0)
+          const unsubscribeFn = multiShapeStream.subscribe(subFn)
+
+          // Wait for initial sync
+          // await sleep(100)
+          await vi.waitFor(() => expect(subFn).toHaveBeenCalledTimes(1))
+
+          unsubscribeFn()
+          multiShapeStream.unsubscribeAll()
+
+          // Make a change and verify callback isn't called
+          await insertIssues({ title: `test title 1`, priority: 5 })
+          await waitForIssues({ numChangesExpected: 1 })
+          await sleep(100)
+          expect(subFn).toHaveBeenCalledTimes(1) // Only the initial sync
+        })
+      })
+
+
+      describe(`TransactionalMultiShapeStream`, () => {
+        it(`should group changes from the same transaction together`, async ({
+          issuesTableUrl,
+          insertIssues,
+          updateIssue,
+          waitForIssues,
+          beginTransaction,
+          commitTransaction,
+          aborter,
+        }) => {
+          // Create initial data
+          const id1 = uuidv4()
+          const id2 = uuidv4()
+          const id3 = uuidv4()
+          await insertIssues({ id: id1, title: `test title 1`, priority: 5 })
+          await insertIssues({ id: id2, title: `test title 2`, priority: 15 })
+          const streamState = await waitForIssues({ numChangesExpected: 2 })
+
+          type ShapeConfig = {
+            lowPriority: IssueRow
+            highPriority: IssueRow
+          }
+
+          const multiShapeStream = new TransactionalMultiShapeStream<ShapeConfig>({
+            shapes: {
+              lowPriority: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                  where: `priority <= 10`,
+                },
+                signal: aborter.signal,
+              },
+              highPriority: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                  where: `priority > 10`,
+                },
+                signal: aborter.signal,
+              },
+            },
+          })
+
+          const messageGroups: MultiShapeMessages<ShapeConfig>[][] = []
+
+          // Subscribe and wait for initial sync
+          await new Promise<void>((resolve) => {
+            multiShapeStream.subscribe((msgs: MultiShapeMessages<ShapeConfig>[]) => {
+              messageGroups.push(msgs)
+              if (multiShapeStream.isUpToDate) {
+                resolve()
+              }
+            })
+          })
+
+          // We should get one message group containing all changes from the initial sync
+          expect(messageGroups.length).toBe(1)
+          const initialSyncGroup = messageGroups[0]
+          expect(initialSyncGroup.length).toBe(2)
+          expect(initialSyncGroup.every((msg) => `value` in msg)).toBe(true)
+
+          // Clear initial sync messages
+          messageGroups.length = 0
+
+          // Transaction that will affect both shapes
+          await beginTransaction()
+          await updateIssue({ id: id1, title: `moved to high`, priority: 20 })
+          await updateIssue({ id: id2, title: `moved to low`, priority: 5 })
+          await insertIssues({ id: id3, title: `test title 3`, priority: 20 })
+          await commitTransaction()
+
+          // Wait for changes to be processed
+          await waitForIssues({
+            numChangesExpected: 3,
+            shapeStreamOptions: streamState,
+          })
+
+          // We should get one message group containing all changes from the transaction
+          await vi.waitFor(() => expect(messageGroups.length).toBe(1))
+
+          // Find the message group containing our changes
+          const changeGroup = messageGroups.find((group) =>
+            group.some(
+              (msg) =>
+                `value` in msg && (msg.value.id === id1 || msg.value.id === id2)
+            )
+          )
+
+          expect(changeGroup).toBeDefined()
+          expect(changeGroup!.length).toBe(5)
+          // 2 deletes + 2 inserts for the moves
+          // + 1 insert for the new issue
+
+          // Verify the operations are in the correct order based on op_position
+          const operations = changeGroup!
+            .filter(
+              (msg): msg is MultiShapeMessages<ShapeConfig> & { value: IssueRow } =>
+                `value` in msg
+            )
+            .map((msg) => ({
+              operation: msg.headers.operation,
+              shape: msg.shape,
+              id: msg.value.id,
+            }))
+
+          // Verify we have the expected sequence of operations
+          expect(operations).toContainEqual({
+            operation: `delete`,
+            shape: `lowPriority`,
+            id: id1,
+          })
+          expect(operations).toContainEqual({
+            operation: `insert`,
+            shape: `highPriority`,
+            id: id1,
+          })
+          expect(operations).toContainEqual({
+            operation: `delete`,
+            shape: `highPriority`,
+            id: id2,
+          })
+          expect(operations).toContainEqual({
+            operation: `insert`,
+            shape: `lowPriority`,
+            id: id2,
+          })
+          expect(operations).toContainEqual({
+            operation: `insert`,
+            shape: `highPriority`,
+            id: id3,
+          })
+
+          // Verify the operations are ordered by op_position
+          const opPositions = changeGroup!.map(
+            (msg) => msg.headers.op_position as number
+          )
+          expect(opPositions).toEqual([...opPositions].sort((a, b) => a - b))
+        })
+
+        it(`should maintain transaction boundaries across multiple transactions`, async ({
+          issuesTableUrl,
+          insertIssues,
+          updateIssue,
+          waitForIssues,
+          beginTransaction,
+          commitTransaction,
+          aborter,
+        }) => {
+          // Create initial data
+          const id1 = uuidv4()
+          const id2 = uuidv4()
+          await insertIssues({ id: id1, title: `test title 1`, priority: 5 })
+          await insertIssues({ id: id2, title: `test title 2`, priority: 15 })
+          const streamState = await waitForIssues({ numChangesExpected: 2 })
+
+          type ShapeConfig = {
+            lowPriority: IssueRow
+            highPriority: IssueRow
+          }
+
+          const multiShapeStream = new TransactionalMultiShapeStream<ShapeConfig>({
+            shapes: {
+              lowPriority: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                  where: `priority <= 10`,
+                },
+                signal: aborter.signal,
+              },
+              highPriority: {
+                url: `${BASE_URL}/v1/shape`,
+                params: {
+                  table: issuesTableUrl,
+                  where: `priority > 10`,
+                },
+                signal: aborter.signal,
+              },
+            },
+          })
+
+          const messageGroups: MultiShapeMessages<ShapeConfig>[][] = []
+
+          // Subscribe and wait for initial sync
+          await new Promise<void>((resolve) => {
+            multiShapeStream.subscribe((msgs: MultiShapeMessages<ShapeConfig>[]) => {
+              messageGroups.push(msgs)
+              if (multiShapeStream.isUpToDate) {
+                resolve()
+              }
+            })
+          })
+
+          // Clear initial sync messages
+          messageGroups.length = 0
+
+          // Perform two separate transactions
+          // Transaction 1: Move id1 to high priority
+          await beginTransaction()
+          await updateIssue({ id: id1, title: `moved to high`, priority: 20 })
+          await commitTransaction()
+
+          await sleep(50)
+
+          // Transaction 2: Move id2 to low priority
+          await beginTransaction()
+          await updateIssue({ id: id2, title: `moved to low`, priority: 5 })
+          await commitTransaction()
+
+          // Wait for changes to be processed
+          await waitForIssues({
+            numChangesExpected: 2,
+            shapeStreamOptions: streamState,
+          })
+          await sleep(200)
+
+          // Find message groups containing our changes
+          const changeGroups = await vi.waitFor(() => {
+            const changeGroups = messageGroups.filter((group) =>
+              group.some(
+                (msg) =>
+                  `value` in msg && (msg.value.id === id1 || msg.value.id === id2)
+              )
+            )
+
+            // We should have two separate transaction groups
+            expect(changeGroups.length).toBe(2)
+            return changeGroups
+          })
+
+          // First transaction group should contain operations for id1
+          const transaction1 = changeGroups[0]
+          expect(transaction1.length).toBe(2) // 1 delete + 1 insert
+          expect(
+            transaction1.every((msg) => !(`value` in msg) || msg.value.id === id1)
+          ).toBe(true)
+
+          // Second transaction group should contain operations for id2
+          const transaction2 = changeGroups[1]
+          expect(transaction2.length).toBe(2) // 1 delete + 1 insert
+          expect(
+            transaction2.every((msg) => !(`value` in msg) || msg.value.id === id2)
+          ).toBe(true)
+
+          // Verify LSNs are different between transactions
+          const lsn1 = transaction1[0].headers.lsn
+          const lsn2 = transaction2[0].headers.lsn
+          expect(lsn1).not.toBe(lsn2)
+
+          // Verify operations within each transaction are ordered by op_position
+          const verifyOpPositionOrder = (
+            group: MultiShapeMessages<ShapeConfig>[]
+          ) => {
+            const opPositions = group.map((msg) => msg.headers.op_position as number)
+            expect(opPositions).toEqual([...opPositions].sort((a, b) => a - b))
+          }
+
+          verifyOpPositionOrder(transaction1)
+          verifyOpPositionOrder(transaction2)
+        })
+      })
+    hash: 026878fb402779d35966a0219e68a01903077c72a9197f63a452ab60082c306d
+    size: 15608
+  /packages/experimental/test/support/global-setup.ts:
+    type: content
+    content: >
+      import type { GlobalSetupContext } from 'vitest/node'
+
+      import { makePgClient } from './test-helpers'
+
+
+      const url = process.env.ELECTRIC_URL ?? `http://localhost:3000`
+
+      const proxyUrl = process.env.ELECTRIC_PROXY_CACHE_URL ??
+      `http://localhost:3002`
+
+
+      // name of proxy cache container to execute commands against,
+
+      // see docker-compose.yml that spins it up for details
+
+      const proxyCacheContainerName = `electric_dev-nginx-1`
+
+      // path pattern for cache files inside proxy cache to clear
+
+      const proxyCachePath = `/var/cache/nginx/*`
+
+
+      // eslint-disable-next-line quotes -- eslint is acting dumb with enforce
+      backtick quotes mode, and is trying to use it here where it's not allowed.
+
+      declare module 'vitest' {
+        export interface ProvidedContext {
+          baseUrl: string
+          proxyCacheBaseUrl: string
+          testPgSchema: string
+          proxyCacheContainerName: string
+          proxyCachePath: string
+        }
+      }
+
+
+      function waitForElectric(url: string): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(
+            () => reject(`Timed out waiting for Electric to be active`),
+            10000
+          )
+
+          const tryHealth = async () =>
+            fetch(`${url}/v1/health`)
+              .then(async (res): Promise<void> => {
+                if (!res.ok) return tryHealth()
+                const { status } = (await res.json()) as { status: string }
+                if (status !== `active`) return tryHealth()
+                clearTimeout(timeout)
+                resolve()
+              })
+              .catch((err) => {
+                clearTimeout(timeout)
+                reject(err)
+              })
+
+          return tryHealth()
+        })
+      }
+
+
+      /**
+       * Global setup for the test suite. Validates that our server is running, and creates and tears down a
+       * special schema in Postgres to ensure clean slate between runs.
+       */
+      export default async function ({ provide }: GlobalSetupContext) {
+        await waitForElectric(url)
+
+        const client = makePgClient()
+
+        await client.connect()
+        await client.query(`CREATE SCHEMA IF NOT EXISTS electric_test`)
+
+        provide(`baseUrl`, url)
+        provide(`testPgSchema`, `electric_test`)
+        provide(`proxyCacheBaseUrl`, proxyUrl)
+        provide(`proxyCacheContainerName`, proxyCacheContainerName)
+        provide(`proxyCachePath`, proxyCachePath)
+
+        return async () => {
+          await client.query(`DROP SCHEMA electric_test CASCADE`)
+          await client.end()
+        }
+      }
+    hash: 10dc623bce239799ce0781674a582788e2c887bfcf8b11cd1a91d6ab93a55c62
+    size: 2294
+  /packages/experimental/test/support/test-context.ts:
+    type: content
+    content: >
+      /* eslint-disable no-empty-pattern */
+
+      import { v4 as uuidv4 } from 'uuid'
+
+      import { Client, QueryResult } from 'pg'
+
+      import { inject, test } from 'vitest'
+
+      import { makePgClient, waitForTransaction } from './test-helpers'
+
+      import { FetchError, ShapeStreamOptions } from '@electric-sql/client'
+
+
+      const SHAPE_HANDLE_QUERY_PARAM = `handle`
+
+
+      export type IssueRow = { id: string; title: string; priority?: number }
+
+      export type GeneratedIssueRow = {
+        id?: string
+        title: string
+        priority?: number
+      }
+
+      export type UpdateIssueFn = (row: IssueRow) =>
+      Promise<QueryResult<IssueRow>>
+
+      export type DeleteIssueFn = (row: IssueRow) =>
+      Promise<QueryResult<IssueRow>>
+
+      export type InsertIssuesFn = (...rows: GeneratedIssueRow[]) =>
+      Promise<string[]>
+
+      export type ClearIssuesShapeFn = (handle?: string) => Promise<void>
+
+      export type BeginTransactionFn = () => Promise<void>
+
+      export type CommitTransactionFn = () => Promise<void>
+
+      export type ClearShapeFn = (
+        table: string,
+        options?: { handle?: string }
+      ) => Promise<void>
+
+      export type WaitForIssuesFn = (opts: {
+        numChangesExpected?: number
+        shapeStreamOptions?: Partial<ShapeStreamOptions>
+      }) => Promise<Pick<ShapeStreamOptions, `offset` | `handle`>>
+
+
+      export const testWithDbClient = test.extend<{
+        dbClient: Client
+        aborter: AbortController
+        baseUrl: string
+        pgSchema: string
+        clearShape: ClearShapeFn
+      }>({
+        dbClient: async ({}, use) => {
+          const searchOption = `-csearch_path=${inject(`testPgSchema`)}`
+          const client = makePgClient({ options: searchOption })
+          await client.connect()
+          await use(client)
+          await client.end()
+        },
+        aborter: async ({}, use) => {
+          const controller = new AbortController()
+          await use(controller)
+          controller.abort(`Test complete`)
+        },
+        baseUrl: async ({}, use) => use(inject(`baseUrl`)),
+        pgSchema: async ({}, use) => use(inject(`testPgSchema`)),
+        clearShape: async ({}, use) => {
+          await use(
+            async (
+              table: string,
+              options: {
+                handle?: string
+              } = {}
+            ) => {
+              const baseUrl = inject(`baseUrl`)
+              const url = new URL(`${baseUrl}/v1/shape`)
+              url.searchParams.set(`table`, table)
+
+              if (options.handle) {
+                url.searchParams.set(SHAPE_HANDLE_QUERY_PARAM, options.handle)
+              }
+
+              const resp = await fetch(url.toString(), { method: `DELETE` })
+
+              if (!resp.ok) {
+                // if we've been passed a shape handle then we should expect this delete call to succeed.
+                if (resp.status === 404) {
+                  // the shape wasn't found, so maybe it wasn't created in the first place
+                } else {
+                  console.error(
+                    await FetchError.fromResponse(resp, `DELETE ${url.toString()}`)
+                  )
+                  throw new Error(
+                    `Could not delete shape ${table} with ID ${options.handle}`
+                  )
+                }
+              }
+            }
+          )
+        },
+      })
+
+
+      export const testWithIssuesTable = testWithDbClient.extend<{
+        issuesTableSql: string
+        issuesTableUrl: string
+        issuesTableKey: string
+        updateIssue: UpdateIssueFn
+        deleteIssue: DeleteIssueFn
+        insertIssues: InsertIssuesFn
+        clearIssuesShape: ClearIssuesShapeFn
+        waitForIssues: WaitForIssuesFn
+        beginTransaction: BeginTransactionFn
+        commitTransaction: CommitTransactionFn
+      }>({
+        issuesTableSql: async ({ dbClient, task }, use) => {
+          const tableName = `"issues for ${task.id}_${Math.random().toString(16)}"`
+          await dbClient.query(`
+          DROP TABLE IF EXISTS ${tableName};
+          CREATE TABLE ${tableName} (
+            id UUID PRIMARY KEY,
+            title TEXT NOT NULL,
+            priority INTEGER NOT NULL
+          );
+          COMMENT ON TABLE ${tableName} IS 'Created for ${task.file?.name.replace(/'/g, `\``) ?? `unknown`} - ${task.name.replace(`'`, `\``)}';
+        `)
+          await use(tableName)
+          await dbClient.query(`DROP TABLE ${tableName}`)
+        },
+        issuesTableUrl: async ({ issuesTableSql, pgSchema, clearShape }, use) => {
+          const urlAppropriateTable = pgSchema + `.` + issuesTableSql
+          await use(urlAppropriateTable)
+          try {
+            await clearShape(urlAppropriateTable)
+          } catch (_) {
+            // ignore - clearShape has its own logging
+            // we don't want to interrupt cleanup
+          }
+        },
+        issuesTableKey: ({ issuesTableSql, pgSchema }, use) =>
+          use(`"${pgSchema}".${issuesTableSql}`),
+        updateIssue: ({ issuesTableSql, dbClient }, use) =>
+          use(({ id, title, priority }) => {
+            if (priority) {
+              return dbClient.query(
+                `UPDATE ${issuesTableSql} SET title = $2, priority = $3 WHERE id = $1`,
+                [id, title, priority]
+              )
+            } else {
+              return dbClient.query(
+                `UPDATE ${issuesTableSql} SET title = $2 WHERE id = $1`,
+                [id, title]
+              )
+            }
+          }),
+        deleteIssue: ({ issuesTableSql, dbClient }, use) =>
+          use(({ id }) =>
+            dbClient.query(`DELETE FROM ${issuesTableSql} WHERE id = $1`, [id])
+          ),
+        insertIssues: ({ issuesTableSql, dbClient }, use) =>
+          use(async (...rows) => {
+            const placeholders = rows.map(
+              (_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`
+            )
+            const { rows: rows_1 } = await dbClient.query(
+              `INSERT INTO ${issuesTableSql} (id, title, priority) VALUES ${placeholders} RETURNING id`,
+              rows.flatMap((x) => [x.id ?? uuidv4(), x.title, x.priority ?? 10])
+            )
+            return rows_1.map((x) => x.id)
+          }),
+        beginTransaction: ({ dbClient }, use) =>
+          use(async () => {
+            await dbClient.query(`BEGIN`)
+          }),
+        commitTransaction: ({ dbClient }, use) =>
+          use(async () => {
+            await dbClient.query(`COMMIT`)
+          }),
+
+        clearIssuesShape: async ({ clearShape, issuesTableUrl }, use) => {
+          use((handle?: string) => clearShape(issuesTableUrl, { handle }))
+        },
+        waitForIssues: ({ issuesTableUrl, baseUrl }, use) =>
+          use(
+            ({
+              numChangesExpected,
+              shapeStreamOptions,
+            }: {
+              numChangesExpected?: number
+              shapeStreamOptions?: Partial<ShapeStreamOptions>
+            }) =>
+              waitForTransaction({
+                baseUrl,
+                table: issuesTableUrl,
+                shapeStreamOptions,
+                numChangesExpected,
+              })
+          ),
+      })
+
+
+      export const testWithMultitypeTable = testWithDbClient.extend<{
+        tableSql: string
+        tableUrl: string
+      }>({
+        tableSql: async ({ dbClient, task }, use) => {
+          const tableName = `"multitype table for ${task.id}_${Math.random().toString(16)}"`
+
+          await dbClient.query(`
+            DROP TABLE IF EXISTS ${tableName};
+            DROP TYPE IF EXISTS mood;
+            DROP TYPE IF EXISTS complex;
+            DROP DOMAIN IF EXISTS posint;
+            CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
+            CREATE TYPE complex AS (r double precision, i double precision);
+            CREATE DOMAIN posint AS integer CHECK (VALUE > 0);
+            CREATE TABLE ${tableName} (
+              txt VARCHAR,
+              i2 INT2 PRIMARY KEY,
+              i4 INT4,
+              i8 INT8,
+              f8 FLOAT8,
+              b  BOOLEAN,
+              json JSON,
+              jsonb JSONB,
+              ints INT8[],
+              ints2 INT8[][],
+              int4s INT4[],
+              doubles FLOAT8[],
+              bools BOOLEAN[],
+              moods mood[],
+              moods2 mood[][],
+              complexes complex[],
+              posints posint[],
+              jsons JSONB[],
+              txts TEXT[],
+              value JSON
+            )`)
+
+          await use(tableName)
+
+          // Cleanup
+          await dbClient.query(`
+            DROP TABLE ${tableName};
+            DROP TYPE IF EXISTS mood;
+            DROP TYPE IF EXISTS complex;
+            DROP DOMAIN IF EXISTS posint;
+          `)
+        },
+        tableUrl: async ({ tableSql, clearShape, pgSchema }, use) => {
+          const urlAppropriateTable = pgSchema + `.` + tableSql
+          await use(urlAppropriateTable)
+          try {
+            await clearShape(urlAppropriateTable)
+          } catch (_) {
+            // ignore - clearShape has its own logging
+            // we don't want to interrupt cleanup
+          }
+        },
+      })
+    hash: ffec1d359df52e9ef9f22d56813b8475e38b50ac84cd15471954091303dab3d9
+    size: 7727
+  /packages/experimental/test/support/test-helpers.ts:
+    type: content
+    content: |
+      import { Client, ClientConfig } from 'pg'
+      import {
+        isChangeMessage,
+        isControlMessage,
+        ShapeStream,
+        ShapeStreamInterface,
+        ShapeStreamOptions,
+        type Message,
+        type Row,
+      } from '@electric-sql/client'
+
+      export function makePgClient(overrides: ClientConfig = {}) {
+        return new Client({
+          host: `localhost`,
+          port: 54321,
+          password: `password`,
+          user: `postgres`,
+          database: `electric`,
+          options: `-csearch_path=electric_test`,
+          ...overrides,
+        })
+      }
+
+      export function forEachMessage<T extends Row<unknown>>(
+        stream: ShapeStreamInterface<T>,
+        controller: AbortController,
+        handler: (
+          resolve: () => void,
+          message: Message<T>,
+          nthDataMessage: number
+        ) => Promise<void> | void
+      ) {
+        return new Promise<void>((resolve, reject) => {
+          let messageIdx = 0
+
+          stream.subscribe(async (messages) => {
+            for (const message of messages) {
+              try {
+                await handler(
+                  () => {
+                    controller.abort()
+                    return resolve()
+                  },
+                  message as Message<T>,
+                  messageIdx
+                )
+                if (`operation` in message.headers) messageIdx++
+              } catch (e) {
+                controller.abort()
+                return reject(e)
+              }
+            }
+          }, reject)
+        })
+      }
+
+      export async function waitForTransaction({
+        baseUrl,
+        table,
+        numChangesExpected,
+        shapeStreamOptions,
+      }: {
+        baseUrl: string
+        table: string
+        numChangesExpected?: number
+        shapeStreamOptions?: Partial<ShapeStreamOptions>
+      }): Promise<Pick<ShapeStreamOptions, `offset` | `handle`>> {
+        const aborter = new AbortController()
+        const issueStream = new ShapeStream({
+          ...(shapeStreamOptions ?? {}),
+          url: `${baseUrl}/v1/shape`,
+          params: {
+            ...(shapeStreamOptions?.params ?? {}),
+            table,
+          },
+          signal: aborter.signal,
+          subscribe: true,
+        })
+
+        numChangesExpected ??= 1
+        let numChangesSeen = 0
+        await forEachMessage(issueStream, aborter, (res, msg) => {
+          if (isChangeMessage(msg)) {
+            numChangesSeen++
+          }
+
+          if (
+            numChangesSeen >= numChangesExpected &&
+            isControlMessage(msg) &&
+            msg.headers.control === `up-to-date`
+          ) {
+            res()
+          }
+        })
+        return {
+          offset: issueStream.lastOffset,
+          handle: issueStream.shapeHandle,
+        }
+      }
+    hash: 1a72ac49a5790480e7c4a3ebb54c0f3e82c80481a29975dc116fccca92f9406b
+    size: 2258
+  /packages/experimental/tsconfig.build.json:
+    type: content
+    content: |
+      {
+        "extends": "../../tsconfig.build.json",
+        "include": ["src/**/*"],
+        "exclude": ["node_modules", "tests", "dist"],
+        "compilerOptions": {
+          "paths": {
+            "@electric-sql/client": ["../typescript-client/src"]
+          }
+        }
+      }
+    hash: b85f34a7f0bcf24d5a71cbcae4bc57a02e8cc3b866318d6b3d67a7b2b7d4e797
+    size: 228
+    json:
+      extends: ../../tsconfig.build.json
+      include:
+        - src/**/*
+      exclude:
+        - node_modules
+        - tests
+        - dist
+      compilerOptions:
+        paths:
+          "@electric-sql/client":
+            - ../typescript-client/src
+  /packages/experimental/tsconfig.json:
+    type: content
+    content: |
+      {
+        "extends": "../../tsconfig.base.json",
+        "compilerOptions": {
+          "paths": {
+            "@electric-sql/client": ["../typescript-client/src"]
+          }
+        }
+      }
+    hash: c91bb91aaf006df5dd23eaa5fbe82985599ef2c1f289077466bc23d427d21167
+    size: 152
+    json:
+      extends: ../../tsconfig.base.json
+      compilerOptions:
+        paths:
+          "@electric-sql/client":
+            - ../typescript-client/src
+  /packages/experimental/tsup.config.ts:
+    type: content
+    content: >
+      import type { Options } from 'tsup'
+
+      import { defineConfig } from 'tsup'
+
+
+      export default defineConfig((options: Options) => {
+        const commonOptions: Partial<Options> = {
+          entry: {
+            index: `src/index.ts`,
+          },
+          tsconfig: `./tsconfig.build.json`,
+          sourcemap: true,
+          external: [`@electric-sql/client`],
+          ...options,
+        }
+
+        return [
+          // ESM build with .d.ts
+          {
+            ...commonOptions,
+            format: [`esm`],
+            outExtension: () => ({ js: `.mjs` }),
+            dts: {
+              entry: commonOptions.entry,
+              resolve: true,
+            },
+            clean: true,
+          },
+          // CJS build with .d.cts
+          {
+            ...commonOptions,
+            format: [`cjs`],
+            outDir: `./dist/cjs/`,
+            outExtension: () => ({ js: `.cjs` }),
+            dts: {
+              entry: commonOptions.entry,
+              resolve: true,
+            },
+            clean: false,
+          },
+          // Support Webpack 4 by pointing "module" to a file with a .js extension
+          {
+            ...commonOptions,
+            format: [`esm`],
+            target: `es2017`,
+            dts: false,
+            outExtension: () => ({ js: `.js` }),
+            entry: { 'index.legacy-esm': `src/index.ts` } as Record<string, string>,
+          },
+          // Browser-ready ESM, production + minified
+          {
+            ...commonOptions,
+            define: {
+              'process.env.NODE_ENV': JSON.stringify(`production`),
+            },
+            format: [`esm`],
+            outExtension: () => ({ js: `.mjs` }),
+            minify: true,
+            entry: {
+              'index.browser': `src/index.ts`,
+            } as Record<string, string>,
+          },
+        ]
+      })
+    hash: 038fd4eda9ae1ea4c931368e8b961ea7c0f1aec0130e5cfc77ba5ea20db40f98
+    size: 1503
+  /packages/experimental/vitest.config.ts:
+    type: content
+    content: |
+      import { defineConfig } from 'vitest/config'
+
+      export default defineConfig({
+        test: {
+          globalSetup: `test/support/global-setup.ts`,
+          typecheck: { enabled: true },
+          fileParallelism: false,
+        },
+      })
+    hash: 3064ff8d40a0c0e86c7adc36af0ab8f7c8b6534abb3954b6332760953b830fd4
+    size: 205

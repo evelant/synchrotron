@@ -1,3 +1,5 @@
+import { PgLiteClient } from "@effect/sql-pglite"
+import { Repl } from "@electric-sql/pglite-repl"
 import {
 	Box,
 	Button,
@@ -17,15 +19,12 @@ import { TodoActions } from "../actions"
 import logo from "../assets/logo.svg"
 import type { Todo } from "../db/schema"
 import { useRuntime, useService } from "../main"
-import { PgLiteClient } from "@effect/sql-pglite"
-import { Repl } from "@electric-sql/pglite-repl"
 
 export default function Index() {
 	const runtime = useRuntime()
 	const [newTodoText, setNewTodoText] = useState("")
 
 	const { todos, isLoading } = useReactiveTodos()
-	// useSyncedActions()
 
 	const handleAddTodo = useCallback(
 		(event: FormEvent<HTMLFormElement>) => {
@@ -105,76 +104,71 @@ export default function Index() {
 
 	return (
 		<>
-			
-		<Container size="2">
-			<Flex gap="5" mt="5" direction="column">
-				<Flex align="center" justify="center">
-					<img src={logo} width="32px" alt="logo" />
-					<Heading ml="1">Synchrotron To-Dos</Heading>
-					<Box width="32px" />
-				</Flex>
-
-				<Flex gap="3" direction="column">
-					{isLoading ? (
-						<Flex justify="center">
-							<Text>Loading todos...</Text>
-						</Flex>
-					) : todos.length === 0 ? (
-						<Flex justify="center">
-							<Text>No to-dos to show - add one!</Text>
-						</Flex>
-					) : (
-						todos.map((todo: Todo) => (
-							<Card key={todo.id} onClick={() => handleToggleTodo(todo)}>
-								<Flex gap="2" align="center" justify="between">
-									<Text as="label">
-										<Flex gap="2" align="center">
-											<Checkbox checked={!!todo.completed} />
-											{todo.text}
-										</Flex>
-									</Text>
-									<Button
-										onClick={(e) => {
-											e.stopPropagation()
-											handleDeleteTodo(todo.id)
-										}}
-										variant="ghost"
-										ml="auto"
-										style={{ cursor: `pointer` }}
-									>
-										X
-									</Button>
-								</Flex>
-							</Card>
-						))
-					)}
-				</Flex>
-				<form style={{ width: `100%` }} onSubmit={handleAddTodo}>
-					<Flex direction="row">
-						<TextField.Root
-							value={newTodoText}
-							onChange={(e: ChangeEvent<HTMLInputElement>) => setNewTodoText(e.target.value)}
-							type="text"
-							name="todo"
-							placeholder="New Todo"
-							mr="1"
-							style={{ width: `100%` }}
-						/>
-						<Button type="submit" disabled={!newTodoText.trim()}>
-							Add
-						</Button>
+			<Container size="2">
+				<Flex gap="5" mt="5" direction="column">
+					<Flex align="center" justify="center">
+						<img src={logo} width="32px" alt="logo" />
+						<Heading ml="1">Synchrotron To-Dos</Heading>
+						<Box width="32px" />
 					</Flex>
-				</form>
-			</Flex>
 
+					<Flex gap="3" direction="column">
+						{isLoading ? (
+							<Flex justify="center">
+								<Text>Loading todos...</Text>
+							</Flex>
+						) : todos.length === 0 ? (
+							<Flex justify="center">
+								<Text>No to-dos to show - add one!</Text>
+							</Flex>
+						) : (
+							todos.map((todo: Todo) => (
+								<Card key={todo.id} onClick={() => handleToggleTodo(todo)}>
+									<Flex gap="2" align="center" justify="between">
+										<Text as="label">
+											<Flex gap="2" align="center">
+												<Checkbox checked={!!todo.completed} />
+												{todo.text}
+											</Flex>
+										</Text>
+										<Button
+											onClick={(e) => {
+												e.stopPropagation()
+												handleDeleteTodo(todo.id)
+											}}
+											variant="ghost"
+											ml="auto"
+											style={{ cursor: `pointer` }}
+										>
+											X
+										</Button>
+									</Flex>
+								</Card>
+							))
+						)}
+					</Flex>
+					<form style={{ width: `100%` }} onSubmit={handleAddTodo}>
+						<Flex direction="row">
+							<TextField.Root
+								value={newTodoText}
+								onChange={(e: ChangeEvent<HTMLInputElement>) => setNewTodoText(e.target.value)}
+								type="text"
+								name="todo"
+								placeholder="New Todo"
+								mr="1"
+								style={{ width: `100%` }}
+							/>
+							<Button type="submit" disabled={!newTodoText.trim()}>
+								Add
+							</Button>
+						</Flex>
+					</form>
+				</Flex>
 			</Container>
 			<Container size="4" mt="5">
-			<DebugRepl />
-
+				<DebugRepl />
 			</Container>
-
 		</>
-			
 	)
 }
 
@@ -183,6 +177,7 @@ const DebugRepl = React.memo(() => {
 	if (!pglite) return <p>Loading repl...</p>
 	return (
 		<>
+			<h2>PGlite Repl</h2>
 			<Repl pg={pglite.pg} border={true} theme={"dark"} />
 		</>
 	)

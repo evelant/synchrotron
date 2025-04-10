@@ -87,42 +87,75 @@ export const compareActionModifiedRows = (
 	rowsA: readonly ActionModifiedRow[],
 	rowsB: readonly ActionModifiedRow[]
 ): boolean => {
-	const findLastAmrForKey = (rows: readonly ActionModifiedRow[]) => {
-		const lastAmrs = new Map<string, ActionModifiedRow>()
+	const findLastAmrForKeyAndColumn = (rows: readonly ActionModifiedRow[]) => {
+		const lastAmrsByColumn = new Map<string, Record<string, unknown>>()
+		const operationsByKey = new Map<string, string>()
+
 		for (const row of rows) {
 			const key = `${row.table_name}|${row.row_id}`
-			lastAmrs.set(key, row)
+			
+			// Track the latest operation for each row
+			operationsByKey.set(key, row.operation)
+			
+			// Get or initialize the column map for this row
+			if (!lastAmrsByColumn.has(key)) {
+				lastAmrsByColumn.set(key, {})
+			}
+			
+			// Update each column with the latest value from the patches
+			const columnValues = lastAmrsByColumn.get(key)!
+			for (const [columnKey, columnValue] of Object.entries(row.forward_patches)) {
+				columnValues[columnKey] = columnValue
+			}
 		}
-		return lastAmrs
+
+		return { lastAmrsByColumn, operationsByKey }
 	}
 
-	const lastAmrsA = findLastAmrForKey(rowsA)
-	const lastAmrsB = findLastAmrForKey(rowsB)
+	const { lastAmrsByColumn: lastColumnValuesA, operationsByKey: operationsA } = findLastAmrForKeyAndColumn(rowsA)
+	const { lastAmrsByColumn: lastColumnValuesB, operationsByKey: operationsB } = findLastAmrForKeyAndColumn(rowsB)
 
-	if (lastAmrsA.size !== lastAmrsB.size) {
-		console.log(`AMR compare fail: Final state size mismatch ${lastAmrsA.size} vs ${lastAmrsB.size}`)
+	// Check if we have the same set of row keys
+	if (lastColumnValuesA.size !== lastColumnValuesB.size) {
+		console.log(`AMR compare fail: Final state size mismatch ${lastColumnValuesA.size} vs ${lastColumnValuesB.size}`)
 		return false
 	}
 
-	for (const [key, lastAmrA] of lastAmrsA) {
-		const lastAmrB = lastAmrsB.get(key)
-		if (!lastAmrB) {
+	// Compare each row
+	for (const [key, columnsA] of lastColumnValuesA) {
+		const columnsB = lastColumnValuesB.get(key)
+		if (!columnsB) {
 			console.log(`AMR compare fail: Row key ${key} missing in final state B`)
 			return false
 		}
 
-		if (lastAmrA.operation !== lastAmrB.operation) {
+		// Compare operations
+		const operationA = operationsA.get(key)
+		const operationB = operationsB.get(key)
+		if (operationA !== operationB) {
 			console.log(
-				`AMR compare fail: Final operation mismatch for key ${key}: ${lastAmrA.operation} vs ${lastAmrB.operation}`
+				`AMR compare fail: Final operation mismatch for key ${key}: ${operationA} vs ${operationB}`
 			)
 			return false
 		}
 
-		if (!deepObjectEquals(lastAmrA.forward_patches, lastAmrB.forward_patches)) {
-			console.log(`AMR compare fail: Final forward patches differ for key ${key}`)
-			console.log(`Row A Final Patches: ${JSON.stringify(lastAmrA.forward_patches)}`)
-			console.log(`Row B Final Patches: ${JSON.stringify(lastAmrB.forward_patches)}`)
-			return false
+		// Get all unique column keys from both sets
+		const allColumnKeys = new Set([
+			...Object.keys(columnsA),
+			...Object.keys(columnsB)
+		])
+
+		// Compare each column value
+		for (const columnKey of allColumnKeys) {
+			const valueA = columnsA[columnKey]
+			const valueB = columnsB[columnKey]
+
+			if (!deepObjectEquals(valueA, valueB)) {
+				console.log(`AMR compare fail: Final value differs for key ${key}, column ${columnKey}`)
+				console.log(`Column A value: ${JSON.stringify(valueA)}`)
+				console.log(`Column B value: ${JSON.stringify(valueB)}`)
+				return false
+			}
 		}
 	}
 

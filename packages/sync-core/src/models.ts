@@ -49,6 +49,7 @@ export class ActionRecord extends Model.Class<ActionRecord>("action_records")({
 	sortable_clock: Model.Generated(Schema.String)
 }) {}
 
+export type ActionRecordJson = typeof ActionRecord.json.Type
 /**
  * Model for tracking client sync status
  */
@@ -75,3 +76,5 @@ export class ActionModifiedRow extends Model.Class<ActionModifiedRow>("ActionMod
 	reverse_patches: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
 	sequence: Schema.Number
 }) {}
+
+export type ActionModifiedRowJson = typeof ActionModifiedRow.json.Type

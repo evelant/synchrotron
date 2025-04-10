@@ -14,7 +14,7 @@ export function useReactiveTodos() {
 			if (db) {
 				const loadTodos = () => {
 					console.log(`loadTodos starting live query`)
-					db.extensions.live.query<Todo>("select * from todos").then((todos) => {
+					db.extensions.live.query<Todo>("select * from todos order by text").then((todos) => {
 						try {
 							setTodos(todos.initialResults.rows)
 							const callback = (newTodos: LiveQueryResults<Todo>) => {

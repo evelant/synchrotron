@@ -66,10 +66,15 @@ export const SyncNetworkServiceLive = Layer.scoped(
 					`fetched remote actions ${actions.actions.length} actions and ${actions.modifiedRows.length} AMRs`
 				)
 				yield* Effect.all(
-					actions.actions.map((a) => sql`insert into action_records ${sql.insert(a)}`)
+					actions.actions.map(
+						(a) => sql`insert into action_records ${sql.insert(a as any)} ON CONFLICT DO NOTHING`
+					)
 				)
 				yield* Effect.all(
-					actions.modifiedRows.map((a) => sql`insert into action_modified_rows ${sql.insert(a)}`)
+					actions.modifiedRows.map(
+						(a) =>
+							sql`insert into action_modified_rows ${sql.insert(a as any)} ON CONFLICT DO NOTHING`
+					)
 				)
 				return actions
 			}).pipe(

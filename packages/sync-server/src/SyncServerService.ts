@@ -226,6 +226,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					`Server: Successfully processed ${actions.length} actions from client ${clientId}.`
 				)
 			}).pipe(
+				sql.withTransaction,
 				Effect.catchAll((error) => {
 					// Check specific error types first
 					if (error instanceof ServerConflictError || error instanceof ServerInternalError) {
