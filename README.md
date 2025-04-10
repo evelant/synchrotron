@@ -56,7 +56,7 @@ Core principles:
 - **Efficient Sync**: Fast realtime sync with electric-sql.
 - **Deterministic IDs**: Content-based hashing for consistent id generation across clients
 - **Transactional**: Atomic actions with database consistency
-- **Eventual Consistency**: All clients reach same state
+- **Eventual Consistency**: All clients reach same state even if there is private data and conditional logic that creates divergence in the results of replaying actions
 
 ## Usage
 
