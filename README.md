@@ -2,6 +2,8 @@
 
 An opinionated yet flexible approach to offline-first data sync with [PGlite](https://pglite.dev/), [Electric SQL](https://electric-sql.com/), and [Effect](https://effect.website/).
 
+Synchrotron is an offline-first data sync system using Effect-TS, PGlite, and Hybrid Logical Clocks (HLCs). It is unique (as far as I know) in that it executes business logic functions to advance state rather than using patches. It allows for unrestricted offline database operations while still guaranteeing eventual consistency, and all without requiring dedicated conflict resolution code. It operates like a CRDT but at the application level. For more details see [DESIGN.md](DESIGN.md).
+
 ## Status
 
 ### Experimental
@@ -32,8 +34,6 @@ An opinionated yet flexible approach to offline-first data sync with [PGlite](ht
 - Evaluate performance in a more real world use case. The example todo app seems plenty fast but performance with larger datasets is unknown and there is currently no optimization.
 
 ## How it works
-
-Synchrotron is an offline-first data sync system using Effect-TS, PGlite, and Hybrid Logical Clocks (HLCs). It is unique (as far as I know) in that it executes business logic functions to advance state rather than using patches. It allows for unrestricted offline database operations while still guaranteeing eventual consistency, and all without requiring dedicated conflict resolution code. It operates like a CRDT but at the application level. For more details see [DESIGN.md](DESIGN.md).
 
 Core principles:
 
