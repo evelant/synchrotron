@@ -4,6 +4,20 @@ import { Effect, Layer } from "effect"
 import { expect } from "vitest"
 import { makeTestLayers } from "./helpers/TestLayers"
 
+// Variables to store generated IDs for batch tests
+let batchFwd1Id = ""
+let batchFwd2Id = ""
+let batchRev1Id = ""
+let batchRev2Id = ""
+
+// Helper function to set up transaction local variables for deterministic ID generation
+const setupDeterministicIdVariables = (sql: PgLiteClient.PgLiteClient, actionId: string) =>
+	sql`
+		SELECT
+			set_config('sync.current_action_record_id', ${actionId}, true),
+			set_config('sync.collision_map', '{}', true)
+	`
+
 it.effect("should support multiple independent PgLite instances", () =>
 	Effect.gen(function* () {
 		// Create two independent PgLite layers with unique memory identifiers
@@ -101,6 +115,9 @@ const createActionAndModifyNote = (
 		if (!actionId) {
 			return yield* Effect.dieMessage("Failed to get action ID after insert")
 		}
+
+		// Set up transaction local variables for deterministic ID generation
+		yield* setupDeterministicIdVariables(sql, actionId)
 
 		yield* sql`
 			UPDATE notes SET title = ${newTitle}, content = ${newContent} WHERE id = ${noteId}
@@ -254,11 +271,16 @@ describe("Sync Database Functions", () => {
 
 					const actionId = actionResult[0]!.id
 
-					// Insert a row in the notes table
-					yield* sql`
-				INSERT INTO notes (id, title, content, user_id)
-				VALUES ('note1', 'Test Note', 'This is a test note', 'user1')
+					// Set up transaction local variables for deterministic ID generation
+					yield* setupDeterministicIdVariables(sql, actionId)
+
+					// Insert a row in the notes table and get the generated ID
+					const insertResult = yield* sql<{ id: string }>`
+				INSERT INTO notes (title, content, user_id)
+				VALUES ('Test Note', 'This is a test note', 'user1')
+				RETURNING id
 			`
+					const noteId = insertResult[0]!.id
 
 					// Commit transaction
 					// yield* sql`COMMIT` // Removed commit as it's handled by withTransaction
@@ -281,12 +303,12 @@ describe("Sync Database Functions", () => {
 					// Verify the action_modified_rows entry
 					expect(amrResult.length).toBe(1)
 					expect(amrResult[0]!.table_name).toBe("notes")
-					expect(amrResult[0]!.row_id).toBe("note1")
+					expect(amrResult[0]!.row_id).toBe(noteId)
 					expect(amrResult[0]!.action_record_id).toBe(actionId)
 					expect(amrResult[0]!.operation).toBe("INSERT")
 
 					// Verify forward patches contain all column values
-					expect(amrResult[0]!.forward_patches).toHaveProperty("id", "note1")
+					expect(amrResult[0]!.forward_patches).toHaveProperty("id", noteId)
 					expect(amrResult[0]!.forward_patches).toHaveProperty("title", "Test Note")
 					expect(amrResult[0]!.forward_patches).toHaveProperty("content", "This is a test note")
 					expect(amrResult[0]!.forward_patches).toHaveProperty("user_id", "user1")
@@ -304,6 +326,7 @@ describe("Sync Database Functions", () => {
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				let noteId: string // Declare noteId in the outer scope
 
 				// Execute everything in a single transaction to maintain consistent transaction ID
 				const result = yield* Effect.gen(function* () {
@@ -319,17 +342,22 @@ describe("Sync Database Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
-					// First, create a note
-					yield* sql`
-					INSERT INTO notes (id, title, content, user_id)
-					VALUES ('note2', 'Original Title', 'Original Content', 'user1')
+					// Set up transaction local variables for deterministic ID generation
+					yield* setupDeterministicIdVariables(sql, actionId)
+
+					// First, create a note and get the generated ID
+					const insertResult = yield* sql<{ id: string }>`
+					INSERT INTO notes (title, content, user_id)
+					VALUES ('Original Title', 'Original Content', 'user1')
+					RETURNING id
 				`
+					noteId = insertResult[0]!.id // Assign to the outer scope variable
 
 					// Then update the note (still in the same transaction)
 					yield* sql`
 					UPDATE notes
 					SET title = 'Updated Title', content = 'Updated Content'
-					WHERE id = 'note2'
+					WHERE id = ${noteId}
 				`
 
 					// Check that an entry was created in action_modified_rows
@@ -349,7 +377,7 @@ describe("Sync Database Functions", () => {
 					ORDER BY sequence ASC -- Order by sequence
 				`
 
-					return { actionId, amrResult }
+					return { actionId, amrResult } // Return only needed values
 				}).pipe(sql.withTransaction)
 
 				const { actionId, amrResult } = result
@@ -364,11 +392,11 @@ describe("Sync Database Functions", () => {
 				// Verify INSERT AMR (sequence 0)
 				expect(insertAmr).toBeDefined()
 				expect(insertAmr!.table_name).toBe("notes")
-				expect(insertAmr!.row_id).toBe("note2")
-				expect(insertAmr!.action_record_id).toBe(actionId)
+				expect(insertAmr!.row_id).toBe(noteId!) // Use non-null assertion or check
+				expect(insertAmr!.action_record_id).toBe(actionId) // Use captured actionId
 				expect(insertAmr!.operation).toBe("INSERT")
 				expect(insertAmr!.sequence).toBe(0)
-				expect(insertAmr!.forward_patches).toHaveProperty("id", "note2")
+				expect(insertAmr!.forward_patches).toHaveProperty("id", noteId!) // Use non-null assertion or check
 				expect(insertAmr!.forward_patches).toHaveProperty("title", "Original Title") // Original values for insert
 				expect(insertAmr!.forward_patches).toHaveProperty("content", "Original Content")
 				expect(insertAmr!.forward_patches).toHaveProperty("user_id", "user1")
@@ -377,8 +405,8 @@ describe("Sync Database Functions", () => {
 				// Verify UPDATE AMR (sequence 1)
 				expect(updateAmr).toBeDefined()
 				expect(updateAmr!.table_name).toBe("notes")
-				expect(updateAmr!.row_id).toBe("note2")
-				expect(updateAmr!.action_record_id).toBe(actionId)
+				expect(updateAmr!.row_id).toBe(noteId!) // Use non-null assertion or check
+				expect(updateAmr!.action_record_id).toBe(actionId) // Use captured actionId
 				expect(updateAmr!.operation).toBe("UPDATE")
 				expect(updateAmr!.sequence).toBe(1)
 				// Forward patches contain only changed columns for UPDATE
@@ -401,6 +429,7 @@ describe("Sync Database Functions", () => {
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				let noteIdToDelete: string // Declare in outer scope
 
 				// First transaction: Create an action record and note
 				yield* Effect.gen(function* () {
@@ -409,16 +438,23 @@ describe("Sync Database Functions", () => {
 					const currentTxId = txResult[0]!.txid
 
 					// Create action record for this transaction
-					yield* sql`
+					const actionResult = yield* sql<{ id: string }>`
 					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_insert_for_delete', 'server', ${currentTxId}, '{"timestamp": 8, "counter": 1}'::jsonb, '{}'::jsonb, false)
+					RETURNING id
 				`
+					const actionId = actionResult[0]!.id
+
+					// Set up transaction local variables for deterministic ID generation
+					yield* setupDeterministicIdVariables(sql, actionId)
 
 					// Create a note to delete
-					yield* sql`
-					INSERT INTO notes (id, title, content, user_id)
-					VALUES ('note3', 'Note to Delete', 'This note will be deleted', 'user1')
+					const insertResult = yield* sql<{ id: string }>`
+					INSERT INTO notes (title, content, user_id)
+					VALUES ('Note to Delete', 'This note will be deleted', 'user1')
+					RETURNING id
 				`
+					noteIdToDelete = insertResult[0]!.id // Capture the generated ID
 				}).pipe(sql.withTransaction)
 
 				// Second transaction: Create an action record and delete the note
@@ -438,7 +474,7 @@ describe("Sync Database Functions", () => {
 					// Delete the note in the same transaction
 					yield* sql`
 					DELETE FROM notes
-					WHERE id = 'note3'
+					WHERE id = ${noteIdToDelete}
 				`
 
 					// Check that an entry was created in action_modified_rows
@@ -464,15 +500,15 @@ describe("Sync Database Functions", () => {
 				// Verify the action_modified_rows entry
 				expect(amrResult.length).toBe(1)
 				expect(amrResult[0]!.table_name).toBe("notes")
-				expect(amrResult[0]!.row_id).toBe("note3")
-				expect(amrResult[0]!.action_record_id).toBe(actionId)
+				expect(amrResult[0]!.row_id).toBe(noteIdToDelete!) // Use non-null assertion or check
+				expect(amrResult[0]!.action_record_id).toBe(actionId) // Use captured actionId
 				expect(amrResult[0]!.operation).toBe("DELETE")
 
 				// Verify forward patches are NULL for DELETE operations
 				expect(amrResult[0]!.forward_patches).toEqual({}) // Changed from toBeNull() to match actual behavior
 
 				// Verify reverse patches contain all column values to restore the row
-				expect(amrResult[0]!.reverse_patches).toHaveProperty("id", "note3")
+				expect(amrResult[0]!.reverse_patches).toHaveProperty("id", noteIdToDelete!) // Use non-null assertion or check
 				expect(amrResult[0]!.reverse_patches).toHaveProperty("title", "Note to Delete")
 				expect(amrResult[0]!.reverse_patches).toHaveProperty("content", "This note will be deleted")
 				expect(amrResult[0]!.reverse_patches).toHaveProperty("user_id", "user1")
@@ -486,6 +522,8 @@ describe("Sync Database Functions", () => {
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				let noteIdToUpdate: string // Declare in outer scope
+				let amrId: string // Declare amrId in outer scope
 
 				// First transaction: Create an action record and note
 				yield* Effect.gen(function* () {
@@ -494,21 +532,26 @@ describe("Sync Database Functions", () => {
 					const currentTxId = txResult[0]!.txid
 
 					// Create action record for this transaction
-					yield* sql`
+					const actionResult = yield* sql<{ id: string }>`
 					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_insert_for_forward', 'server', ${currentTxId}, '{"timestamp": 10, "counter": 1}'::jsonb, '{}'::jsonb, false)
+					RETURNING id
 				`
+					const actionId = actionResult[0]!.id
+
+					// Set up transaction local variables for deterministic ID generation
+					yield* setupDeterministicIdVariables(sql, actionId)
 
 					// Create a note
-					yield* sql`
-					INSERT INTO notes (id, title, content, user_id)
-					VALUES ('note4', 'Original Title', 'Original Content', 'user1')
+					const insertResult = yield* sql<{ id: string }>`
+					INSERT INTO notes (title, content, user_id)
+					VALUES ('Original Title', 'Original Content', 'user1')
+					RETURNING id
 				`
+					noteIdToUpdate = insertResult[0]!.id // Capture the generated ID
 				}).pipe(sql.withTransaction)
 
 				// Second transaction: Create an action record and update the note
-				let actionId: string
-				let amrId: string
 				yield* Effect.gen(function* () {
 					// Get current transaction ID
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
@@ -520,13 +563,13 @@ describe("Sync Database Functions", () => {
 					VALUES ('test_apply_forward', 'server', ${currentTxId}, '{"timestamp": 11, "counter": 1}'::jsonb, '{}'::jsonb, false)
 					RETURNING id, transaction_id
 				`
-					actionId = actionResult[0]!.id
+					const actionId = actionResult[0]!.id
 
 					// Update the note to generate patches
 					yield* sql`
 					UPDATE notes
 					SET title = 'Updated Title', content = 'Updated Content'
-					WHERE id = 'note4'
+					WHERE id = ${noteIdToUpdate}
 				`
 
 					// Get the action_modified_rows entry ID
@@ -535,7 +578,7 @@ describe("Sync Database Functions", () => {
 					FROM action_modified_rows
 					WHERE action_record_id = ${actionId}
 				`
-					amrId = amrResult[0]!.id
+					amrId = amrResult[0]!.id // Assign to outer scope amrId
 				}).pipe(sql.withTransaction)
 
 				// Reset the note to its original state
@@ -554,7 +597,7 @@ describe("Sync Database Functions", () => {
 					yield* sql`
 					UPDATE notes
 					SET title = 'Original Title', content = 'Original Content'
-					WHERE id = 'note4'
+					WHERE id = ${noteIdToUpdate}
 				`
 				}).pipe(sql.withTransaction)
 
@@ -578,7 +621,7 @@ describe("Sync Database Functions", () => {
 				const noteResult = yield* sql<{ title: string; content: string }>`
 				SELECT title, content
 				FROM notes
-				WHERE id = 'note4'
+				WHERE id = ${noteIdToUpdate!}
 			`
 
 				// Verify the note was updated with the forward patches
@@ -625,25 +668,9 @@ describe("Sync Database Functions", () => {
 
 				// Create an action_modified_rows record with patches
 				const patches = {
-					test_apply_patches: {
-						test1: [
-							{
-								_tag: "Replace",
-								path: ["name"],
-								value: "initial"
-							},
-							{
-								_tag: "Replace",
-								path: ["value"],
-								value: 10
-							},
-							{
-								_tag: "Replace",
-								path: ["data", "key"],
-								value: "value"
-							}
-						]
-					}
+					name: "initial",
+					value: 10,
+					data: { key: "value" }
 				}
 
 				// Insert action_modified_rows with patches
@@ -666,8 +693,11 @@ describe("Sync Database Functions", () => {
 				expect(modifiedRow!.value).toBe(99)
 				expect(modifiedRow!.data?.key).toBe("changed")
 
-				// Apply reverse patches using Effect's error handling
+				// Apply reverse patches using Effect's error handling - wrap in transaction to maintain local variables
 				const result = yield* Effect.gen(function* () {
+					// Set up transaction local variables for deterministic ID generation
+					yield* setupDeterministicIdVariables(sql, "patch-test-id")
+
 					// Assuming apply_reverse_amr expects the AMR ID, not action ID
 					yield* sql`SELECT apply_reverse_amr('modified-row-test-id')`
 
@@ -678,9 +708,11 @@ describe("Sync Database Functions", () => {
 					expect(restoredRow[0]!.value).toBe(10)
 					expect(restoredRow[0]!.data?.key).toBe("value")
 					return false // Not a todo if we get here
-				}).pipe(
-					Effect.orElseSucceed(() => true) // Mark as todo if function doesn't exist or fails
-				)
+				})
+					.pipe(sql.withTransaction)
+					.pipe(
+						Effect.orElseSucceed(() => true) // Mark as todo if function doesn't exist or fails
+					)
 
 				// Clean up
 				yield* sql`DROP TABLE IF EXISTS test_apply_patches`
@@ -795,9 +827,7 @@ describe("Sync Database Functions", () => {
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
-
-				// Generate a unique ID for this test to avoid conflicts with previous runs
-				const uniqueRowId = `note_update_delete_${Date.now()}_${Math.floor(Math.random() * 1000000)}`
+				let uniqueRowId: string // Declare in outer scope
 
 				// First transaction: Create an initial note
 				yield* Effect.gen(function* () {
@@ -806,16 +836,23 @@ describe("Sync Database Functions", () => {
 					const currentTxId = txResult[0]!.txid
 
 					// Create action record for this transaction
-					yield* sql`
+					const actionResult = yield* sql<{ id: string }>`
 					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_initial_for_update_delete', 'server', ${currentTxId}, '{"timestamp": 20, "counter": 1}'::jsonb, '{}'::jsonb, false)
+					RETURNING id
 				`
+					const actionId = actionResult[0]!.id
+
+					// Set up transaction local variables for deterministic ID generation
+					yield* setupDeterministicIdVariables(sql, actionId)
 
 					// Create a note that will be updated and then deleted
-					yield* sql`
-					INSERT INTO notes (id, title, content, user_id, tags)
-					VALUES (${uniqueRowId}, 'Original Title', 'Original Content', 'user1', '{"tag1","tag2"}')
+					const insertResult = yield* sql<{ id: string }>`
+					INSERT INTO notes (title, content, user_id, tags)
+					VALUES ('Original Title', 'Original Content', 'user1', '{"tag1","tag2"}')
+					RETURNING id
 				`
+					uniqueRowId = insertResult[0]!.id // Capture the generated ID
 				}).pipe(sql.withTransaction)
 
 				// Second transaction: Update and then delete the note
@@ -831,6 +868,9 @@ describe("Sync Database Functions", () => {
 					RETURNING id, transaction_id
 				`
 					const actionId = actionResult[0]!.id
+
+					// Set up transaction local variables for deterministic ID generation
+					yield* setupDeterministicIdVariables(sql, actionId)
 
 					// First update the note
 					yield* sql`
@@ -881,7 +921,7 @@ describe("Sync Database Functions", () => {
 				expect(updateAmr!.row_id).toBe(result.uniqueRowId)
 				expect(updateAmr!.action_record_id).toBe(result.actionId)
 				expect(updateAmr!.operation).toBe("UPDATE")
-				expect(updateAmr!.sequence).toBe(0)
+				expect(updateAmr!.sequence).toBe(0) // Sequence starts at 0
 				// Forward patches contain changed columns
 				expect(updateAmr!.forward_patches).toHaveProperty("title", "Updated Title")
 				expect(updateAmr!.forward_patches).toHaveProperty("content", "Updated Content")
@@ -897,7 +937,7 @@ describe("Sync Database Functions", () => {
 				expect(deleteAmr!.row_id).toBe(result.uniqueRowId)
 				expect(deleteAmr!.action_record_id).toBe(result.actionId)
 				expect(deleteAmr!.operation).toBe("DELETE")
-				expect(deleteAmr!.sequence).toBe(1)
+				expect(deleteAmr!.sequence).toBe(1) // Sequence increments
 				expect(deleteAmr!.forward_patches).toEqual({}) // Forward patch is empty object for DELETE
 
 				// The reverse patches for DELETE should contain ALL columns from the original values,
@@ -931,6 +971,7 @@ describe("Sync Database Functions", () => {
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				let noteId: string // Declare noteId in the outer scope
 
 				// Execute everything in a single transaction
 				const result = yield* Effect.gen(function* () {
@@ -946,17 +987,22 @@ describe("Sync Database Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
+					// Set up transaction local variables for deterministic ID generation
+					yield* setupDeterministicIdVariables(sql, actionId)
+
 					// First insert a new note
-					yield* sql`
-					INSERT INTO notes (id, title, content, user_id)
-					VALUES ('note_insert_update', 'Initial Title', 'Initial Content', 'user1')
+					const insertResult = yield* sql<{ id: string }>`
+					INSERT INTO notes (title, content, user_id)
+					VALUES ('Initial Title', 'Initial Content', 'user1')
+					RETURNING id
 				`
+					noteId = insertResult[0]!.id // Capture the generated ID
 
 					// Then update the note in the same transaction
 					yield* sql`
 					UPDATE notes
 					SET title = 'Updated Title', content = 'Updated Content'
-					WHERE id = 'note_insert_update'
+					WHERE id = ${noteId}
 				`
 
 					// Check for entries in action_modified_rows for this action record and row
@@ -973,7 +1019,7 @@ describe("Sync Database Functions", () => {
 					SELECT id, table_name, row_id, action_record_id, operation, forward_patches, reverse_patches, sequence
 					FROM action_modified_rows
 					WHERE action_record_id = ${actionId}
-					AND row_id = 'note_insert_update'
+					AND row_id = ${noteId}
 					ORDER BY sequence ASC -- Order by sequence
 				`
 
@@ -992,12 +1038,12 @@ describe("Sync Database Functions", () => {
 				// Verify INSERT AMR (sequence 0)
 				expect(insertAmr).toBeDefined()
 				expect(insertAmr!.table_name).toBe("notes")
-				expect(insertAmr!.row_id).toBe("note_insert_update")
+				expect(insertAmr!.row_id).toBe(noteId!) // Use non-null assertion or check
 				expect(insertAmr!.action_record_id).toBe(result.actionId)
 				expect(insertAmr!.operation).toBe("INSERT")
 				expect(insertAmr!.sequence).toBe(0)
 				// Forward patches contain initial values
-				expect(insertAmr!.forward_patches).toHaveProperty("id", "note_insert_update")
+				expect(insertAmr!.forward_patches).toHaveProperty("id", noteId!) // Use non-null assertion or check
 				expect(insertAmr!.forward_patches).toHaveProperty("title", "Initial Title")
 				expect(insertAmr!.forward_patches).toHaveProperty("content", "Initial Content")
 				expect(insertAmr!.forward_patches).toHaveProperty("user_id", "user1")
@@ -1007,7 +1053,7 @@ describe("Sync Database Functions", () => {
 				// Verify UPDATE AMR (sequence 1)
 				expect(updateAmr).toBeDefined()
 				expect(updateAmr!.table_name).toBe("notes")
-				expect(updateAmr!.row_id).toBe("note_insert_update")
+				expect(updateAmr!.row_id).toBe(noteId!) // Use non-null assertion or check
 				expect(updateAmr!.action_record_id).toBe(result.actionId)
 				expect(updateAmr!.operation).toBe("UPDATE")
 				expect(updateAmr!.sequence).toBe(1)
@@ -1030,6 +1076,7 @@ describe("Sync Database Functions", () => {
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				let noteId: string // Declare noteId in the outer scope
 
 				// First transaction: Create an initial note
 				yield* Effect.gen(function* () {
@@ -1038,16 +1085,23 @@ describe("Sync Database Functions", () => {
 					const currentTxId = txResult[0]!.txid
 
 					// Create action record for this transaction
-					yield* sql`
+					const actionResult = yield* sql<{ id: string }>`
 					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_initial_for_multiple_updates', 'server', ${currentTxId}, '{"timestamp": 23, "counter": 1}'::jsonb, '{}'::jsonb, false)
+					RETURNING id
 				`
+					const actionId = actionResult[0]!.id
+
+					// Set up transaction local variables for deterministic ID generation
+					yield* setupDeterministicIdVariables(sql, actionId)
 
 					// Create a note that will be updated multiple times
-					yield* sql`
-					INSERT INTO notes (id, title, content, user_id)
-					VALUES ('note_multiple_updates', 'Original Title', 'Original Content', 'user1')
+					const insertResult = yield* sql<{ id: string }>`
+					INSERT INTO notes (title, content, user_id)
+					VALUES ('Original Title', 'Original Content', 'user1')
+					RETURNING id
 				`
+					noteId = insertResult[0]!.id // Capture the generated ID
 				}).pipe(sql.withTransaction)
 
 				// Second transaction: Multiple updates to the same note
@@ -1064,25 +1118,28 @@ describe("Sync Database Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
+					// Set up transaction local variables for deterministic ID generation
+					yield* setupDeterministicIdVariables(sql, actionId)
+
 					// First update
 					yield* sql`
 					UPDATE notes
 					SET title = 'First Update Title', content = 'First Update Content'
-					WHERE id = 'note_multiple_updates'
+					WHERE id = ${noteId}
 				`
 
 					// Second update
 					yield* sql`
 					UPDATE notes
 					SET title = 'Second Update Title'
-					WHERE id = 'note_multiple_updates'
+					WHERE id = ${noteId}
 				`
 
 					// Third update
 					yield* sql`
 					UPDATE notes
 					SET content = 'Final Content'
-					WHERE id = 'note_multiple_updates'
+					WHERE id = ${noteId}
 				`
 
 					// Check for entries in action_modified_rows for this action record and row
@@ -1099,7 +1156,7 @@ describe("Sync Database Functions", () => {
 					SELECT id, table_name, row_id, action_record_id, operation, forward_patches, reverse_patches, sequence
 					FROM action_modified_rows
 					WHERE action_record_id = ${actionId}
-					AND row_id = 'note_multiple_updates'
+					AND row_id = ${noteId}
 					ORDER BY sequence ASC -- Order by sequence
 				`
 
@@ -1162,17 +1219,40 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				// Insert dummy action record for this setup transaction
 				// yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced, applied) VALUES ('_setup_batch_fwd', 'server', ${setupTxId}, ${sql.json({ timestamp: 10, vector: {} })}, '{}'::jsonb, true, true)`
 				// No need for dummy action record if we disable trigger
-				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true);` // Use set_config
-				yield* sql`INSERT INTO notes (id, title, content, user_id) VALUES ('batch_fwd1', 'Orig 1', 'Cont 1', 'u1')`
-				yield* sql`INSERT INTO notes (id, title, content, user_id) VALUES ('batch_fwd2', 'Orig 2', 'Cont 2', 'u1')`
-				yield* sql`SELECT set_config('sync.disable_trigger', 'false', true);` // Use set_config
+				// Create notes with deterministic IDs by using action records
+				// First create an action record for setup
+				const setupActionId = (yield* sql<{ id: string }>`
+					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('_setup_batch_fwd', 'server', ${setupTxId}, ${sql.json({ timestamp: 10, vector: {} })}, '{}'::jsonb, true)
+					RETURNING id
+				`)[0]!.id
+
+				// Set up the action ID for deterministic ID generation
+				yield* setupDeterministicIdVariables(sql, setupActionId)
+
+				// Insert the notes - the deterministic ID trigger will generate IDs based on content
+				const note1 = (yield* sql<{ id: string }>`
+					INSERT INTO notes (title, content, user_id)
+					VALUES ('Orig 1', 'Cont 1', 'u1')
+					RETURNING id
+				`)[0]!.id
+
+				const note2 = (yield* sql<{ id: string }>`
+					INSERT INTO notes (title, content, user_id)
+					VALUES ('Orig 2', 'Cont 2', 'u1')
+					RETURNING id
+				`)[0]!.id
+
+				// Store the generated IDs in the global scope for later use
+				batchFwd1Id = note1
+				batchFwd2Id = note2
 			}).pipe(sql.withTransaction)
 			// Moved inserts into the transaction block above
 
 			const { amrId: amrId1 } = yield* createActionAndModifyNote(
 				sql,
 				"bf1",
-				"batch_fwd1",
+				batchFwd1Id,
 				"New 1",
 				"New Cont 1",
 				100
@@ -1180,7 +1260,7 @@ describe("Sync DB Batch and Rollback Functions", () => {
 			const { amrId: amrId2 } = yield* createActionAndModifyNote(
 				sql,
 				"bf2",
-				"batch_fwd2",
+				batchFwd2Id,
 				"New 2",
 				"New Cont 2",
 				200
@@ -1198,8 +1278,8 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				// yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced, applied) VALUES ('_reset_test_fwd', 'server', ${resetTxId}, ${sql.json({ timestamp: 300, vector: {} })}, '{}'::jsonb, true, true)`
 				// Perform resets
 				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true);` // Use set_config
-				yield* sql`UPDATE notes SET title = 'Orig 1', content = 'Cont 1' WHERE id = 'batch_fwd1'`
-				yield* sql`UPDATE notes SET title = 'Orig 2', content = 'Cont 2' WHERE id = 'batch_fwd2'`
+				yield* sql`UPDATE notes SET title = 'Orig 1', content = 'Cont 1' WHERE id = ${batchFwd1Id}`
+				yield* sql`UPDATE notes SET title = 'Orig 2', content = 'Cont 2' WHERE id = ${batchFwd2Id}`
 				yield* sql`SELECT set_config('sync.disable_trigger', 'false', true);` // Use set_config
 			}).pipe(sql.withTransaction)
 
@@ -1214,7 +1294,13 @@ describe("Sync DB Batch and Rollback Functions", () => {
 					return yield* Effect.dieMessage("Failed to get txid for batch forward call")
 				}
 				// Insert dummy action record for this specific transaction
-				yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_fwd', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, true)`
+				const dummyActionId = (yield* sql<{
+					id: string
+				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_fwd', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, true) RETURNING id`)[0]!
+					.id
+
+				// Set up transaction local variables for deterministic ID generation
+				yield* setupDeterministicIdVariables(sql, dummyActionId)
 
 				// Call the batch function (trigger will fire but find the dummy record)
 				yield* sql`SELECT apply_forward_amr_batch(${sql.array([amrId1, amrId2])})`
@@ -1223,10 +1309,10 @@ describe("Sync DB Batch and Rollback Functions", () => {
 			// Verify
 			const note1Result = yield* sql<{
 				title: string
-			}>`SELECT title FROM notes WHERE id = 'batch_fwd1'`
+			}>`SELECT title FROM notes WHERE id = ${batchFwd1Id}`
 			const note2Result = yield* sql<{
 				title: string
-			}>`SELECT title FROM notes WHERE id = 'batch_fwd2'`
+			}>`SELECT title FROM notes WHERE id = ${batchFwd2Id}`
 			// Check array access
 			const note1 = note1Result[0]
 			const note2 = note2Result[0]
@@ -1261,17 +1347,40 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				// Insert dummy action record for this setup transaction
 				// yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced, applied) VALUES ('_setup_batch_rev', 'server', ${setupTxId}, ${sql.json({ timestamp: 20, vector: {} })}, '{}'::jsonb, true, true)`
 				// No need for dummy action record if we disable trigger
-				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true);` // Use set_config
-				yield* sql`INSERT INTO notes (id, title, content, user_id) VALUES ('batch_rev1', 'Orig 1', 'Cont 1', 'u1')`
-				yield* sql`INSERT INTO notes (id, title, content, user_id) VALUES ('batch_rev2', 'Orig 2', 'Cont 2', 'u1')`
-				yield* sql`SELECT set_config('sync.disable_trigger', 'false', true);` // Use set_config
+				// Create notes with deterministic IDs by using action records
+				// First create an action record for setup
+				const setupActionId = (yield* sql<{ id: string }>`
+					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('_setup_batch_rev', 'server', ${setupTxId}, ${sql.json({ timestamp: 20, vector: {} })}, '{}'::jsonb, true)
+					RETURNING id
+				`)[0]!.id
+
+				// Set up the action ID for deterministic ID generation
+				yield* setupDeterministicIdVariables(sql, setupActionId)
+
+				// Insert the notes - the deterministic ID trigger will generate IDs based on content
+				const note1 = (yield* sql<{ id: string }>`
+					INSERT INTO notes (title, content, user_id)
+					VALUES ('Orig 1', 'Cont 1', 'u1')
+					RETURNING id
+				`)[0]!.id
+
+				const note2 = (yield* sql<{ id: string }>`
+					INSERT INTO notes (title, content, user_id)
+					VALUES ('Orig 2', 'Cont 2', 'u1')
+					RETURNING id
+				`)[0]!.id
+
+				// Store the generated IDs in the global scope for later use
+				batchRev1Id = note1
+				batchRev2Id = note2
 			}).pipe(sql.withTransaction)
 			// Moved inserts into the transaction block above
 
 			const { amrId: amrId1 } = yield* createActionAndModifyNote(
 				sql,
 				"br1",
-				"batch_rev1",
+				batchRev1Id,
 				"New 1",
 				"New Cont 1",
 				100
@@ -1279,7 +1388,7 @@ describe("Sync DB Batch and Rollback Functions", () => {
 			const { amrId: amrId2 } = yield* createActionAndModifyNote(
 				sql,
 				"br2",
-				"batch_rev2",
+				batchRev2Id,
 				"New 2",
 				"New Cont 2",
 				200
@@ -1288,10 +1397,10 @@ describe("Sync DB Batch and Rollback Functions", () => {
 			// Ensure state is modified
 			const modNote1Result = yield* sql<{
 				title: string
-			}>`SELECT title FROM notes WHERE id = 'batch_rev1'`
+			}>`SELECT title FROM notes WHERE id = ${batchRev1Id}`
 			const modNote2Result = yield* sql<{
 				title: string
-			}>`SELECT title FROM notes WHERE id = 'batch_rev2'`
+			}>`SELECT title FROM notes WHERE id = ${batchRev2Id}`
 			// Check array access
 			const modNote1 = modNote1Result[0]
 			const modNote2 = modNote2Result[0]
@@ -1307,7 +1416,13 @@ describe("Sync DB Batch and Rollback Functions", () => {
 					return yield* Effect.dieMessage("Failed to get txid for batch reverse call")
 				}
 				// Insert dummy action record for this specific transaction
-				yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_rev', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, true)`
+				const dummyActionId = (yield* sql<{
+					id: string
+				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_rev', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, true) RETURNING id`)[0]!
+					.id
+
+				// Set up transaction local variables for deterministic ID generation
+				yield* setupDeterministicIdVariables(sql, dummyActionId)
 
 				// Call the batch function
 				yield* sql`SELECT apply_reverse_amr_batch(${sql.array([amrId1, amrId2])})`
@@ -1316,10 +1431,10 @@ describe("Sync DB Batch and Rollback Functions", () => {
 			// Verify state is reverted
 			const note1Result = yield* sql<{
 				title: string
-			}>`SELECT title FROM notes WHERE id = 'batch_rev1'`
+			}>`SELECT title FROM notes WHERE id = ${batchRev1Id}`
 			const note2Result = yield* sql<{
 				title: string
-			}>`SELECT title FROM notes WHERE id = 'batch_rev2'`
+			}>`SELECT title FROM notes WHERE id = ${batchRev2Id}`
 			// Check array access
 			const note1 = note1Result[0]
 			const note2 = note2Result[0]
@@ -1345,21 +1460,32 @@ describe("Sync DB Batch and Rollback Functions", () => {
 it.effect("should rollback to a specific action", () =>
 	Effect.gen(function* () {
 		const sql = yield* PgLiteClient.PgLiteClient
+
 		// Setup: Create note within a transaction with a dummy action record
-		yield* Effect.gen(function* () {
+		const noteId = yield* Effect.gen(function* () {
 			const setupTxResult = yield* sql<{ txid: number }>`SELECT txid_current() as txid`
 			const setupTxId = setupTxResult[0]?.txid
 			if (!setupTxId) {
 				return yield* Effect.dieMessage("Failed to get setup txid")
 			}
-			yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_setup_rollback_test', 'server', ${setupTxId}, ${sql.json({ timestamp: 50, vector: {} })}, '{}'::jsonb, true)`
-			yield* sql`INSERT INTO notes (id, title, content, user_id) VALUES ('rollback_test', 'Orig', 'Cont', 'u1')`
+			const actionResult = yield* sql<{
+				id: string
+			}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_setup_rollback_test', 'server', ${setupTxId}, ${sql.json({ timestamp: 50, vector: {} })}, '{}'::jsonb, true) RETURNING id`
+			const actionId = actionResult[0]!.id
+
+			// Set up transaction local variables for deterministic ID generation
+			yield* setupDeterministicIdVariables(sql, actionId)
+
+			const insertResult = yield* sql<{
+				id: string
+			}>`INSERT INTO notes (title, content, user_id) VALUES ('Orig', 'Cont', 'u1') RETURNING id`
+			return insertResult[0]!.id // Capture the generated ID
 		}).pipe(sql.withTransaction)
 
 		const { actionId: actionIdA } = yield* createActionAndModifyNote(
 			sql,
 			"rb_A",
-			"rollback_test",
+			noteId!, // Use non-null assertion or check
 			"Update A",
 			"Cont A",
 			100
@@ -1367,7 +1493,7 @@ it.effect("should rollback to a specific action", () =>
 		const { actionId: actionIdB } = yield* createActionAndModifyNote(
 			sql,
 			"rb_B",
-			"rollback_test",
+			noteId!, // Use non-null assertion or check
 			"Update B",
 			"Cont B",
 			200
@@ -1375,7 +1501,7 @@ it.effect("should rollback to a specific action", () =>
 		const { actionId: actionIdC } = yield* createActionAndModifyNote(
 			sql,
 			"rb_C",
-			"rollback_test",
+			noteId!, // Use non-null assertion or check
 			"Update C",
 			"Cont C",
 			300
@@ -1389,19 +1515,22 @@ it.effect("should rollback to a specific action", () =>
 		// Verify current state is C
 		const noteCResult = yield* sql<{
 			title: string
-		}>`SELECT title FROM notes WHERE id = 'rollback_test'`
+		}>`SELECT title FROM notes WHERE id = ${noteId}` // Use captured ID
 		const noteC = noteCResult[0]
 		expect(noteC?.title).toBe("Update C")
 
 		// Test: Rollback to state *after* action A completed (i.e., undo B and C)
 		// Wrap rollback and verification in a transaction
 		yield* Effect.gen(function* () {
+			// Set up transaction local variables for deterministic ID generation
+			yield* setupDeterministicIdVariables(sql, actionIdA)
+
 			yield* sql`SELECT rollback_to_action(${actionIdA})`
 
 			// Verify state is A
 			const noteAResult = yield* sql<{
 				title: string
-			}>`SELECT title FROM notes WHERE id = 'rollback_test'`
+			}>`SELECT title FROM notes WHERE id = ${noteId}` // Use captured ID
 			const noteA = noteAResult[0]
 			expect(noteA?.title).toBe("Update A") // This is the failing assertion
 		}).pipe(sql.withTransaction) // <--- Add transaction wrapper

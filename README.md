@@ -20,6 +20,21 @@ An opinionated approach to offline-first data sync with [PGlite](https://pglite.
 
 MIT
 
+## Usage Guidelines
+
+To ensure proper synchronization and avoid data inconsistencies when using the Synchrotron library, please adhere to the following rules:
+
+1.  **Apply Sync Triggers:** The `applySyncTriggers` function (from `@synchrotron/sync-core/db`) must be called during your database initialization for _all_ tables whose changes should be tracked and synchronized by the system. This function sets up both the deterministic ID generation trigger and the patch generation trigger.
+    ```typescript
+    // Example during setup:
+    import { applySyncTriggers } from "@synchrotron/sync-core/db"
+    // ... after creating tables ...
+    yield * applySyncTriggers(["notes", "todos", "other_synced_table"])
+    ```
+2.  **Action Determinism:** Actions must be deterministic. Capture any non-deterministic inputs (like current time, random values, user-specific context not available on other clients) as arguments passed into the action. The `timestamp` argument is automatically provided.
+3.  **Mutations via Actions:** All modifications (INSERT, UPDATE, DELETE) to synchronized tables _must_ be performed exclusively through registered Synchrotron actions executed via `SyncService.executeAction`. Direct database manipulation outside of actions will bypass the tracking mechanism and lead to inconsistencies.
+4.  **No Manual IDs:** Do not manually provide or set the `id` field when inserting rows within an action. The system relies on the automatic, trigger-based deterministic content-hashed ID generation to ensure consistency across clients. Remove any `DEFAULT` clauses for ID columns in your table schemas.
+
 # Design Plan
 
 ## 1. Overview

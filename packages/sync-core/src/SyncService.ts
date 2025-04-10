@@ -2,7 +2,7 @@ import { type SqlError } from "@effect/sql" // Import SqlClient service
 import { PgLiteClient } from "@effect/sql-pglite"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import * as HLC from "@synchrotron/sync-core/HLC" // Import HLC namespace
-import { Array, Effect, Option, Schema, type Fiber } from "effect" // Import ReadonlyArray
+import { Array, Effect, Option, Schema } from "effect" // Import ReadonlyArray
 import { ActionModifiedRowRepo, compareActionModifiedRows } from "./ActionModifiedRowRepo"
 import { ActionRecordRepo } from "./ActionRecordRepo"
 import { ClockService } from "./ClockService"
@@ -42,7 +42,9 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		 * 6. Apply the action (which triggers database changes)
 		 * 7. Return the updated action record with patches
 		 */
-		const executeAction = <A extends Record<string, unknown>, EE, R>(action: Action<A, EE, R>) =>
+		const executeAction = <A1, A extends Record<string, unknown>, EE, R>(
+			action: Action<A1, A, EE, R>
+		) =>
 			// First wrap everything in a transaction
 			Effect.gen(function* () {
 				yield* Effect.logInfo(`Executing action: ${action._tag}"}`)
@@ -92,10 +94,13 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						)
 					)
 
+				// Set context for deterministic ID trigger before executing action
+				yield* sql`SELECT set_config('sync.current_action_record_id', ${actionRecord.id}, true), set_config('sync.collision_map', '{}', true)`
 				// 6. Apply the action - this will trigger database changes
+				// The trigger will use the context set above.
 				// and will throw an exception if the action fails
 				// all changes, including the action record inserted above
-				yield* action.execute() // Pass args with timestamp to apply
+				const result = yield* action.execute() // Pass args with timestamp to apply
 
 				// 7. Fetch the updated action record with patches
 				const updatedRecord = yield* actionRecordRepo.findById(actionRecord.id)
@@ -110,7 +115,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				}
 				yield* actionRecordRepo.markLocallyApplied(updatedRecord.value.id)
 
-				return updatedRecord.value
+				return { actionRecord: updatedRecord.value, result }
 			}).pipe(
 				sql.withTransaction, // Restore transaction wrapper
 				Effect.catchAll((error) =>
@@ -381,6 +386,9 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				)
 
 				for (const actionRecord of sortedRemoteActions) {
+					// Set context for deterministic ID trigger before applying this specific action
+					yield* sql`SELECT set_config('sync.current_action_record_id', ${actionRecord.id}, true), set_config('sync.collision_map', '{}', true)`
+
 					if (actionRecord._tag === "_Rollback") {
 						yield* Effect.logTrace(
 							`Skipping application of Rollback action during apply phase: ${actionRecord.id}`

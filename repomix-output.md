@@ -224,6 +224,8 @@ packages/
     tsconfig.test.json
     vite.config.ts
     vitest.config.ts
+patches/
+  @electric-sql__pglite-repl.patch
 .clinerules-code
 .envrc
 .gitignore
@@ -4897,6 +4899,24 @@ describe("DB Reverse Patch Functions", () => {
 }
 ````
 
+## File: patches/@electric-sql__pglite-repl.patch
+````
+diff --git a/dist/Repl.js b/dist/Repl.js
+index 75b69e75c566731d30d92699ff17214b4cf314d9..9b2a15aab186a6661471cec7f5ac5ce7a5eaa229 100644
+--- a/dist/Repl.js
++++ b/dist/Repl.js
+@@ -675,7 +675,8 @@ function Repl({
+   );
+   const extractStyles = () => {
+     var _a, _b;
+-    const cmEditorEl = (_b = (_a = rcm.current) == null ? void 0 : _a.editor) == null ? void 0 : _b.querySelector(".cm-editor");
++    const cmEditorEl = document.querySelector(".cm-editor")
++    // const cmEditorEl = (_b = (_a = rcm.current) == null ? void 0 : _a.editor) == null ? void 0 : _b.querySelector(".cm-editor");
+     if (!cmEditorEl) {
+       throw new Error("No CodeMirror editor found");
+     }
+````
+
 ## File: .envrc
 ````
 use flake;
@@ -5169,613 +5189,6 @@ import { Outlet } from "react-router"
 export default function Root() {
 	return <Outlet />
 }
-````
-
-## File: packages/sql-pglite/src/PgLiteClient.ts
-````typescript
-/**
- * @since 1.0.0
- */
-import * as Reactivity from "@effect/experimental/Reactivity"
-import * as Client from "@effect/sql/SqlClient"
-import type { Connection } from "@effect/sql/SqlConnection"
-import { SqlError } from "@effect/sql/SqlError"
-import type { Custom, Fragment, Primitive } from "@effect/sql/Statement"
-import * as Statement from "@effect/sql/Statement"
-import type { DebugLevel, ParserOptions, PGlite, SerializerOptions } from "@electric-sql/pglite"
-import * as Config from "effect/Config"
-import type { ConfigError } from "effect/ConfigError"
-import * as Context from "effect/Context"
-import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
-import type * as Scope from "effect/Scope"
-import * as Stream from "effect/Stream"
-
-// Define OpenTelemetry constants since we can't import the package
-const SEMATTRS_DB_SYSTEM = "db.system"
-const DBSYSTEMVALUES_POSTGRESQL = "postgresql"
-const SEMATTRS_DB_NAME = "db.name"
-
-/**
- * @category extensions
- * @since 1.0.0
- */
-// Extract the namespace type from an extension definition
-export type ExtractNamespace<T> = T extends {
-	setup: (...args: Array<any>) => Promise<infer R>
-}
-	? R extends { namespaceObj: infer N }
-		? N
-		: {}
-	: {}
-
-/**
- * @category extensions
- * @since 1.0.0
- */
-// Extract all extension namespaces from an extensions object
-export type ExtractExtensionNamespaces<T extends Record<string, any>> = {
-	[K in keyof T]: ExtractNamespace<T[K]>
-}
-
-/**
- * @category extensions
- * @since 1.0.0
- */
-// Create a type with extension namespaces as properties
-export type ExtensionsToNamespaces<T extends Record<string, any>> = {
-	[K in keyof T as K extends string ? K : never]: ExtractNamespace<T[K]>
-}
-
-/**
- * @category type ids
- * @since 1.0.0
- */
-export const TypeId: unique symbol = Symbol.for("@effect/sql-pglite/PgLiteClient")
-
-/**
- * @category type ids
- * @since 1.0.0
- */
-export type TypeId = typeof TypeId
-
-/**
- * @category models
- * @since 1.0.0
- */
-export interface PgLiteClient<Extensions extends Record<string, any> = {}>
-	extends Client.SqlClient {
-	readonly [TypeId]: TypeId
-	readonly config: PgLiteClientConfig
-	readonly json: (_: unknown) => Fragment
-	readonly array: (_: ReadonlyArray<Primitive>) => Fragment
-	readonly listen: (channel: string) => Stream.Stream<string, SqlError>
-	readonly notify: (channel: string, payload: string) => Effect.Effect<void, SqlError>
-	readonly extensions: ExtensionsToNamespaces<Extensions>
-}
-
-/**
- * @category tags
- * @since 1.0.0
- */
-export const PgLiteClient = Context.GenericTag<PgLiteClient<any>>("@effect/sql-pglite/PgLiteClient")
-
-/**
- * Creates a tag for a PgLiteClient with specific extensions.
- * Use this when you need to preserve extension types when retrieving the client from the context.
- *
- * @example
- * ```ts
- * import * as PgLiteClient from "@effect/sql-pglite/PgLiteClient"
- * import * as Effect from "effect/Effect"
- * import { vector } from "@electric-sql/pglite-vector"
- *
- * // Create a tag for your client with extensions
- * const MyClient = PgLiteClient.tag<{
- *   vector: typeof vector
- * }>(Symbol.for("@app/MyClient"))
- *
- * // Use the tag to retrieve the client with correct extension types
- * const program = Effect.gen(function*() {
- *   const client = yield* MyClient
- *   // client.extensions.vector is properly typed
- * })
- * ```
- *
- * @category tags
- * @since 1.0.0
- */
-// export const tag = <Extensions extends Record<string, any> = {}>(symbol: symbol) =>
-// 	Context.GenericTag<PgLiteClient<Extensions>, PgLiteClient<Extensions>>(symbol.toString())
-
-/**
- * @category constructors
- * @since 1.0.0
- */
-export interface PgLiteClientConfig {
-	readonly dataDir?: string | undefined
-	readonly debug?: DebugLevel | undefined
-	readonly relaxedDurability?: boolean | undefined
-	readonly username?: string | undefined
-	readonly database?: string | undefined
-	readonly initialMemory?: number | undefined
-	readonly transformResultNames?: ((str: string) => string) | undefined
-	readonly transformQueryNames?: ((str: string) => string) | undefined
-	readonly transformJson?: boolean | undefined
-	readonly applicationName?: string | undefined
-	readonly spanAttributes?: Record<string, unknown> | undefined
-	readonly fs?: any | undefined
-	readonly loadDataDir?: Blob | File | undefined
-	readonly wasmModule?: WebAssembly.Module | undefined
-	readonly fsBundle?: Blob | File | undefined
-	readonly parsers?: ParserOptions | undefined
-	readonly serializers?: SerializerOptions | undefined
-}
-
-/**
- * @category constructors
- * @since 1.0.0
- */
-export const make = <Extensions extends Record<string, any> = object>(
-	options: Omit<PgLiteClientConfig, "extensions"> & { extensions?: Extensions }
-): Effect.Effect<PgLiteClient<Extensions>, SqlError, Scope.Scope | Reactivity.Reactivity> =>
-	Effect.gen(function* () {
-		const compiler = makeCompiler(options.transformQueryNames, options.transformJson)
-		const transformRows = options.transformResultNames
-			? Statement.defaultTransforms(options.transformResultNames, options.transformJson).array
-			: undefined
-
-		// Import PGlite dynamically to avoid issues with bundlers
-		const { PGlite } = yield* Effect.tryPromise({
-			try: () => import("@electric-sql/pglite"),
-			catch: (cause) => new SqlError({ cause, message: "PgLiteClient: Failed to import PGlite" })
-		})
-
-		// Create PGlite instance
-		const client: PGlite = yield* Effect.tryPromise({
-			try: () =>
-				// GlobalValue.globalValue("pglite", () =>
-				PGlite.create(
-					options.dataDir || "", // First argument is dataDir
-					{
-						// Second argument is options object
-						debug: options.debug,
-						relaxedDurability: options.relaxedDurability,
-						username: options.username || undefined,
-						database: options.database || undefined,
-						initialMemory: options.initialMemory,
-						fs: options.fs,
-						extensions: options.extensions,
-						loadDataDir: options.loadDataDir,
-						wasmModule: options.wasmModule,
-						fsBundle: options.fsBundle,
-						parsers: options.parsers,
-						serializers: options.serializers
-					} as any // Cast to any to avoid TypeScript errors with optional properties
-					// )
-				),
-			catch: (cause) => new SqlError({ cause, message: "PgLiteClient: Failed to connect" })
-		})
-
-		// Test connection
-		yield* Effect.tryPromise({
-			try: () => client.query("SELECT 1"),
-			catch: (cause) => new SqlError({ cause, message: "PgLiteClient: Failed to query" })
-		})
-
-		// Unlike PgClient, we don't close the connection in the release phase
-		// because PGlite is a single-connection database and closing it would
-		// shut down the entire database
-		yield* Effect.addFinalizer(() => Effect.succeed(void 0))
-
-		class ConnectionImpl implements Connection {
-			constructor(private readonly pg: PGlite) {}
-
-			private run(query: Promise<any>) {
-				return Effect.async<ReadonlyArray<any>, SqlError>((resume) => {
-					query.then(
-						(result) => {
-							resume(Effect.succeed(result.rows))
-						},
-						(cause) => {
-							console.error("Failed to execute statement:", cause)
-							resume(new SqlError({ cause, message: "Failed to execute statement" }))
-						}
-					)
-					// PGlite doesn't have a cancel method like postgres.js
-					return Effect.succeed(void 0)
-				})
-			}
-
-			execute(
-				sql: string,
-				params: ReadonlyArray<Primitive>,
-				transformRows?: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined,
-				unprepared?: boolean
-			) {
-				console.log("Executing query:", sql.substring(0, 100), params)
-				return transformRows
-					? Effect.map(
-							this.run(
-								unprepared ? this.pg.exec(sql, params as any) : this.pg.query(sql, params as any)
-							),
-							transformRows
-						)
-					: unprepared
-						? this.run(this.pg.exec(sql, params as any))
-						: this.run(this.pg.query(sql, params as any))
-			}
-			executeRaw(sql: string, params: ReadonlyArray<Primitive>) {
-				console.log("Executing raw query:", sql.substring(0, 100), params)
-
-				return this.run(this.pg.exec(sql, params as any))
-			}
-			executeWithoutTransform(sql: string, params: ReadonlyArray<Primitive>) {
-				console.log("Executing query without transform:", sql.substring(0, 100), params)
-				return this.run(this.pg.query(sql, params as any))
-			}
-			executeValues(sql: string, params: ReadonlyArray<Primitive>) {
-				console.log("Executing values query:", sql.substring(0, 100), params)
-				// PGlite doesn't have a values() method like postgres.js
-				// We'll just return the regular query results
-				return this.run(this.pg.query(sql, params as any))
-			}
-			executeUnprepared(
-				sql: string,
-				params: ReadonlyArray<Primitive>,
-				transformRows: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined
-			) {
-				console.log("Executing unprepared query:", sql.substring(0, 100), params)
-				return this.execute(sql, params, transformRows, true)
-			}
-			executeStream(
-				sql: string,
-				params: ReadonlyArray<Primitive>,
-				transformRows: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined
-			) {
-				console.log("Executing stream query:", sql.substring(0, 100), params)
-				// PGlite doesn't have a cursor method like postgres.js
-				// We'll fetch all results at once and convert to a stream
-				return Stream.fromEffect(
-					Effect.map(this.run(this.pg.query(sql, params as any)), (rows) => {
-						const result = transformRows ? transformRows(rows) : rows
-						return result
-					})
-				).pipe(Stream.flatMap(Stream.fromIterable))
-			}
-		}
-
-		return Object.assign(
-			yield* Client.make({
-				// For PGlite, we use the same connection for both regular queries and transactions
-				// since it's a single-connection database
-				acquirer: Effect.succeed(new ConnectionImpl(client)),
-				compiler,
-				spanAttributes: [
-					...(options.spanAttributes ? Object.entries(options.spanAttributes) : []),
-					[SEMATTRS_DB_SYSTEM, DBSYSTEMVALUES_POSTGRESQL],
-					[SEMATTRS_DB_NAME, options.database ?? options.username ?? "postgres"],
-					["server.address", "localhost"],
-					["server.port", 0] // PGlite doesn't use a port
-				],
-				transformRows
-			}),
-			{
-				[TypeId]: TypeId as TypeId,
-				config: {
-					...options
-				},
-				json: (_: unknown) => PgLiteJson([_]),
-				array: (_: ReadonlyArray<Primitive>) => PgLiteArray([_]),
-				extensions: options.extensions ? (client as any) : ({} as any),
-				listen: (channel: string) =>
-					Stream.asyncPush<string, SqlError>((emit) =>
-						Effect.tryPromise({
-							try: async () => {
-								const unsub = await client.listen(channel, (payload) => emit.single(payload))
-								return { unsub }
-							},
-							catch: (cause) => new SqlError({ cause, message: "Failed to listen" })
-						}).pipe(
-							Effect.map(({ unsub }) =>
-								Effect.tryPromise({
-									try: () => unsub(),
-									catch: (cause) => new SqlError({ cause, message: "Failed to unlisten" })
-								})
-							)
-						)
-					),
-				notify: (channel: string, payload: string) =>
-					Effect.tryPromise({
-						try: () => client.query(`NOTIFY ${channel}, '${payload}'`),
-						catch: (cause) => new SqlError({ cause, message: "Failed to notify" })
-					}).pipe(Effect.map(() => void 0))
-			}
-		)
-	})
-
-/**
- * @category layers
- * @since 1.0.0
- */
-export const layerConfig = <Extensions extends Record<string, any> = {}>(
-	config: Config.Config.Wrap<PgLiteClientConfig>
-): Layer.Layer<PgLiteClient<Extensions> | Client.SqlClient, ConfigError | SqlError> =>
-	Layer.scopedContext(
-		Config.unwrap(config).pipe(
-			Effect.flatMap(make<Extensions>),
-			Effect.map((client) =>
-				Context.make(PgLiteClient, client as PgLiteClient<Extensions>).pipe(
-					Context.add(Client.SqlClient, client)
-				)
-			)
-		)
-	).pipe(Layer.provide(Reactivity.layer))
-
-/**
- * @category layers
- * @since 1.0.0
- */
-export const layer = <Extensions extends Record<string, any> = {}>(
-	config: PgLiteClientConfig & { extensions?: Extensions }
-): Layer.Layer<PgLiteClient<Extensions> | Client.SqlClient, ConfigError | SqlError> =>
-	Layer.scopedContext(
-		Effect.map(make<Extensions>(config), (client) =>
-			Context.make(PgLiteClient, client as PgLiteClient<Extensions>).pipe(
-				Context.add(Client.SqlClient, client)
-			)
-		)
-	).pipe(Layer.provide(Reactivity.layer))
-
-/**
- * @category helpers
- * @since 1.0.0
- */
-export const tag = <Extensions extends Record<string, any> = {}>() =>
-	PgLiteClient as Context.Tag<PgLiteClient<Extensions> | Client.SqlClient, PgLiteClient<Extensions>>
-
-/**
- * @category constructor
- * @since 1.0.0
- */
-export const makeCompiler = (
-	transform?: (_: string) => string,
-	transformJson = true
-): Statement.Compiler => {
-	// PGlite doesn't have a pg.json or pg.array method like postgres.js
-	// We'll create our own custom handlers
-
-	const transformValue =
-		transformJson && transform ? Statement.defaultTransforms(transform).value : undefined
-
-	return Statement.makeCompiler<PgLiteCustom>({
-		dialect: "pg",
-		placeholder(_) {
-			return `$${_}`
-		},
-		onIdentifier: transform
-			? function (value, withoutTransform) {
-					return withoutTransform ? escape(value) : escape(transform(value))
-				}
-			: escape,
-		onRecordUpdate(placeholders, valueAlias, valueColumns, values, returning) {
-			return [
-				`(values ${placeholders}) AS ${valueAlias}${valueColumns}${returning ? ` RETURNING ${returning[0]}` : ""}`,
-				returning ? values.flat().concat(returning[1]) : values.flat()
-			]
-		},
-		onCustom(type: PgLiteCustom, placeholder, withoutTransform) {
-			switch (type.kind) {
-				case "PgLiteJson": {
-					// For PGlite, we'll use a parameter placeholder and let PGlite handle the JSON serialization
-					// This ensures proper handling of JSON types in PostgreSQL
-					const value =
-						withoutTransform || transformValue === undefined
-							? type.i0[0]
-							: transformValue(type.i0[0])
-					return [placeholder(undefined), [value]]
-				}
-				case "PgLiteArray": {
-					// For PGlite, we'll use a parameter placeholder and let PGlite handle the array serialization
-					// This ensures proper handling of array types in PostgreSQL
-					const arrayValue = type.i0[0]
-					return [placeholder(undefined), [arrayValue]]
-				}
-				default: {
-					throw new Error(`Unknown custom type: ${type}`)
-				}
-			}
-		}
-	})
-}
-
-const escape = Statement.defaultEscape('"')
-
-/**
- * @category custom types
- * @since 1.0.0
- */
-export type PgLiteCustom = PgLiteJson | PgLiteArray
-
-/**
- * @category custom types
- * @since 1.0.0
- */
-export interface PgLiteJson extends Custom<"PgLiteJson", [unknown]> {}
-
-/**
- * @category custom types
- * @since 1.0.0
- */
-export const PgLiteJson = Statement.custom<PgLiteJson>("PgLiteJson")
-
-/**
- * @category custom types
- * @since 1.0.0
- */
-export interface PgLiteArray extends Custom<"PgLiteArray", [ReadonlyArray<Primitive>]> {}
-
-/**
- * @category custom types
- * @since 1.0.0
- */
-export const PgLiteArray = Statement.custom<PgLiteArray>("PgLiteArray")
-````
-
-## File: packages/sync-client/src/electric/ElectricSyncService.ts
-````typescript
-import type { Message, Row } from "@electric-sql/client" // Import ShapeStreamOptions
-// Removed unused import: SyncShapeToTableResult
-import { ActionModifiedRow, ActionRecord, SyncService } from "@synchrotron/sync-core" // Added ActionModifiedRow, ActionRecord
-import { ClockService } from "@synchrotron/sync-core/ClockService"
-import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
-import { Effect, Schema, Stream } from "effect" // Added Cause
-import { PgLiteSyncTag } from "../db/connection"
-
-export class ElectricSyncError extends Schema.TaggedError<ElectricSyncError>()(
-	"ElectricSyncError",
-	{
-		message: Schema.String,
-		cause: Schema.optional(Schema.Unknown)
-	}
-) {}
-
-export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
-	"ElectricSyncService",
-	{
-		scoped: Effect.gen(function* () {
-			yield* Effect.logInfo(`creating ElectricSyncService`)
-			const clockService = yield* ClockService
-			const syncService = yield* SyncService
-			const config = yield* SynchrotronClientConfig
-			const pgLiteClient = yield* PgLiteSyncTag
-			const electricUrl = config.electricSyncUrl
-			yield* Effect.logInfo(`Creating TransactionalMultiShapeStream`)
-
-			const multiShapeSync = yield* Effect.tryPromise({
-				try: async () => {
-					return pgLiteClient.extensions.electric.syncShapesToTables({
-						key: "synchrotron-sync",
-						shapes: {
-							action_records: {
-								shape: {
-									url: `${electricUrl}/v1/shape`,
-									params: { table: "action_records" }
-								},
-
-								table: "action_records",
-								primaryKey: ["id"]
-							},
-							action_modified_rows: {
-								shape: {
-									url: `${electricUrl}/v1/shape`,
-									params: { table: "action_modified_rows" }
-								},
-								table: "action_modified_rows",
-								primaryKey: ["id"]
-							}
-						}
-					})
-				},
-				catch: (e) =>
-					new ElectricSyncError({
-						message: `Failed to create TransactionalMultiShapeStream: ${e instanceof Error ? e.message : String(e)}`,
-						cause: e
-					})
-			})
-			const actionRecordStream = Stream.asyncScoped<
-				Message<Row<ActionRecord>>[],
-				ElectricSyncError
-			>((emit) =>
-				Effect.gen(function* () {
-					yield* Effect.logInfo("Subscribing to actionRecordStream")
-					return yield* Effect.acquireRelease(
-						Effect.gen(function* () {
-							return multiShapeSync.streams.action_records!.subscribe(
-								(messages: any) => {
-									emit.single(messages as Message<Row<ActionRecord>>[])
-								},
-								(error: unknown) => {
-									emit.fail(
-										new ElectricSyncError({
-											message: `actionRecordStream error: ${error instanceof Error ? error.message : String(error)}`,
-											cause: error
-										})
-									)
-								}
-							)
-						}),
-						(unsub) =>
-							Effect.gen(function* () {
-								yield* Effect.logInfo("Unsubscribing from actionRecordStream")
-								unsub()
-							})
-					)
-				})
-			)
-			const actionModifiedRowsStream = Stream.asyncScoped<
-				Message<Row<ActionModifiedRow>>[],
-				ElectricSyncError
-			>((emit) =>
-				Effect.gen(function* () {
-					yield* Effect.logInfo("Subscribing to actionModifiedRowsStream")
-					return yield* Effect.acquireRelease(
-						Effect.gen(function* () {
-							yield* Effect.logInfo("Subscribing to actionModifiedRowsStream")
-							return multiShapeSync.streams.action_modified_rows!.subscribe(
-								(messages: any) => {
-									emit.single(messages as Message<Row<ActionModifiedRow>>[])
-								},
-								(error: unknown) => {
-									emit.fail(
-										new ElectricSyncError({
-											message: `actionModifiedRowsStream error: ${error instanceof Error ? error.message : String(error)}`,
-											cause: error
-										})
-									)
-								}
-							)
-						}),
-						(unsub) =>
-							Effect.gen(function* () {
-								yield* Effect.logInfo("Unsubscribing from actionModifiedRowsStream")
-								unsub()
-							})
-					)
-				})
-			)
-
-			// yield* actionRecordStream.pipe(
-			// 	Stream.zipLatest(actionModifiedRowsStream),
-
-			// 	Stream.tap((messages) =>
-			// 		Effect.logTrace(
-			// 			`Multi-shape sync batch received: ${JSON.stringify(messages, (_, v) => (typeof v === "bigint" ? `BIGINT: ${v.toString()}` : v), 2)}`
-			// 		)
-			// 	),
-			// 	Stream.filter(
-			// 		([ar, amr]) =>
-			// 			ar.every((a) => a.headers.control === "up-to-date") &&
-			// 			amr.every((a) => a.headers.control === "up-to-date")
-			// 	),
-			// 	Stream.tap((_) =>
-			// 		Effect.logInfo("All shapes in multi-stream are synced. Triggering performSync.")
-			// 	),
-			// 	Stream.tap(() => syncService.performSync()),
-			// 	Stream.catchAllCause((cause) => {
-			// 		Effect.runFork(Effect.logError("Error in combined sync trigger stream", cause))
-			// 		return Stream.empty
-			// 	}),
-			// 	Stream.runDrain,
-			// 	Effect.forkScoped
-			// )
-
-			yield* Effect.logInfo(`ElectricSyncService created`)
-
-			return {}
-		})
-	}
-) {}
 ````
 
 ## File: packages/sync-client/src/test/TestLayers.ts
@@ -6108,134 +5521,6 @@ export const initializeDatabaseSchema = Effect.gen(function* () {
 
 	yield* Effect.logInfo("Database schema initialization complete")
 })
-````
-
-## File: packages/sync-core/src/ActionRegistry.ts
-````typescript
-import { SqlClient } from "@effect/sql"
-import { Effect, Schema } from "effect"
-import { ActionModifiedRowRepo } from "./ActionModifiedRowRepo"
-import { ActionRecordRepo } from "./ActionRecordRepo"
-import { Action } from "./models"
-
-/**
- * Error for unknown action types
- */
-export class UnknownActionError extends Schema.TaggedError<UnknownActionError>()(
-	"UnknownActionError",
-	{
-		actionTag: Schema.String
-	}
-) {}
-
-export type ActionCreator = <A extends Record<string, unknown> = any, EE = any, R = never>(
-	args: A
-) => Action<A, EE, R>
-
-/**
- * ActionRegistry Service
- * Manages a registry of action creators that can be used to create and execute actions
- */
-export class ActionRegistry extends Effect.Service<ActionRegistry>()("ActionRegistry", {
-	effect: Effect.gen(function* () {
-		// Create a new registry map
-		const registry = new Map<string, ActionCreator>()
-
-		/**
-		 * Get an action creator from the registry by tag
-		 * Used during replay of actions from ActionRecords
-		 */
-		const getActionCreator = (tag: string): ActionCreator | undefined => {
-			return registry.get(tag)
-		}
-
-		/**
-		 * Register an action creator in the registry
-		 */
-		const registerActionCreator = (tag: string, creator: ActionCreator): void => {
-			registry.set(tag, creator)
-		}
-
-		/**
-		 * Check if an action creator exists in the registry
-		 */
-		const hasActionCreator = (tag: string): boolean => {
-			return registry.has(tag)
-		}
-
-		/**
-		 * Remove an action creator from the registry
-		 */
-		const removeActionCreator = (tag: string): boolean => {
-			return registry.delete(tag)
-		}
-
-		/**
-		 * Get the size of the registry
-		 */
-		const getRegistrySize = (): number => {
-			return registry.size
-		}
-
-		/**
-		 * Helper to create a type-safe action definition that automatically registers with the registry
-		 */
-		// A represents the arguments provided by the caller (without timestamp)
-		const defineAction = <A extends Record<string, unknown> & { timestamp: number }, EE, R = never>(
-			tag: string,
-			actionFn: (args: A) => Effect.Effect<void, EE, R> // The implementation receives timestamp
-		) => {
-			// Create action constructor function
-			// createAction now accepts the full arguments object 'A', including the timestamp
-			const createAction = (
-				args: Omit<A, "timestamp"> & { timestamp?: number | undefined }
-			): Action<A, EE, R> => {
-				if (typeof args.timestamp !== "number") {
-					// If timestamp is not provided, use the current timestamp
-					args.timestamp = Date.now()
-				}
-				return {
-					_tag: tag,
-					// The execute function now takes no parameters.
-					// It uses the 'args' captured in this closure when createAction was called.
-					execute: () => actionFn(args as any),
-					// Store the full args object (including timestamp) that was used to create this action instance.
-					args: args as any
-				}
-			}
-
-			// Automatically register the action creator in the registry
-			registerActionCreator(tag, createAction as ActionCreator)
-
-			// Return the action creator function
-			return createAction
-		}
-
-		const rollbackAction = defineAction(
-			"RollbackAction",
-			// Args: only target_action_id and timestamp are needed for the record
-			(args: { target_action_id: string; timestamp: number }) =>
-				Effect.gen(function* () {
-					// This action's execute method now only records the event.
-					// The actual database state rollback happens in SyncService.rollbackToCommonAncestor
-					// *before* this action is executed.
-					yield* Effect.logInfo(
-						`Executing (recording) RollbackAction targeting ancestor: ${args.target_action_id}`
-					)
-					// No database operations or trigger disabling needed here.
-				})
-		)
-		return {
-			getActionCreator,
-			registerActionCreator,
-			hasActionCreator,
-			removeActionCreator,
-			getRegistrySize,
-			defineAction,
-			rollbackAction
-		}
-	})
-}) {}
 ````
 
 ## File: packages/sync-core/src/index.ts
@@ -11414,6 +10699,615 @@ export default mergeConfig(
 )
 ````
 
+## File: packages/sql-pglite/src/PgLiteClient.ts
+````typescript
+/**
+ * @since 1.0.0
+ */
+import * as Reactivity from "@effect/experimental/Reactivity"
+import * as Client from "@effect/sql/SqlClient"
+import type { Connection } from "@effect/sql/SqlConnection"
+import { SqlError } from "@effect/sql/SqlError"
+import type { Custom, Fragment, Primitive } from "@effect/sql/Statement"
+import * as Statement from "@effect/sql/Statement"
+import type { DebugLevel, ParserOptions, PGlite, SerializerOptions } from "@electric-sql/pglite"
+import * as Config from "effect/Config"
+import type { ConfigError } from "effect/ConfigError"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import type * as Scope from "effect/Scope"
+import * as Stream from "effect/Stream"
+
+// Define OpenTelemetry constants since we can't import the package
+const SEMATTRS_DB_SYSTEM = "db.system"
+const DBSYSTEMVALUES_POSTGRESQL = "postgresql"
+const SEMATTRS_DB_NAME = "db.name"
+
+/**
+ * @category extensions
+ * @since 1.0.0
+ */
+// Extract the namespace type from an extension definition
+export type ExtractNamespace<T> = T extends {
+	setup: (...args: Array<any>) => Promise<infer R>
+}
+	? R extends { namespaceObj: infer N }
+		? N
+		: {}
+	: {}
+
+/**
+ * @category extensions
+ * @since 1.0.0
+ */
+// Extract all extension namespaces from an extensions object
+export type ExtractExtensionNamespaces<T extends Record<string, any>> = {
+	[K in keyof T]: ExtractNamespace<T[K]>
+}
+
+/**
+ * @category extensions
+ * @since 1.0.0
+ */
+// Create a type with extension namespaces as properties
+export type ExtensionsToNamespaces<T extends Record<string, any>> = {
+	[K in keyof T as K extends string ? K : never]: ExtractNamespace<T[K]>
+}
+
+/**
+ * @category type ids
+ * @since 1.0.0
+ */
+export const TypeId: unique symbol = Symbol.for("@effect/sql-pglite/PgLiteClient")
+
+/**
+ * @category type ids
+ * @since 1.0.0
+ */
+export type TypeId = typeof TypeId
+
+/**
+ * @category models
+ * @since 1.0.0
+ */
+export interface PgLiteClient<Extensions extends Record<string, any> = {}>
+	extends Client.SqlClient {
+	readonly [TypeId]: TypeId
+	readonly config: PgLiteClientConfig
+	readonly pg: PGlite
+	readonly json: (_: unknown) => Fragment
+	readonly array: (_: ReadonlyArray<Primitive>) => Fragment
+	readonly listen: (channel: string) => Stream.Stream<string, SqlError>
+	readonly notify: (channel: string, payload: string) => Effect.Effect<void, SqlError>
+	readonly extensions: ExtensionsToNamespaces<Extensions>
+}
+
+/**
+ * @category tags
+ * @since 1.0.0
+ */
+export const PgLiteClient = Context.GenericTag<PgLiteClient<any>>("@effect/sql-pglite/PgLiteClient")
+
+/**
+ * Creates a tag for a PgLiteClient with specific extensions.
+ * Use this when you need to preserve extension types when retrieving the client from the context.
+ *
+ * @example
+ * ```ts
+ * import * as PgLiteClient from "@effect/sql-pglite/PgLiteClient"
+ * import * as Effect from "effect/Effect"
+ * import { vector } from "@electric-sql/pglite-vector"
+ *
+ * // Create a tag for your client with extensions
+ * const MyClient = PgLiteClient.tag<{
+ *   vector: typeof vector
+ * }>(Symbol.for("@app/MyClient"))
+ *
+ * // Use the tag to retrieve the client with correct extension types
+ * const program = Effect.gen(function*() {
+ *   const client = yield* MyClient
+ *   // client.extensions.vector is properly typed
+ * })
+ * ```
+ *
+ * @category tags
+ * @since 1.0.0
+ */
+// export const tag = <Extensions extends Record<string, any> = {}>(symbol: symbol) =>
+// 	Context.GenericTag<PgLiteClient<Extensions>, PgLiteClient<Extensions>>(symbol.toString())
+
+/**
+ * @category constructors
+ * @since 1.0.0
+ */
+export interface PgLiteClientConfig {
+	readonly dataDir?: string | undefined
+	readonly debug?: DebugLevel | undefined
+	readonly relaxedDurability?: boolean | undefined
+	readonly username?: string | undefined
+	readonly database?: string | undefined
+	readonly initialMemory?: number | undefined
+	readonly transformResultNames?: ((str: string) => string) | undefined
+	readonly transformQueryNames?: ((str: string) => string) | undefined
+	readonly transformJson?: boolean | undefined
+	readonly applicationName?: string | undefined
+	readonly spanAttributes?: Record<string, unknown> | undefined
+	readonly fs?: any | undefined
+	readonly loadDataDir?: Blob | File | undefined
+	readonly wasmModule?: WebAssembly.Module | undefined
+	readonly fsBundle?: Blob | File | undefined
+	readonly parsers?: ParserOptions | undefined
+	readonly serializers?: SerializerOptions | undefined
+}
+
+/**
+ * @category constructors
+ * @since 1.0.0
+ */
+export const make = <Extensions extends Record<string, any> = object>(
+	options: Omit<PgLiteClientConfig, "extensions"> & { extensions?: Extensions }
+): Effect.Effect<PgLiteClient<Extensions>, SqlError, Scope.Scope | Reactivity.Reactivity> =>
+	Effect.gen(function* () {
+		const compiler = makeCompiler(options.transformQueryNames, options.transformJson)
+		const transformRows = options.transformResultNames
+			? Statement.defaultTransforms(options.transformResultNames, options.transformJson).array
+			: undefined
+
+		// Import PGlite dynamically to avoid issues with bundlers
+		const { PGlite } = yield* Effect.tryPromise({
+			try: () => import("@electric-sql/pglite"),
+			catch: (cause) => new SqlError({ cause, message: "PgLiteClient: Failed to import PGlite" })
+		})
+
+		// Create PGlite instance
+		const client: PGlite = yield* Effect.tryPromise({
+			try: () =>
+				// GlobalValue.globalValue("pglite", () =>
+				PGlite.create(
+					options.dataDir || "", // First argument is dataDir
+					{
+						// Second argument is options object
+						debug: options.debug,
+						relaxedDurability: options.relaxedDurability,
+						username: options.username || undefined,
+						database: options.database || undefined,
+						initialMemory: options.initialMemory,
+						fs: options.fs,
+						extensions: options.extensions,
+						loadDataDir: options.loadDataDir,
+						wasmModule: options.wasmModule,
+						fsBundle: options.fsBundle,
+						parsers: options.parsers,
+						serializers: options.serializers
+					} as any // Cast to any to avoid TypeScript errors with optional properties
+					// )
+				),
+			catch: (cause) => new SqlError({ cause, message: "PgLiteClient: Failed to connect" })
+		})
+
+		// Test connection
+		yield* Effect.tryPromise({
+			try: () => client.query("SELECT 1"),
+			catch: (cause) => new SqlError({ cause, message: "PgLiteClient: Failed to query" })
+		})
+
+		// Unlike PgClient, we don't close the connection in the release phase
+		// because PGlite is a single-connection database and closing it would
+		// shut down the entire database
+		yield* Effect.addFinalizer(() => Effect.succeed(void 0))
+
+		class ConnectionImpl implements Connection {
+			constructor(readonly pg: PGlite) {}
+
+			private run(query: Promise<any>) {
+				return Effect.async<ReadonlyArray<any>, SqlError>((resume) => {
+					query.then(
+						(result) => {
+							resume(Effect.succeed(result.rows))
+						},
+						(cause) => {
+							console.error("Failed to execute statement:", cause)
+							resume(new SqlError({ cause, message: "Failed to execute statement" }))
+						}
+					)
+					// PGlite doesn't have a cancel method like postgres.js
+					return Effect.succeed(void 0)
+				})
+			}
+
+			execute(
+				sql: string,
+				params: ReadonlyArray<Primitive>,
+				transformRows?: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined,
+				unprepared?: boolean
+			) {
+				console.log("Executing query:", sql.substring(0, 100), params)
+				return transformRows
+					? Effect.map(
+							this.run(
+								unprepared ? this.pg.exec(sql, params as any) : this.pg.query(sql, params as any)
+							),
+							transformRows
+						)
+					: unprepared
+						? this.run(this.pg.exec(sql, params as any))
+						: this.run(this.pg.query(sql, params as any))
+			}
+			executeRaw(sql: string, params: ReadonlyArray<Primitive>) {
+				console.log("Executing raw query:", sql.substring(0, 100), params)
+
+				return this.run(this.pg.exec(sql, params as any))
+			}
+			executeWithoutTransform(sql: string, params: ReadonlyArray<Primitive>) {
+				console.log("Executing query without transform:", sql.substring(0, 100), params)
+				return this.run(this.pg.query(sql, params as any))
+			}
+			executeValues(sql: string, params: ReadonlyArray<Primitive>) {
+				console.log("Executing values query:", sql.substring(0, 100), params)
+				// PGlite doesn't have a values() method like postgres.js
+				// We'll just return the regular query results
+				return this.run(this.pg.query(sql, params as any))
+			}
+			executeUnprepared(
+				sql: string,
+				params: ReadonlyArray<Primitive>,
+				transformRows: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined
+			) {
+				console.log("Executing unprepared query:", sql.substring(0, 100), params)
+				return this.execute(sql, params, transformRows, true)
+			}
+			executeStream(
+				sql: string,
+				params: ReadonlyArray<Primitive>,
+				transformRows: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined
+			) {
+				console.log("Executing stream query:", sql.substring(0, 100), params)
+				// PGlite doesn't have a cursor method like postgres.js
+				// We'll fetch all results at once and convert to a stream
+				return Stream.fromEffect(
+					Effect.map(this.run(this.pg.query(sql, params as any)), (rows) => {
+						const result = transformRows ? transformRows(rows) : rows
+						return result
+					})
+				).pipe(Stream.flatMap(Stream.fromIterable))
+			}
+		}
+
+		return Object.assign(
+			yield* Client.make({
+				// For PGlite, we use the same connection for both regular queries and transactions
+				// since it's a single-connection database
+				acquirer: Effect.succeed(new ConnectionImpl(client)),
+				compiler,
+				spanAttributes: [
+					...(options.spanAttributes ? Object.entries(options.spanAttributes) : []),
+					[SEMATTRS_DB_SYSTEM, DBSYSTEMVALUES_POSTGRESQL],
+					[SEMATTRS_DB_NAME, options.database ?? options.username ?? "postgres"],
+					["server.address", "localhost"],
+					["server.port", 0] // PGlite doesn't use a port
+				],
+				transformRows
+			}),
+			{
+				[TypeId]: TypeId as TypeId,
+				config: {
+					...options
+				},
+				pg: client,
+				json: (_: unknown) => PgLiteJson([_]),
+				array: (_: ReadonlyArray<Primitive>) => PgLiteArray([_]),
+				extensions: options.extensions ? (client as any) : ({} as any),
+				listen: (channel: string) =>
+					Stream.asyncPush<string, SqlError>((emit) =>
+						Effect.tryPromise({
+							try: async () => {
+								const unsub = await client.listen(channel, (payload) => emit.single(payload))
+								return { unsub }
+							},
+							catch: (cause) => new SqlError({ cause, message: "Failed to listen" })
+						}).pipe(
+							Effect.map(({ unsub }) =>
+								Effect.tryPromise({
+									try: () => unsub(),
+									catch: (cause) => new SqlError({ cause, message: "Failed to unlisten" })
+								})
+							)
+						)
+					),
+				notify: (channel: string, payload: string) =>
+					Effect.tryPromise({
+						try: () => client.query(`NOTIFY ${channel}, '${payload}'`),
+						catch: (cause) => new SqlError({ cause, message: "Failed to notify" })
+					}).pipe(Effect.map(() => void 0))
+			}
+		)
+	})
+
+/**
+ * @category layers
+ * @since 1.0.0
+ */
+export const layerConfig = <Extensions extends Record<string, any> = {}>(
+	config: Config.Config.Wrap<PgLiteClientConfig>
+): Layer.Layer<PgLiteClient<Extensions> | Client.SqlClient, ConfigError | SqlError> =>
+	Layer.scopedContext(
+		Config.unwrap(config).pipe(
+			Effect.flatMap(make<Extensions>),
+			Effect.map((client) =>
+				Context.make(PgLiteClient, client as PgLiteClient<Extensions>).pipe(
+					Context.add(Client.SqlClient, client)
+				)
+			)
+		)
+	).pipe(Layer.provide(Reactivity.layer))
+
+/**
+ * @category layers
+ * @since 1.0.0
+ */
+export const layer = <Extensions extends Record<string, any> = {}>(
+	config: PgLiteClientConfig & { extensions?: Extensions }
+): Layer.Layer<PgLiteClient<Extensions> | Client.SqlClient, ConfigError | SqlError> =>
+	Layer.scopedContext(
+		Effect.map(make<Extensions>(config), (client) =>
+			Context.make(PgLiteClient, client as PgLiteClient<Extensions>).pipe(
+				Context.add(Client.SqlClient, client)
+			)
+		)
+	).pipe(Layer.provide(Reactivity.layer))
+
+/**
+ * @category helpers
+ * @since 1.0.0
+ */
+export const tag = <Extensions extends Record<string, any> = {}>() =>
+	PgLiteClient as Context.Tag<PgLiteClient<Extensions> | Client.SqlClient, PgLiteClient<Extensions>>
+
+/**
+ * @category constructor
+ * @since 1.0.0
+ */
+export const makeCompiler = (
+	transform?: (_: string) => string,
+	transformJson = true
+): Statement.Compiler => {
+	// PGlite doesn't have a pg.json or pg.array method like postgres.js
+	// We'll create our own custom handlers
+
+	const transformValue =
+		transformJson && transform ? Statement.defaultTransforms(transform).value : undefined
+
+	return Statement.makeCompiler<PgLiteCustom>({
+		dialect: "pg",
+		placeholder(_) {
+			return `$${_}`
+		},
+		onIdentifier: transform
+			? function (value, withoutTransform) {
+					return withoutTransform ? escape(value) : escape(transform(value))
+				}
+			: escape,
+		onRecordUpdate(placeholders, valueAlias, valueColumns, values, returning) {
+			return [
+				`(values ${placeholders}) AS ${valueAlias}${valueColumns}${returning ? ` RETURNING ${returning[0]}` : ""}`,
+				returning ? values.flat().concat(returning[1]) : values.flat()
+			]
+		},
+		onCustom(type: PgLiteCustom, placeholder, withoutTransform) {
+			switch (type.kind) {
+				case "PgLiteJson": {
+					// For PGlite, we'll use a parameter placeholder and let PGlite handle the JSON serialization
+					// This ensures proper handling of JSON types in PostgreSQL
+					const value =
+						withoutTransform || transformValue === undefined
+							? type.i0[0]
+							: transformValue(type.i0[0])
+					return [placeholder(undefined), [value]]
+				}
+				case "PgLiteArray": {
+					// For PGlite, we'll use a parameter placeholder and let PGlite handle the array serialization
+					// This ensures proper handling of array types in PostgreSQL
+					const arrayValue = type.i0[0]
+					return [placeholder(undefined), [arrayValue]]
+				}
+				default: {
+					throw new Error(`Unknown custom type: ${type}`)
+				}
+			}
+		}
+	})
+}
+
+const escape = Statement.defaultEscape('"')
+
+/**
+ * @category custom types
+ * @since 1.0.0
+ */
+export type PgLiteCustom = PgLiteJson | PgLiteArray
+
+/**
+ * @category custom types
+ * @since 1.0.0
+ */
+export interface PgLiteJson extends Custom<"PgLiteJson", [unknown]> {}
+
+/**
+ * @category custom types
+ * @since 1.0.0
+ */
+export const PgLiteJson = Statement.custom<PgLiteJson>("PgLiteJson")
+
+/**
+ * @category custom types
+ * @since 1.0.0
+ */
+export interface PgLiteArray extends Custom<"PgLiteArray", [ReadonlyArray<Primitive>]> {}
+
+/**
+ * @category custom types
+ * @since 1.0.0
+ */
+export const PgLiteArray = Statement.custom<PgLiteArray>("PgLiteArray")
+````
+
+## File: packages/sync-client/src/electric/ElectricSyncService.ts
+````typescript
+import type { Message, Row } from "@electric-sql/client" // Import ShapeStreamOptions
+// Removed unused import: SyncShapeToTableResult
+import { ActionModifiedRow, ActionRecord, SyncService } from "@synchrotron/sync-core" // Added ActionModifiedRow, ActionRecord
+import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
+import { Effect, Schema, Stream } from "effect" // Added Cause
+import { PgLiteSyncTag } from "../db/connection"
+
+export class ElectricSyncError extends Schema.TaggedError<ElectricSyncError>()(
+	"ElectricSyncError",
+	{
+		message: Schema.String,
+		cause: Schema.optional(Schema.Unknown)
+	}
+) {}
+
+export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
+	"ElectricSyncService",
+	{
+		scoped: Effect.gen(function* () {
+			yield* Effect.logInfo(`creating ElectricSyncService`)
+			const clockService = yield* ClockService
+			const syncService = yield* SyncService
+			const config = yield* SynchrotronClientConfig
+			const pgLiteClient = yield* PgLiteSyncTag
+			const electricUrl = config.electricSyncUrl
+			yield* Effect.logInfo(`Creating TransactionalMultiShapeStream`)
+
+			// const multiShapeSync = yield* Effect.tryPromise({
+			// 	try: async () => {
+			// 		return pgLiteClient.extensions.electric.syncShapesToTables({
+			// 			key: "synchrotron-sync",
+			// 			shapes: {
+			// 				action_records: {
+			// 					shape: {
+			// 						url: `${electricUrl}/v1/shape`,
+			// 						params: { table: "action_records" }
+			// 					},
+
+			// 					table: "action_records",
+			// 					primaryKey: ["id"]
+			// 				},
+			// 				action_modified_rows: {
+			// 					shape: {
+			// 						url: `${electricUrl}/v1/shape`,
+			// 						params: { table: "action_modified_rows" }
+			// 					},
+			// 					table: "action_modified_rows",
+			// 					primaryKey: ["id"]
+			// 				}
+			// 			}
+			// 		})
+			// 	},
+			// 	catch: (e) =>
+			// 		new ElectricSyncError({
+			// 			message: `Failed to create TransactionalMultiShapeStream: ${e instanceof Error ? e.message : String(e)}`,
+			// 			cause: e
+			// 		})
+			// })
+			// const actionRecordStream = Stream.asyncScoped<
+			// 	Message<Row<ActionRecord>>[],
+			// 	ElectricSyncError
+			// >((emit) =>
+			// 	Effect.gen(function* () {
+			// 		yield* Effect.logInfo("Subscribing to actionRecordStream")
+			// 		return yield* Effect.acquireRelease(
+			// 			Effect.gen(function* () {
+			// 				return multiShapeSync.streams.action_records!.subscribe(
+			// 					(messages: any) => {
+			// 						emit.single(messages as Message<Row<ActionRecord>>[])
+			// 					},
+			// 					(error: unknown) => {
+			// 						emit.fail(
+			// 							new ElectricSyncError({
+			// 								message: `actionRecordStream error: ${error instanceof Error ? error.message : String(error)}`,
+			// 								cause: error
+			// 							})
+			// 						)
+			// 					}
+			// 				)
+			// 			}),
+			// 			(unsub) =>
+			// 				Effect.gen(function* () {
+			// 					yield* Effect.logInfo("Unsubscribing from actionRecordStream")
+			// 					unsub()
+			// 				})
+			// 		)
+			// 	})
+			// )
+			// const actionModifiedRowsStream = Stream.asyncScoped<
+			// 	Message<Row<ActionModifiedRow>>[],
+			// 	ElectricSyncError
+			// >((emit) =>
+			// 	Effect.gen(function* () {
+			// 		yield* Effect.logInfo("Subscribing to actionModifiedRowsStream")
+			// 		return yield* Effect.acquireRelease(
+			// 			Effect.gen(function* () {
+			// 				yield* Effect.logInfo("Subscribing to actionModifiedRowsStream")
+			// 				return multiShapeSync.streams.action_modified_rows!.subscribe(
+			// 					(messages: any) => {
+			// 						emit.single(messages as Message<Row<ActionModifiedRow>>[])
+			// 					},
+			// 					(error: unknown) => {
+			// 						emit.fail(
+			// 							new ElectricSyncError({
+			// 								message: `actionModifiedRowsStream error: ${error instanceof Error ? error.message : String(error)}`,
+			// 								cause: error
+			// 							})
+			// 						)
+			// 					}
+			// 				)
+			// 			}),
+			// 			(unsub) =>
+			// 				Effect.gen(function* () {
+			// 					yield* Effect.logInfo("Unsubscribing from actionModifiedRowsStream")
+			// 					unsub()
+			// 				})
+			// 		)
+			// 	})
+			// )
+
+			// yield* actionRecordStream.pipe(
+			// 	Stream.zipLatest(actionModifiedRowsStream),
+
+			// 	Stream.tap((messages) =>
+			// 		Effect.logTrace(
+			// 			`Multi-shape sync batch received: ${JSON.stringify(messages, (_, v) => (typeof v === "bigint" ? `BIGINT: ${v.toString()}` : v), 2)}`
+			// 		)
+			// 	),
+			// 	Stream.filter(
+			// 		([ar, amr]) =>
+			// 			ar.every((a) => a.headers.control === "up-to-date") &&
+			// 			amr.every((a) => a.headers.control === "up-to-date")
+			// 	),
+			// 	Stream.tap((_) =>
+			// 		Effect.logInfo("All shapes in multi-stream are synced. Triggering performSync.")
+			// 	),
+			// 	Stream.tap(() => syncService.performSync()),
+			// 	Stream.catchAllCause((cause) => {
+			// 		Effect.runFork(Effect.logError("Error in combined sync trigger stream", cause))
+			// 		return Stream.empty
+			// 	}),
+			// 	Stream.runDrain,
+			// 	Effect.forkScoped
+			// )
+
+			yield* Effect.logInfo(`ElectricSyncService created`)
+
+			return {}
+		})
+	}
+) {}
+````
+
 ## File: packages/sync-client/src/index.ts
 ````typescript
 /**
@@ -11582,6 +11476,134 @@ export const compareActionModifiedRows = (
 }
 ````
 
+## File: packages/sync-core/src/ActionRegistry.ts
+````typescript
+import { SqlClient } from "@effect/sql"
+import { Effect, Schema } from "effect"
+import { ActionModifiedRowRepo } from "./ActionModifiedRowRepo"
+import { ActionRecordRepo } from "./ActionRecordRepo"
+import { Action } from "./models"
+
+/**
+ * Error for unknown action types
+ */
+export class UnknownActionError extends Schema.TaggedError<UnknownActionError>()(
+	"UnknownActionError",
+	{
+		actionTag: Schema.String
+	}
+) {}
+
+export type ActionCreator = <A extends Record<string, unknown> = any, EE = any, R = never>(
+	args: A
+) => Action<A, EE, R>
+
+/**
+ * ActionRegistry Service
+ * Manages a registry of action creators that can be used to create and execute actions
+ */
+export class ActionRegistry extends Effect.Service<ActionRegistry>()("ActionRegistry", {
+	effect: Effect.gen(function* () {
+		// Create a new registry map
+		const registry = new Map<string, ActionCreator>()
+
+		/**
+		 * Get an action creator from the registry by tag
+		 * Used during replay of actions from ActionRecords
+		 */
+		const getActionCreator = (tag: string): ActionCreator | undefined => {
+			return registry.get(tag)
+		}
+
+		/**
+		 * Register an action creator in the registry
+		 */
+		const registerActionCreator = (tag: string, creator: ActionCreator): void => {
+			registry.set(tag, creator)
+		}
+
+		/**
+		 * Check if an action creator exists in the registry
+		 */
+		const hasActionCreator = (tag: string): boolean => {
+			return registry.has(tag)
+		}
+
+		/**
+		 * Remove an action creator from the registry
+		 */
+		const removeActionCreator = (tag: string): boolean => {
+			return registry.delete(tag)
+		}
+
+		/**
+		 * Get the size of the registry
+		 */
+		const getRegistrySize = (): number => {
+			return registry.size
+		}
+
+		/**
+		 * Helper to create a type-safe action definition that automatically registers with the registry
+		 */
+		// A represents the arguments provided by the caller (without timestamp)
+		const defineAction = <A extends Record<string, unknown> & { timestamp: number }, EE, R = never>(
+			tag: string,
+			actionFn: (args: A) => Effect.Effect<void, EE, R> // The implementation receives timestamp
+		) => {
+			// Create action constructor function
+			// createAction now accepts the full arguments object 'A', including the timestamp
+			const createAction = (
+				args: Omit<A, "timestamp"> & { timestamp?: number | undefined }
+			): Action<A, EE, R> => {
+				if (typeof args.timestamp !== "number") {
+					// If timestamp is not provided, use the current timestamp
+					args.timestamp = Date.now()
+				}
+				return {
+					_tag: tag,
+					// The execute function now takes no parameters.
+					// It uses the 'args' captured in this closure when createAction was called.
+					execute: () => actionFn(args as any),
+					// Store the full args object (including timestamp) that was used to create this action instance.
+					args: args as any
+				}
+			}
+
+			// Automatically register the action creator in the registry
+			registerActionCreator(tag, createAction as ActionCreator)
+
+			// Return the action creator function
+			return createAction
+		}
+
+		const rollbackAction = defineAction(
+			"RollbackAction",
+			// Args: only target_action_id and timestamp are needed for the record
+			(args: { target_action_id: string; timestamp: number }) =>
+				Effect.gen(function* () {
+					// This action's execute method now only records the event.
+					// The actual database state rollback happens in SyncService.rollbackToCommonAncestor
+					// *before* this action is executed.
+					yield* Effect.logInfo(
+						`Executing no-op RollbackAction targeting ancestor: ${args.target_action_id}`
+					)
+					// No database operations or trigger disabling needed here.
+				})
+		)
+		return {
+			getActionCreator,
+			registerActionCreator,
+			hasActionCreator,
+			removeActionCreator,
+			getRegistrySize,
+			defineAction,
+			rollbackAction
+		}
+	})
+}) {}
+````
+
 ## File: packages/sync-core/src/global.d.ts
 ````typescript
 declare module "*.sql"
@@ -11682,58 +11704,6 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 		}
 	})
 }) {}
-````
-
-## File: packages/sync-core/package.json
-````json
-{
-	"name": "@synchrotron/sync-core",
-	"version": "0.0.1",
-	"private": true,
-	"type": "module",
-	"description": "Core types, models, and utilities for the synchrotron sync system.",
-	"exports": {
-		".": "./dist/index.js",
-		"./*": "./dist/*.js"
-	},
-	"typesVersions": {
-		"*": {
-			"*": [
-				"dist/*"
-			]
-		}
-	},
-	"files": [
-		"dist"
-	],
-	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
-		"clean": "rm -rf .tsbuildinfo build dist",
-		"dev": "vite build --watch",
-		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"lint": "prettier --check . && eslint .",
-		"format": "prettier --write ."
-	},
-	"dependencies": {
-		"@effect/experimental": "catalog:",
-		"@effect/platform": "catalog:",
-		"@effect/sql": "catalog:",
-		"@effect/rpc": "catalog:",
-		"effect": "catalog:",
-		"uuid": "catalog:",
-		"@synchrotron/sync-core": "workspace:*",
-		"@effect/sql-pglite": "workspace:*"
-	},
-	"devDependencies": {
-		"@types/node": "catalog:",
-		"@effect/vitest": "catalog:",
-		"typescript": "catalog:",
-		"vite": "catalog:",
-		"vitest": "catalog:"
-	}
-}
 ````
 
 ## File: packages/sync-core/vite.config.ts
@@ -11953,69 +11923,6 @@ export class Accounts extends Effect.Service<Accounts>()("Accounts", {
     </rules>
 ````
 
-## File: vite.shared.ts
-````typescript
-import wasm from "vite-plugin-wasm"
-import tsconfigPaths from "vite-tsconfig-paths"
-import type { ViteUserConfig } from "vitest/config"
-
-const config: ViteUserConfig = {
-	plugins: [tsconfigPaths(), wasm()],
-	assetsInclude: ["**/*.sql"],
-	build: {
-		rollupOptions: {
-			// external: [],
-			preserveSymlinks: false // Align with resolve.preserveSymlinks for consistency
-		}
-	},
-	optimizeDeps: {
-		exclude: [
-			"@electric-sql/pglite"
-			// 	"@effect/sync-client",
-			// 	"@effect/sync-core",
-			// 	"@effect/sql-pglite",
-			// 	"@effect/platform-node",
-			// 	"@effect/experimental" // Exclude experimental packages too
-			// ],
-			// include: [
-			// 	// Base packages
-			// 	"react-router-dom",
-			// 	"scheduler",
-			// 	"classnames",
-			// 	"@radix-ui/themes",
-			// 	"radix-ui",
-			// 	"effect",
-			// 	"@effect/schema",
-			// 	"@effect/sql",
-			// 	"@effect/platform",
-			// 	// Specific failing internal/deep paths from logs
-			// 	"radix-ui/internal", // Explicitly include internal
-			// 	"@opentelemetry/semantic-conventions", // Add specific failing externals
-			// 	"turbo-stream",
-			// 	"cookie",
-			// 	"set-cookie-parser",
-			// 	"msgpackr",
-			// 	"multipasta",
-			// 	"find-my-way-ts",
-			// 	"fast-check",
-			// 	"@electric-sql/experimental" // Include this specific one
-		]
-	},
-
-	server: {
-		fs: {
-			allow: ["../.."]
-		}
-	},
-
-	resolve: {
-		preserveSymlinks: false
-	}
-}
-
-export default config
-````
-
 ## File: vitest.shared.ts
 ````typescript
 import * as path from "node:path"
@@ -12062,258 +11969,6 @@ const config: ViteUserConfig = {
 }
 
 export default config
-````
-
-## File: packages/sql-pglite/package.json
-````json
-{
-	"name": "@effect/sql-pglite",
-	"version": "0.0.0",
-	"type": "module",
-	"packageManager": "pnpm@9.10.0",
-	"license": "MIT",
-	"description": "A PGlite driver for Effect Sql",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/effect-ts/effect"
-	},
-	"publishConfig": {
-		"access": "public",
-		"directory": "dist"
-	},
-	"exports": {
-		"./package.json": "./package.json",
-		"./PgLiteClient": {
-			"types": "./dist/dist/dts/PgLiteClient.d.ts",
-			"import": "./dist/dist/esm/PgLiteClient.js",
-			"default": "./dist/dist/cjs/PgLiteClient.js"
-		},
-		"./PgLiteClient.d": {
-			"types": "./dist/dist/dts/PgLiteClient.d.d.ts",
-			"import": "./dist/dist/esm/PgLiteClient.d.js",
-			"default": "./dist/dist/cjs/PgLiteClient.d.js"
-		},
-		"./PgLiteMigrator": {
-			"types": "./dist/dist/dts/PgLiteMigrator.d.ts",
-			"import": "./dist/dist/esm/PgLiteMigrator.js",
-			"default": "./dist/dist/cjs/PgLiteMigrator.js"
-		},
-		"./PgLiteMigrator.d": {
-			"types": "./dist/dist/dts/PgLiteMigrator.d.d.ts",
-			"import": "./dist/dist/esm/PgLiteMigrator.d.js",
-			"default": "./dist/dist/cjs/PgLiteMigrator.d.js"
-		},
-		"./index.d": {
-			"types": "./dist/dist/dts/index.d.d.ts",
-			"import": "./dist/dist/esm/index.d.js",
-			"default": "./dist/dist/cjs/index.d.js"
-		}
-	},
-	"typesVersions": {
-		"*": {
-			"PgLiteClient": [
-				"./dist/dist/dts/PgLiteClient.d.ts"
-			],
-			"PgLiteClient.d": [
-				"./dist/dist/dts/PgLiteClient.d.d.ts"
-			],
-			"PgLiteMigrator": [
-				"./dist/dist/dts/PgLiteMigrator.d.ts"
-			],
-			"PgLiteMigrator.d": [
-				"./dist/dist/dts/PgLiteMigrator.d.d.ts"
-			],
-			"index.d": [
-				"./dist/dist/dts/index.d.d.ts"
-			]
-		}
-	},
-	"scripts": {
-		"clean": "rm -rf .tsbuildinfo build dist",
-		"codegen": "build-utils prepare-v2",
-		"build": "pnpm build-esm && pnpm build-annotate && pnpm build-cjs && build-utils pack-v2",
-		"build-esm": "tsc -b tsconfig.build.json",
-		"build-cjs": "babel build/esm --plugins @babel/transform-export-namespace-from --plugins @babel/transform-modules-commonjs --out-dir build/cjs --source-maps",
-		"build-annotate": "babel build/esm --plugins annotate-pure-calls --out-dir build/esm --source-maps",
-		"check": "tsc -b tsconfig.json",
-		"lint": "eslint \"**/{src,test,examples,scripts,dtslint}/**/*.{ts,mjs}\"",
-		"lint-fix": "pnpm lint --fix",
-		"test": "vitest",
-		"coverage": "vitest --coverage"
-	},
-	"dependencies": {
-		"@effect/experimental": "catalog:",
-		"@effect/platform": "catalog:",
-		"@effect/sql": "catalog:",
-		"@electric-sql/pglite": "catalog:",
-		"@electric-sql/pglite-sync": "catalog:",
-		"@electric-sql/pglite-tools": "^0.2.4",
-		"effect": "catalog:"
-	},
-	"devDependencies": {
-		"@babel/cli": "^7.27.0",
-		"@babel/core": "^7.26.10",
-		"@babel/plugin-transform-export-namespace-from": "^7.25.9",
-		"@babel/plugin-transform-modules-commonjs": "^7.26.3",
-		"@effect/build-utils": "^0.7.9",
-		"@effect/eslint-plugin": "^0.3.0",
-		"@effect/language-service": "^0.6.0",
-		"@effect/vitest": "^0.20.6",
-		"@eslint/compat": "^1.2.8",
-		"@eslint/eslintrc": "^3.3.1",
-		"@eslint/js": "^9.24.0",
-		"@types/node": "^22.14.0",
-		"@typescript-eslint/eslint-plugin": "^8.29.1",
-		"@typescript-eslint/parser": "^8.29.1",
-		"babel-plugin-annotate-pure-calls": "^0.5.0",
-		"eslint": "^9.24.0",
-		"eslint-import-resolver-typescript": "^4.3.2",
-		"eslint-plugin-codegen": "^0.30.0",
-		"eslint-plugin-import": "^2.31.0",
-		"eslint-plugin-simple-import-sort": "^12.1.1",
-		"eslint-plugin-sort-destructure-keys": "^2.0.0",
-		"tsx": "^4.19.3",
-		"typescript": "catalog:",
-		"vitest": "catalog:"
-	}
-}
-````
-
-## File: packages/sync-client/src/SyncNetworkService.ts
-````typescript
-import { FetchHttpClient } from "@effect/platform"
-import { RpcClient, RpcSerialization } from "@effect/rpc"
-import { ClockService } from "@synchrotron/sync-core/ClockService"
-import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
-import {
-	NetworkRequestError,
-	RemoteActionFetchError,
-	SyncNetworkService
-} from "@synchrotron/sync-core/SyncNetworkService"
-import { ActionRecord, type ActionModifiedRow } from "@synchrotron/sync-core/models"
-import { Cause, Chunk, Effect, Layer } from "effect"
-
-// Choose which protocol to use
-const ProtocolLive = RpcClient.layerProtocolHttp({
-	url: "http://localhost:3010/rpc"
-}).pipe(
-	Layer.provide([
-		// use fetch for http requests
-		FetchHttpClient.layer,
-		// use ndjson for serialization
-		RpcSerialization.layerJson
-	])
-)
-
-export const SyncNetworkServiceLive = Layer.scoped(
-	SyncNetworkService,
-	Effect.gen(function* (_) {
-		const clockService = yield* ClockService
-		const clientId = yield* clockService.getNodeId
-		// Get the RPC client instance using the schema
-		const client = yield* RpcClient.make(SyncNetworkRpcGroup)
-
-		const sendLocalActions = (
-			actions: ReadonlyArray<ActionRecord>,
-			amrs: ReadonlyArray<ActionModifiedRow>
-		) =>
-			Effect.gen(function* () {
-				yield* Effect.logInfo(
-					`Client: Sending ${actions.length} local actions to server and ${amrs.length} AMRs`,
-					actions
-				)
-				return yield* client.SendLocalActions({ actions: actions, amrs: amrs, clientId })
-			}).pipe(
-				Effect.tapErrorCause((c) =>
-					Effect.logError(
-						`Client: Failed to send local actions: ${Cause.defects(c).pipe(
-							Chunk.map((d) => JSON.stringify(d, undefined, 2)),
-							Chunk.toArray,
-							(a) => a.join(",")
-						)}`
-					)
-				),
-				Effect.mapError(
-					(error) => new NetworkRequestError({ message: error.message, cause: error })
-				)
-			)
-		const fetchRemoteActions = () =>
-			Effect.gen(function* () {
-				yield* Effect.logInfo(`Client: Fetching remote actions for client ${clientId}`)
-				const lastSyncedClock = yield* clockService.getLastSyncedClock
-				yield* Effect.logInfo(`got lastSyncedClock fetching from remote`, lastSyncedClock)
-				const actions = yield* client.FetchRemoteActions({ clientId, lastSyncedClock })
-				yield* Effect.logInfo(
-					`fetched remote actions ${actions.actions.length} actions and ${actions.modifiedRows.length} AMRs`
-				)
-				return actions
-			}).pipe(
-				Effect.mapError(
-					(error) => new RemoteActionFetchError({ message: error.message, cause: error })
-				)
-			)
-
-		return SyncNetworkService.of({
-			_tag: "SyncNetworkService",
-			sendLocalActions,
-			fetchRemoteActions
-		})
-	})
-).pipe(Layer.provide(ProtocolLive)) // Provide the configured protocol layer
-````
-
-## File: packages/sync-client/package.json
-````json
-{
-	"name": "@synchrotron/sync-client",
-	"version": "0.0.1",
-	"private": true,
-	"type": "module",
-	"description": "Client-side services and components for the synchrotron sync system.",
-	"exports": {
-		".": "./dist/index.js",
-		"./*": "./dist/*.js"
-	},
-	"typesVersions": {
-		"*": {
-			"*": [
-				"dist/*"
-			]
-		}
-	},
-	"files": [
-		"dist"
-	],
-	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
-		"clean": "rm -rf .tsbuildinfo build dist",
-		"dev": "vite build --watch",
-		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"lint": "prettier --check . && eslint .",
-		"format": "prettier --write ."
-	},
-	"dependencies": {
-		"@effect/experimental": "catalog:",
-		"@effect/platform": "catalog:",
-		"@effect/platform-browser": "catalog:",
-		"@effect/sql": "catalog:",
-		"@effect/rpc": "catalog:",
-		"@electric-sql/client": "catalog:",
-		"@electric-sql/experimental": "catalog:",
-		"@electric-sql/pglite": "catalog:",
-		"@electric-sql/pglite-sync": "catalog:",
-		"effect": "catalog:",
-		"@synchrotron/sync-core": "workspace:*",
-		"@effect/sql-pglite": "workspace:*"
-	},
-	"devDependencies": {
-		"typescript": "catalog:",
-		"vite": "catalog:",
-		"vitest": "catalog:"
-	}
-}
 ````
 
 ## File: packages/sync-core/src/db/clock-functions.ts
@@ -12399,160 +12054,6 @@ export const createPatchTriggersForTables = (tables: string[]) =>
 		const sql = yield* SqlClient.SqlClient
 		yield* Effect.all(tables.map((t) => sql`SELECT create_patches_trigger(${t})`))
 	})
-````
-
-## File: packages/sync-core/src/ActionRecordRepo.ts
-````typescript
-import { Model, SqlClient, SqlSchema } from "@effect/sql"
-import { Effect, Option, Schema } from "effect" // Import Option
-import { ActionRecord } from "./models"
-
-/**
- * Repository service for ActionRecords with type-safe queries
- */
-export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("ActionRecordRepo", {
-	effect: Effect.gen(function* () {
-		const sql = yield* SqlClient.SqlClient
-		const repo = yield* Model.makeRepository(ActionRecord, {
-			tableName: "action_records",
-			idColumn: "id",
-			spanPrefix: "ActionRecordRepository"
-		})
-
-		const findBySynced = SqlSchema.findAll({
-			Request: Schema.Boolean,
-			Result: ActionRecord,
-			execute: (synced) =>
-				sql`SELECT * FROM action_records WHERE synced = ${synced} ORDER BY sortable_clock ASC`
-		})
-
-		const findByTag = SqlSchema.findAll({
-			Request: Schema.String,
-			Result: ActionRecord,
-			execute: (tag) =>
-				sql`SELECT * FROM action_records WHERE _tag = ${tag} ORDER BY sortable_clock ASC`
-		})
-
-		const findOlderThan = SqlSchema.findAll({
-			Request: Schema.Number,
-			Result: ActionRecord,
-			execute: (days) => sql`
-				SELECT * FROM action_records
-				WHERE created_at < NOW() - INTERVAL '${days} days' 
-				ORDER BY sortable_clock ASC
-			`
-		})
-
-		const findLatestSynced = SqlSchema.findOne({
-			Request: Schema.Void,
-			Result: ActionRecord,
-			execute: () =>
-				sql`SELECT * FROM action_records WHERE synced = true ORDER BY sortable_clock DESC LIMIT 1`
-		})
-
-		const findByTransactionId = SqlSchema.findOne({
-			Request: Schema.Number,
-			Result: ActionRecord,
-			execute: (txId) => sql`
-				SELECT * FROM action_records
-				WHERE transaction_id = ${txId}
-			`
-		})
-
-		const findByIds = SqlSchema.findAll({
-			Request: Schema.Array(Schema.String),
-			Result: ActionRecord,
-			execute: (ids) =>
-				sql`SELECT * FROM action_records WHERE id IN ${sql.in(ids)} ORDER BY sortable_clock ASC`
-		})
-
-		const all = SqlSchema.findAll({
-			Request: Schema.Void,
-			Result: ActionRecord,
-			execute: () => sql`SELECT * FROM action_records ORDER BY sortable_clock ASC`
-		})
-
-		const allUnsynced = SqlSchema.findAll({
-			Request: Schema.Void,
-			Result: ActionRecord,
-			execute: () =>
-				sql`SELECT * FROM action_records WHERE synced = false ORDER BY sortable_clock ASC`
-		})
-
-		const markAsSynced = (id: string) =>
-			sql`UPDATE action_records SET synced = true WHERE id = ${id}`
-
-		const deleteById = (id: string) => sql`DELETE FROM action_records WHERE id = ${id}`
-
-		const markLocallyApplied = (actionRecordId: string) =>
-			sql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionRecordId}) ON CONFLICT DO NOTHING`
-
-		const unmarkLocallyApplied = (actionRecordId: string) =>
-			sql`DELETE FROM local_applied_action_ids WHERE action_record_id = ${actionRecordId}`
-
-		const _isLocallyAppliedQuery = SqlSchema.findOne({
-			Request: Schema.String,
-			Result: Schema.Struct({ exists: Schema.Boolean }),
-			execute: (actionRecordId) => sql`
-				SELECT EXISTS (
-					SELECT 1 FROM local_applied_action_ids WHERE action_record_id = ${actionRecordId}
-				) as exists
-			`
-		})
-		// Correctly handle the Option returned by findOne
-		const isLocallyApplied = (actionRecordId: string) =>
-			_isLocallyAppliedQuery(actionRecordId).pipe(
-				Effect.map(Option.match({ onNone: () => false, onSome: (result) => result.exists }))
-			)
-
-		const findUnappliedLocally = SqlSchema.findAll({
-			Request: Schema.Void,
-			Result: ActionRecord,
-			execute: () => sql`
-				SELECT ar.*
-				FROM action_records ar
-				LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
-				WHERE la.action_record_id IS NULL
-				ORDER BY ar.sortable_clock ASC
-			`
-		})
-
-		const findSyncedButUnapplied = SqlSchema.findAll({
-			Request: Schema.Void,
-			Result: ActionRecord,
-			execute: () => sql`
-				SELECT ar.*
-				FROM action_records ar
-				LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
-				WHERE la.action_record_id IS NULL
-				AND ar.synced = true
-				AND ar.client_id != (SELECT client_id FROM client_sync_status LIMIT 1)
-				ORDER BY ar.sortable_clock ASC
-			`
-		})
-
-		return {
-			...repo,
-			all,
-			findBySynced,
-			findByTransactionId,
-			findLatestSynced,
-			allUnsynced,
-			findByTag,
-			findOlderThan,
-			markAsSynced,
-			findByIds,
-			deleteById,
-			// New methods
-			markLocallyApplied,
-			unmarkLocallyApplied,
-			isLocallyApplied,
-			findUnappliedLocally,
-			findSyncedButUnapplied
-		} as const
-	}),
-	dependencies: []
-}) {}
 ````
 
 ## File: packages/sync-core/src/models.ts
@@ -12677,6 +12178,59 @@ export class SyncNetworkRpcGroup extends RpcGroup.make(
 ) {}
 ````
 
+## File: packages/sync-core/package.json
+````json
+{
+	"name": "@synchrotron/sync-core",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "Core types, models, and utilities for the synchrotron sync system.",
+	"exports": {
+		".": "./dist/index.js",
+		"./*": "./dist/*.js"
+	},
+	"typesVersions": {
+		"*": {
+			"*": [
+				"dist/*"
+			]
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"clean": "rm -rf .tsbuildinfo build dist",
+		"clean:node_modules": "rm -rf node_modules",
+		"dev": "vite build --watch",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "prettier --check . && eslint .",
+		"format": "prettier --write ."
+	},
+	"dependencies": {
+		"@effect/experimental": "catalog:",
+		"@effect/platform": "catalog:",
+		"@effect/sql": "catalog:",
+		"@effect/rpc": "catalog:",
+		"effect": "catalog:",
+		"uuid": "catalog:",
+		"@synchrotron/sync-core": "workspace:*",
+		"@effect/sql-pglite": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"@effect/vitest": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
+	}
+}
+````
+
 ## File: tsconfig.base.json
 ````json
 {
@@ -12772,173 +12326,68 @@ export class SyncNetworkRpcGroup extends RpcGroup.make(
 }
 ````
 
-## File: examples/todo-app/src/routes/index.tsx
+## File: vite.shared.ts
 ````typescript
-import {
-	Box,
-	Button,
-	Card,
-	Checkbox,
-	Container,
-	Flex,
-	Heading,
-	Text,
-	TextField
-} from "@radix-ui/themes"
-import { SyncService, type ActionExecutionError } from "@synchrotron/sync-core"
-import { useReactiveTodos } from "@synchrotron/todo-app/db/electric"
-import { Clock, Effect } from "effect"
-import { useCallback, useState, type ChangeEvent, type FormEvent } from "react"
-import { TodoActions } from "../actions"
-import logo from "../assets/logo.svg"
-import type { Todo } from "../db/schema"
-import { useRuntime } from "../main"
+import wasm from "vite-plugin-wasm"
+import tsconfigPaths from "vite-tsconfig-paths"
+import type { ViteUserConfig } from "vitest/config"
 
-export default function Index() {
-	const runtime = useRuntime()
-	const [newTodoText, setNewTodoText] = useState("")
+const config: ViteUserConfig = {
+	plugins: [tsconfigPaths(), wasm()],
+	assetsInclude: ["**/*.sql"],
+	build: {
+		rollupOptions: {
+			// external: [],
+			preserveSymlinks: false // Align with resolve.preserveSymlinks for consistency
+		}
+	},
+	optimizeDeps: {
+		exclude: [
+			"@electric-sql/pglite",
+			"@electric-sql/pglite-repl"
+			// 	"@effect/sync-client",
+			// 	"@effect/sync-core",
+			// 	"@effect/sql-pglite",
+			// 	"@effect/platform-node",
+			// 	"@effect/experimental" // Exclude experimental packages too
+			// ],
+			// include: [
+			// 	// Base packages
+			// 	"react-router-dom",
+			// 	"scheduler",
+			// 	"classnames",
+			// 	"@radix-ui/themes",
+			// 	"radix-ui",
+			// 	"effect",
+			// 	"@effect/schema",
+			// 	"@effect/sql",
+			// 	"@effect/platform",
+			// 	// Specific failing internal/deep paths from logs
+			// 	"radix-ui/internal", // Explicitly include internal
+			// 	"@opentelemetry/semantic-conventions", // Add specific failing externals
+			// 	"turbo-stream",
+			// 	"cookie",
+			// 	"set-cookie-parser",
+			// 	"msgpackr",
+			// 	"multipasta",
+			// 	"find-my-way-ts",
+			// 	"fast-check",
+			// 	"@electric-sql/experimental" // Include this specific one
+		]
+	},
 
-	const { todos, isLoading } = useReactiveTodos()
-	// useSyncedActions()
+	server: {
+		fs: {
+			allow: ["../.."]
+		}
+	},
 
-	const handleAddTodo = useCallback(
-		(event: FormEvent<HTMLFormElement>) => {
-			event.preventDefault()
-			const text = newTodoText.trim()
-			if (!text) return
-
-			const createEffect = Effect.gen(function* () {
-				const syncService = yield* SyncService
-				const actions = yield* TodoActions
-				const timestamp = yield* Clock.currentTimeMillis
-
-				const action = actions.createTodoAction({
-					text: text,
-					owner_id: "user1", // Placeholder
-					timestamp: timestamp
-				})
-				yield* syncService.executeAction(action)
-				yield* syncService.performSync()
-			})
-
-			runtime
-				.runPromise(createEffect)
-				.then(() => setNewTodoText(""))
-				.catch((err: ActionExecutionError | Error) =>
-					console.error("Failed to create todo:", JSON.stringify(err))
-				)
-		},
-		[runtime, newTodoText]
-	)
-
-	const handleToggleTodo = useCallback(
-		(todo: Todo) => {
-			const toggleEffect = Effect.gen(function* () {
-				const syncService = yield* SyncService
-				const actions = yield* TodoActions
-				const timestamp = yield* Clock.currentTimeMillis
-
-				const action = actions.toggleTodoCompletionAction({
-					id: todo.id,
-					timestamp: timestamp
-				})
-				yield* syncService.executeAction(action)
-			})
-
-			runtime
-				.runPromise(toggleEffect)
-				.then(() => {})
-				.catch((err: ActionExecutionError | Error) => console.error("Failed to toggle todo:", err))
-		},
-		[runtime]
-	)
-
-	const handleDeleteTodo = useCallback(
-		(todoId: string) => {
-			const deleteEffect = Effect.gen(function* () {
-				const syncService = yield* SyncService
-				const actions = yield* TodoActions
-				const timestamp = yield* Clock.currentTimeMillis
-
-				const action = actions.deleteTodoAction({
-					id: todoId,
-					timestamp: timestamp
-				})
-				yield* syncService.executeAction(action)
-			})
-
-			runtime
-				.runPromise(deleteEffect)
-
-				.catch((err: ActionExecutionError | Error) => console.error("Failed to delete todo:", err))
-		},
-		[runtime]
-	)
-
-	return (
-		<Container size="1">
-			<Flex gap="5" mt="5" direction="column">
-				<Flex align="center" justify="center">
-					<img src={logo} width="32px" alt="logo" />
-					<Heading ml="1">Synchrotron To-Dos</Heading>
-					<Box width="32px" />
-				</Flex>
-
-				<Flex gap="3" direction="column">
-					{isLoading ? (
-						<Flex justify="center">
-							<Text>Loading todos...</Text>
-						</Flex>
-					) : todos.length === 0 ? (
-						<Flex justify="center">
-							<Text>No to-dos to show - add one!</Text>
-						</Flex>
-					) : (
-						todos.map((todo: Todo) => (
-							<Card key={todo.id} onClick={() => handleToggleTodo(todo)}>
-								<Flex gap="2" align="center" justify="between">
-									<Text as="label">
-										<Flex gap="2" align="center">
-											<Checkbox checked={!!todo.completed} />
-											{todo.text}
-										</Flex>
-									</Text>
-									<Button
-										onClick={(e) => {
-											e.stopPropagation()
-											handleDeleteTodo(todo.id)
-										}}
-										variant="ghost"
-										ml="auto"
-										style={{ cursor: `pointer` }}
-									>
-										X
-									</Button>
-								</Flex>
-							</Card>
-						))
-					)}
-				</Flex>
-				<form style={{ width: `100%` }} onSubmit={handleAddTodo}>
-					<Flex direction="row">
-						<TextField.Root
-							value={newTodoText}
-							onChange={(e: ChangeEvent<HTMLInputElement>) => setNewTodoText(e.target.value)}
-							type="text"
-							name="todo"
-							placeholder="New Todo"
-							mr="1"
-							style={{ width: `100%` }}
-						/>
-						<Button type="submit" disabled={!newTodoText.trim()}>
-							Add
-						</Button>
-					</Flex>
-				</form>
-			</Flex>
-		</Container>
-	)
+	resolve: {
+		preserveSymlinks: false
+	}
 }
+
+export default config
 ````
 
 ## File: examples/todo-app/src/server.ts
@@ -13025,6 +12474,121 @@ const Main = HttpRouter.Default.serve(middlewares).pipe(
 BunRuntime.runMain(Layer.launch(Main2) as any)
 ````
 
+## File: packages/sql-pglite/package.json
+````json
+{
+	"name": "@effect/sql-pglite",
+	"version": "0.0.0",
+	"type": "module",
+	"packageManager": "pnpm@9.10.0",
+	"license": "MIT",
+	"description": "A PGlite driver for Effect Sql",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/effect-ts/effect"
+	},
+	"publishConfig": {
+		"access": "public",
+		"directory": "dist"
+	},
+	"exports": {
+		"./package.json": "./package.json",
+		"./PgLiteClient": {
+			"types": "./dist/dist/dts/PgLiteClient.d.ts",
+			"import": "./dist/dist/esm/PgLiteClient.js",
+			"default": "./dist/dist/cjs/PgLiteClient.js"
+		},
+		"./PgLiteClient.d": {
+			"types": "./dist/dist/dts/PgLiteClient.d.d.ts",
+			"import": "./dist/dist/esm/PgLiteClient.d.js",
+			"default": "./dist/dist/cjs/PgLiteClient.d.js"
+		},
+		"./PgLiteMigrator": {
+			"types": "./dist/dist/dts/PgLiteMigrator.d.ts",
+			"import": "./dist/dist/esm/PgLiteMigrator.js",
+			"default": "./dist/dist/cjs/PgLiteMigrator.js"
+		},
+		"./PgLiteMigrator.d": {
+			"types": "./dist/dist/dts/PgLiteMigrator.d.d.ts",
+			"import": "./dist/dist/esm/PgLiteMigrator.d.js",
+			"default": "./dist/dist/cjs/PgLiteMigrator.d.js"
+		},
+		"./index.d": {
+			"types": "./dist/dist/dts/index.d.d.ts",
+			"import": "./dist/dist/esm/index.d.js",
+			"default": "./dist/dist/cjs/index.d.js"
+		}
+	},
+	"typesVersions": {
+		"*": {
+			"PgLiteClient": [
+				"./dist/dist/dts/PgLiteClient.d.ts"
+			],
+			"PgLiteClient.d": [
+				"./dist/dist/dts/PgLiteClient.d.d.ts"
+			],
+			"PgLiteMigrator": [
+				"./dist/dist/dts/PgLiteMigrator.d.ts"
+			],
+			"PgLiteMigrator.d": [
+				"./dist/dist/dts/PgLiteMigrator.d.d.ts"
+			],
+			"index.d": [
+				"./dist/dist/dts/index.d.d.ts"
+			]
+		}
+	},
+	"scripts": {
+		"clean": "rm -rf .tsbuildinfo build dist",
+		"clean:node_modules": "rm -rf node_modules",
+		"codegen": "build-utils prepare-v2",
+		"build": "pnpm build-esm && pnpm build-annotate && pnpm build-cjs && build-utils pack-v2",
+		"build-esm": "tsc -b tsconfig.build.json",
+		"build-cjs": "babel build/esm --plugins @babel/transform-export-namespace-from --plugins @babel/transform-modules-commonjs --out-dir build/cjs --source-maps",
+		"build-annotate": "babel build/esm --plugins annotate-pure-calls --out-dir build/esm --source-maps",
+		"check": "tsc -b tsconfig.json",
+		"lint": "eslint \"**/{src,test,examples,scripts,dtslint}/**/*.{ts,mjs}\"",
+		"lint-fix": "pnpm lint --fix",
+		"test": "vitest",
+		"coverage": "vitest --coverage"
+	},
+	"dependencies": {
+		"@effect/experimental": "catalog:",
+		"@effect/platform": "catalog:",
+		"@effect/sql": "catalog:",
+		"@electric-sql/pglite": "catalog:",
+		"@electric-sql/pglite-tools": "^0.2.4",
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@babel/cli": "^7.27.0",
+		"@babel/core": "^7.26.10",
+		"@babel/plugin-transform-export-namespace-from": "^7.25.9",
+		"@babel/plugin-transform-modules-commonjs": "^7.26.3",
+		"@effect/build-utils": "^0.7.9",
+		"@effect/eslint-plugin": "^0.3.0",
+		"@effect/language-service": "^0.6.0",
+		"@effect/vitest": "^0.20.6",
+		"@eslint/compat": "^1.2.8",
+		"@eslint/eslintrc": "^3.3.1",
+		"@eslint/js": "^9.24.0",
+		"@types/node": "^22.14.0",
+		"@typescript-eslint/eslint-plugin": "^8.29.1",
+		"@typescript-eslint/parser": "^8.29.1",
+		"babel-plugin-annotate-pure-calls": "^0.5.0",
+		"eslint": "^9.24.0",
+		"eslint-import-resolver-typescript": "^4.3.2",
+		"eslint-plugin-codegen": "^0.30.0",
+		"eslint-plugin-import": "^2.31.0",
+		"eslint-plugin-simple-import-sort": "^12.1.1",
+		"eslint-plugin-sort-destructure-keys": "^2.0.0",
+		"tsx": "^4.19.3",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}
+````
+
 ## File: packages/sync-client/src/db/connection.ts
 ````typescript
 import { PgLiteClient } from "@effect/sql-pglite"
@@ -13067,6 +12631,152 @@ export const PgLiteClientLive = Layer.unwrapEffect(
 		return pgLayer
 	})
 )
+````
+
+## File: packages/sync-client/src/SyncNetworkService.ts
+````typescript
+import { FetchHttpClient } from "@effect/platform"
+import { RpcClient, RpcSerialization } from "@effect/rpc"
+import { PgLiteClient } from "@effect/sql-pglite"
+import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
+import {
+	NetworkRequestError,
+	RemoteActionFetchError,
+	SyncNetworkService
+} from "@synchrotron/sync-core/SyncNetworkService"
+import { ActionRecord, type ActionModifiedRow } from "@synchrotron/sync-core/models"
+import { Cause, Chunk, Effect, Layer } from "effect"
+
+// Choose which protocol to use
+const ProtocolLive = RpcClient.layerProtocolHttp({
+	url: "http://localhost:3010/rpc"
+}).pipe(
+	Layer.provide([
+		// use fetch for http requests
+		FetchHttpClient.layer,
+		// use ndjson for serialization
+		RpcSerialization.layerJson
+	])
+)
+
+export const SyncNetworkServiceLive = Layer.scoped(
+	SyncNetworkService,
+	Effect.gen(function* (_) {
+		const clockService = yield* ClockService
+		const clientId = yield* clockService.getNodeId
+		// Get the RPC client instance using the schema
+		const client = yield* RpcClient.make(SyncNetworkRpcGroup)
+		const sql = yield* PgLiteClient.PgLiteClient
+
+		const sendLocalActions = (
+			actions: ReadonlyArray<ActionRecord>,
+			amrs: ReadonlyArray<ActionModifiedRow>
+		) =>
+			Effect.gen(function* () {
+				yield* Effect.logInfo(
+					`Client: Sending ${actions.length} local actions to server and ${amrs.length} AMRs`,
+					actions
+				)
+				return yield* client.SendLocalActions({ actions: actions, amrs: amrs, clientId })
+			}).pipe(
+				Effect.tapErrorCause((c) =>
+					Effect.logError(
+						`Client: Failed to send local actions: ${Cause.defects(c).pipe(
+							Chunk.map((d) => JSON.stringify(d, undefined, 2)),
+							Chunk.toArray,
+							(a) => a.join(",")
+						)}`
+					)
+				),
+				Effect.mapError(
+					(error) => new NetworkRequestError({ message: error.message, cause: error })
+				)
+			)
+		const fetchRemoteActions = () =>
+			Effect.gen(function* () {
+				yield* Effect.logInfo(`Client: Fetching remote actions for client ${clientId}`)
+				const lastSyncedClock = yield* clockService.getLastSyncedClock
+				yield* Effect.logInfo(`got lastSyncedClock fetching from remote`, lastSyncedClock)
+				const actions = yield* client.FetchRemoteActions({ clientId, lastSyncedClock })
+				yield* Effect.logInfo(
+					`fetched remote actions ${actions.actions.length} actions and ${actions.modifiedRows.length} AMRs`
+				)
+				yield* Effect.all(
+					actions.actions.map((a) => sql`insert into action_records ${sql.insert(a)}`)
+				)
+				yield* Effect.all(
+					actions.modifiedRows.map((a) => sql`insert into action_modified_rows ${sql.insert(a)}`)
+				)
+				return actions
+			}).pipe(
+				Effect.mapError(
+					(error) => new RemoteActionFetchError({ message: error.message, cause: error })
+				)
+			)
+
+		return SyncNetworkService.of({
+			_tag: "SyncNetworkService",
+			sendLocalActions,
+			fetchRemoteActions
+		})
+	})
+).pipe(Layer.provide(ProtocolLive)) // Provide the configured protocol layer
+````
+
+## File: packages/sync-client/package.json
+````json
+{
+	"name": "@synchrotron/sync-client",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "Client-side services and components for the synchrotron sync system.",
+	"exports": {
+		".": "./dist/index.js",
+		"./*": "./dist/*.js"
+	},
+	"typesVersions": {
+		"*": {
+			"*": [
+				"dist/*"
+			]
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"clean": "rm -rf .tsbuildinfo build dist",
+		"clean:node_modules": "rm -rf node_modules",
+		"dev": "vite build --watch",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "prettier --check . && eslint .",
+		"format": "prettier --write ."
+	},
+	"dependencies": {
+		"@effect/experimental": "catalog:",
+		"@effect/platform": "catalog:",
+		"@effect/platform-browser": "catalog:",
+		"@effect/sql": "catalog:",
+		"@effect/rpc": "catalog:",
+		"@electric-sql/client": "catalog:",
+		"@electric-sql/experimental": "catalog:",
+		"@electric-sql/pglite": "catalog:",
+		"@electric-sql/pglite-sync": "catalog:",
+		"effect": "catalog:",
+		"@synchrotron/sync-core": "workspace:*",
+		"@effect/sql-pglite": "workspace:*"
+	},
+	"devDependencies": {
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
+	}
+}
 ````
 
 ## File: packages/sync-core/src/db/sql/schema/create_sync_tables.sql
@@ -13235,6 +12945,464 @@ CREATE TABLE IF NOT EXISTS local_applied_action_ids (
 );
 ````
 
+## File: packages/sync-core/src/ActionRecordRepo.ts
+````typescript
+import { Model, SqlClient, SqlSchema } from "@effect/sql"
+import { Effect, Option, Schema } from "effect" // Import Option
+import { ActionRecord } from "./models"
+
+/**
+ * Repository service for ActionRecords with type-safe queries
+ */
+export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("ActionRecordRepo", {
+	effect: Effect.gen(function* () {
+		const sql = yield* SqlClient.SqlClient
+		const repo = yield* Model.makeRepository(ActionRecord, {
+			tableName: "action_records",
+			idColumn: "id",
+			spanPrefix: "ActionRecordRepository"
+		})
+
+		const findBySynced = SqlSchema.findAll({
+			Request: Schema.Boolean,
+			Result: ActionRecord,
+			execute: (synced) =>
+				sql`SELECT * FROM action_records WHERE synced = ${synced} ORDER BY sortable_clock ASC`
+		})
+
+		const findByTag = SqlSchema.findAll({
+			Request: Schema.String,
+			Result: ActionRecord,
+			execute: (tag) =>
+				sql`SELECT * FROM action_records WHERE _tag = ${tag} ORDER BY sortable_clock ASC`
+		})
+
+		const findOlderThan = SqlSchema.findAll({
+			Request: Schema.Number,
+			Result: ActionRecord,
+			execute: (days) => sql`
+				SELECT * FROM action_records
+				WHERE created_at < NOW() - INTERVAL '${days} days' 
+				ORDER BY sortable_clock ASC
+			`
+		})
+
+		const findLatestSynced = SqlSchema.findOne({
+			Request: Schema.Void,
+			Result: ActionRecord,
+			execute: () =>
+				sql`SELECT * FROM action_records WHERE synced = true ORDER BY sortable_clock DESC LIMIT 1`
+		})
+
+		const findLatest = SqlSchema.findOne({
+			Request: Schema.Void,
+			Result: ActionRecord,
+			execute: () => sql`SELECT * FROM action_records ORDER BY sortable_clock DESC LIMIT 1`
+		})
+
+		const findByTransactionId = SqlSchema.findOne({
+			Request: Schema.Number,
+			Result: ActionRecord,
+			execute: (txId) => sql`
+				SELECT * FROM action_records
+				WHERE transaction_id = ${txId}
+			`
+		})
+
+		const findByIds = SqlSchema.findAll({
+			Request: Schema.Array(Schema.String),
+			Result: ActionRecord,
+			execute: (ids) =>
+				sql`SELECT * FROM action_records WHERE id IN ${sql.in(ids)} ORDER BY sortable_clock ASC`
+		})
+
+		const all = SqlSchema.findAll({
+			Request: Schema.Void,
+			Result: ActionRecord,
+			execute: () => sql`SELECT * FROM action_records ORDER BY sortable_clock ASC`
+		})
+
+		const allUnsynced = SqlSchema.findAll({
+			Request: Schema.Void,
+			Result: ActionRecord,
+			execute: () =>
+				sql`SELECT * FROM action_records WHERE synced = false ORDER BY sortable_clock ASC`
+		})
+
+		const markAsSynced = (id: string) =>
+			sql`UPDATE action_records SET synced = true WHERE id = ${id}`
+
+		const deleteById = (id: string) => sql`DELETE FROM action_records WHERE id = ${id}`
+
+		const markLocallyApplied = (actionRecordId: string) =>
+			sql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionRecordId}) ON CONFLICT DO NOTHING`
+
+		const unmarkLocallyApplied = (actionRecordId: string) =>
+			sql`DELETE FROM local_applied_action_ids WHERE action_record_id = ${actionRecordId}`
+
+		const _isLocallyAppliedQuery = SqlSchema.findOne({
+			Request: Schema.String,
+			Result: Schema.Struct({ exists: Schema.Boolean }),
+			execute: (actionRecordId) => sql`
+				SELECT EXISTS (
+					SELECT 1 FROM local_applied_action_ids WHERE action_record_id = ${actionRecordId}
+				) as exists
+			`
+		})
+		// Correctly handle the Option returned by findOne
+		const isLocallyApplied = (actionRecordId: string) =>
+			_isLocallyAppliedQuery(actionRecordId).pipe(
+				Effect.map(Option.match({ onNone: () => false, onSome: (result) => result.exists }))
+			)
+
+		const findUnappliedLocally = SqlSchema.findAll({
+			Request: Schema.Void,
+			Result: ActionRecord,
+			execute: () => sql`
+				SELECT ar.*
+				FROM action_records ar
+				LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
+				WHERE la.action_record_id IS NULL
+				ORDER BY ar.sortable_clock ASC
+			`
+		})
+
+		const findSyncedButUnapplied = SqlSchema.findAll({
+			Request: Schema.Void,
+			Result: ActionRecord,
+			execute: () => sql`
+				SELECT ar.*
+				FROM action_records ar
+				LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
+				WHERE la.action_record_id IS NULL
+				AND ar.synced = true
+				AND ar.client_id != (SELECT client_id FROM client_sync_status LIMIT 1)
+				ORDER BY ar.sortable_clock ASC
+			`
+		})
+
+		return {
+			...repo,
+			all,
+			findBySynced,
+			findByTransactionId,
+			findLatestSynced,
+			allUnsynced,
+			findLatest,
+			findByTag,
+			findOlderThan,
+			markAsSynced,
+			findByIds,
+			deleteById,
+			// New methods
+			markLocallyApplied,
+			unmarkLocallyApplied,
+			isLocallyApplied,
+			findUnappliedLocally,
+			findSyncedButUnapplied
+		} as const
+	}),
+	dependencies: []
+}) {}
+````
+
+## File: packages/sync-server/src/db/connection.ts
+````typescript
+import { PgClient } from "@effect/sql-pg"
+import { Config, Duration, Effect, Layer } from "effect"
+
+/**
+ * Configuration structure for the PostgreSQL client.
+ * Defines the required configuration parameters using Effect's Config module.
+ */
+const config: Config.Config.Wrap<PgClient.PgClientConfig> = Config.all({
+	url: Config.redacted("DATABASE_URL"),
+	debug: Config.succeed((a: any, b: any, c: any, d: any) => {
+		console.log(`PgClient debug:`, a, b, c, d)
+	}),
+	maxConnections: Config.succeed(100),
+	idleTimeout: Config.succeed(Duration.seconds(120)),
+	onnotice: Config.succeed((notice: any) => console.log(`PgClient notice:`, notice))
+})
+
+/**
+ * Live Layer providing the Sql.SqlClient service using PostgreSQL.
+ * Uses `layerConfig` to create the layer from the defined configuration structure.
+ * This layer reads configuration and creates the PgClient.
+ */
+export const PgClientLive = PgClient.layerConfig(config).pipe(Layer.tapErrorCause(Effect.logError))
+````
+
+## File: examples/todo-app/src/routes/index.tsx
+````typescript
+import {
+	Box,
+	Button,
+	Card,
+	Checkbox,
+	Container,
+	Flex,
+	Heading,
+	Text,
+	TextField
+} from "@radix-ui/themes"
+import { SyncService, type ActionExecutionError } from "@synchrotron/sync-core"
+import { useReactiveTodos } from "@synchrotron/todo-app/db/electric"
+import { Clock, Effect } from "effect"
+import React, { useCallback, useState, type ChangeEvent, type FormEvent } from "react"
+import { TodoActions } from "../actions"
+import logo from "../assets/logo.svg"
+import type { Todo } from "../db/schema"
+import { useRuntime, useService } from "../main"
+import { PgLiteClient } from "@effect/sql-pglite"
+import { Repl } from "@electric-sql/pglite-repl"
+
+export default function Index() {
+	const runtime = useRuntime()
+	const [newTodoText, setNewTodoText] = useState("")
+
+	const { todos, isLoading } = useReactiveTodos()
+	// useSyncedActions()
+
+	const handleAddTodo = useCallback(
+		(event: FormEvent<HTMLFormElement>) => {
+			event.preventDefault()
+			const text = newTodoText.trim()
+			if (!text) return
+
+			const createEffect = Effect.gen(function* () {
+				const syncService = yield* SyncService
+				const actions = yield* TodoActions
+				const timestamp = yield* Clock.currentTimeMillis
+
+				const action = actions.createTodoAction({
+					text: text,
+					owner_id: "user1", // Placeholder
+					timestamp: timestamp
+				})
+				yield* syncService.executeAction(action)
+				yield* syncService.performSync()
+			})
+
+			runtime
+				.runPromise(createEffect)
+				.then(() => setNewTodoText(""))
+				.catch((err: ActionExecutionError | Error) =>
+					console.error("Failed to create todo:", JSON.stringify(err))
+				)
+		},
+		[runtime, newTodoText]
+	)
+
+	const handleToggleTodo = useCallback(
+		(todo: Todo) => {
+			const toggleEffect = Effect.gen(function* () {
+				const syncService = yield* SyncService
+				const actions = yield* TodoActions
+				const timestamp = yield* Clock.currentTimeMillis
+
+				const action = actions.toggleTodoCompletionAction({
+					id: todo.id,
+					timestamp: timestamp
+				})
+				yield* syncService.executeAction(action)
+				yield* syncService.performSync()
+			})
+
+			runtime
+				.runPromise(toggleEffect)
+				.then(() => {})
+				.catch((err: ActionExecutionError | Error) => console.error("Failed to toggle todo:", err))
+		},
+		[runtime]
+	)
+
+	const handleDeleteTodo = useCallback(
+		(todoId: string) => {
+			const deleteEffect = Effect.gen(function* () {
+				const syncService = yield* SyncService
+				const actions = yield* TodoActions
+				const timestamp = yield* Clock.currentTimeMillis
+
+				const action = actions.deleteTodoAction({
+					id: todoId,
+					timestamp: timestamp
+				})
+				yield* syncService.executeAction(action)
+				yield* syncService.performSync()
+			})
+
+			runtime
+				.runPromise(deleteEffect)
+
+				.catch((err: ActionExecutionError | Error) => console.error("Failed to delete todo:", err))
+		},
+		[runtime]
+	)
+
+	return (
+		<>
+			
+		<Container size="2">
+			<Flex gap="5" mt="5" direction="column">
+				<Flex align="center" justify="center">
+					<img src={logo} width="32px" alt="logo" />
+					<Heading ml="1">Synchrotron To-Dos</Heading>
+					<Box width="32px" />
+				</Flex>
+
+				<Flex gap="3" direction="column">
+					{isLoading ? (
+						<Flex justify="center">
+							<Text>Loading todos...</Text>
+						</Flex>
+					) : todos.length === 0 ? (
+						<Flex justify="center">
+							<Text>No to-dos to show - add one!</Text>
+						</Flex>
+					) : (
+						todos.map((todo: Todo) => (
+							<Card key={todo.id} onClick={() => handleToggleTodo(todo)}>
+								<Flex gap="2" align="center" justify="between">
+									<Text as="label">
+										<Flex gap="2" align="center">
+											<Checkbox checked={!!todo.completed} />
+											{todo.text}
+										</Flex>
+									</Text>
+									<Button
+										onClick={(e) => {
+											e.stopPropagation()
+											handleDeleteTodo(todo.id)
+										}}
+										variant="ghost"
+										ml="auto"
+										style={{ cursor: `pointer` }}
+									>
+										X
+									</Button>
+								</Flex>
+							</Card>
+						))
+					)}
+				</Flex>
+				<form style={{ width: `100%` }} onSubmit={handleAddTodo}>
+					<Flex direction="row">
+						<TextField.Root
+							value={newTodoText}
+							onChange={(e: ChangeEvent<HTMLInputElement>) => setNewTodoText(e.target.value)}
+							type="text"
+							name="todo"
+							placeholder="New Todo"
+							mr="1"
+							style={{ width: `100%` }}
+						/>
+						<Button type="submit" disabled={!newTodoText.trim()}>
+							Add
+						</Button>
+					</Flex>
+				</form>
+			</Flex>
+
+			</Container>
+			<Container size="4" mt="5">
+			<DebugRepl />
+
+			</Container>
+
+		</>
+			
+	)
+}
+
+const DebugRepl = React.memo(() => {
+	const pglite = useService(PgLiteClient.PgLiteClient)
+	if (!pglite) return <p>Loading repl...</p>
+	return (
+		<>
+			<Repl pg={pglite.pg} border={true} theme={"dark"} />
+		</>
+	)
+})
+````
+
+## File: packages/sync-client/src/layer.ts
+````typescript
+import { BrowserKeyValueStore } from "@effect/platform-browser"
+import {
+	ActionModifiedRowRepo,
+	ActionRecordRepo,
+	ActionRegistry,
+	ClockService,
+	SyncService
+} from "@synchrotron/sync-core"
+import {
+	SynchrotronClientConfig,
+	SynchrotronClientConfigData,
+	createSynchrotronConfig
+} from "@synchrotron/sync-core/config"
+import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
+import { Effect, Layer } from "effect"
+import { PgLiteClientLive } from "./db/connection"
+import { ElectricSyncService } from "./electric/ElectricSyncService"
+import { SyncNetworkServiceLive } from "./SyncNetworkService"
+
+/**
+ * Layer that automatically starts Electric sync after schema initialization
+ */
+export const ElectricSyncLive = Layer.scopedDiscard(
+	Effect.gen(function* () {
+		yield* Effect.logInfo(`Starting electric sync setup`)
+		const service = yield* ElectricSyncService
+		const config = yield* SynchrotronClientConfig
+
+		yield* initializeDatabaseSchema
+		yield* Effect.logInfo("Database schema initialized, starting Electric sync")
+
+		return service
+	}).pipe(Effect.withSpan("ElectricSyncLive"))
+)
+
+/**
+ * Creates a fully configured Synchrotron client layer with custom configuration
+ *
+ * @example
+ * ```ts
+ * // Create a custom configured client
+ * const customClient = makeSynchrotronClientLayer({
+ *   electricSyncUrl: "https://my-sync-server.com",
+ *   pglite: {
+ *     dataDir: "idb://my-custom-db"
+ *   }
+ * })
+ * ```
+ */
+export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConfigData> = {}) => {
+	// Create the config layer with custom config merged with defaults
+	const configLayer = createSynchrotronConfig(config)
+
+	return ElectricSyncService.Default.pipe(
+		Layer.provideMerge(SyncService.Default),
+		Layer.provideMerge(SyncNetworkServiceLive),
+		Layer.provideMerge(ActionRegistry.Default),
+		Layer.provideMerge(ActionRecordRepo.Default),
+		Layer.provideMerge(ActionModifiedRowRepo.Default),
+		Layer.provideMerge(ClockService.Default),
+
+		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
+
+		Layer.provideMerge(PgLiteClientLive),
+
+		Layer.provideMerge(configLayer)
+	)
+}
+
+/**
+ * Default Synchrotron client layer with standard configuration
+ */
+export const SynchrotronClientLive = makeSynchrotronClientLayer()
+````
+
 ## File: packages/sync-core/src/ClockService.ts
 ````typescript
 import { KeyValueStore } from "@effect/platform"
@@ -13272,11 +13440,15 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			const existingIdOption = yield* keyValueStore.get("sync_client_id")
 
 			if (existingIdOption._tag === "Some") {
-				yield* Effect.logInfo(`using clientid override ${existingIdOption.value}`)
+				// yield* Effect.logInfo(`using clientid  ${existingIdOption.value}`)
 				return ClientId.make(existingIdOption.value)
 			}
 
 			const newClientId = crypto.randomUUID()
+			yield* Effect.logInfo(
+				`No client id found in key-value store. Generating new. Client id: ${newClientId}`
+			)
+
 			yield* keyValueStore.set("sync_client_id", newClientId)
 			const clientId = ClientId.make(newClientId)
 			return clientId
@@ -13367,17 +13539,25 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 		 */
 		const updateLastSyncedClock = () =>
 			Effect.gen(function* () {
-				const latestSyncedClock = yield* actionRecordRepo
-					.findLatestSynced()
-					.pipe(
-						Effect.map(Option.map((a) => a.clock)),
-						Effect.flatMap(
-							Effect.orElseFail(
-								() =>
-									new SyncError({ message: "No latest clock found to update last_synced_clock" })
+				// Get latest synced clock, or if none latest unsynced clock
+				const latestSyncedClock = yield* actionRecordRepo.findLatestSynced().pipe(
+					Effect.map(Option.map((a) => a.clock)),
+					Effect.flatMap(
+						Effect.orElse(() =>
+							actionRecordRepo.findLatest().pipe(
+								Effect.map(Option.map((a) => a.clock)),
+								Effect.flatMap(
+									Effect.orElseFail(
+										() =>
+											new SyncError({
+												message: "No latest clock found to update last_synced_clock"
+											})
+									)
+								)
 							)
 						)
 					)
+				)
 
 				const currentState = yield* getClientClockState
 
@@ -13508,33 +13688,6 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 }) {}
 ````
 
-## File: packages/sync-server/src/db/connection.ts
-````typescript
-import { PgClient } from "@effect/sql-pg"
-import { Config, Duration, Effect, Layer } from "effect"
-
-/**
- * Configuration structure for the PostgreSQL client.
- * Defines the required configuration parameters using Effect's Config module.
- */
-const config: Config.Config.Wrap<PgClient.PgClientConfig> = Config.all({
-	url: Config.redacted("DATABASE_URL"),
-	debug: Config.succeed((a: any, b: any, c: any, d: any) => {
-		console.log(`PgClient debug:`, a, b, c, d)
-	}),
-	maxConnections: Config.succeed(100),
-	idleTimeout: Config.succeed(Duration.seconds(120)),
-	onnotice: Config.succeed((notice: any) => console.log(`PgClient notice:`, notice))
-})
-
-/**
- * Live Layer providing the Sql.SqlClient service using PostgreSQL.
- * Uses `layerConfig` to create the layer from the defined configuration structure.
- * This layer reads configuration and creates the PgClient.
- */
-export const PgClientLive = PgClient.layerConfig(config).pipe(Layer.tapErrorCause(Effect.logError))
-````
-
 ## File: packages/sync-server/package.json
 ````json
 {
@@ -13560,6 +13713,7 @@ export const PgClientLive = PgClient.layerConfig(config).pipe(Layer.tapErrorCaus
 	"scripts": {
 		"build": "vite build && tsc -p tsconfig.build.json",
 		"clean": "rm -rf .tsbuildinfo build dist",
+		"clean:node_modules": "rm -rf node_modules",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
@@ -13604,8 +13758,8 @@ export const PgClientLive = PgClient.layerConfig(config).pipe(Layer.tapErrorCaus
 		"@effect/rpc": "catalog:",
 		"@effect/sql": "catalog:",
 		"@effect/sql-pglite": "workspace:*",
-		"@electric-sql/pglite": "catalog:",
 		"@electric-sql/experimental": "catalog:",
+		"@electric-sql/pglite": "catalog:",
 		"@electric-sql/react": "^1.0.3",
 		"@fontsource/alegreya-sans": "^5.2.5",
 		"@radix-ui/themes": "^3.2.1",
@@ -13623,6 +13777,7 @@ export const PgClientLive = PgClient.layerConfig(config).pipe(Layer.tapErrorCaus
 	},
 	"devDependencies": {
 		"@databases/pg-migrations": "^5.0.3",
+		"@electric-sql/pglite-repl": "^0.2.0",
 		"@types/node": "catalog:",
 		"@types/react": "^19.1.0",
 		"@types/react-dom": "^19.1.1",
@@ -13661,6 +13816,7 @@ export const PgClientLive = PgClient.layerConfig(config).pipe(Layer.tapErrorCaus
 	},
 	"scripts": {
 		"clean": "rm -rf .tsbuildinfo build dist",
+		"clean:node_modules": "rm -rf node_modules",
 		"backend:up": "pnpm backend:down && docker compose -f ./docker-compose.yml up -d && pnpm db:migrate",
 		"backend:down": "docker compose -f ./docker-compose.yml down --volumes",
 		"build": "vite build",
@@ -13671,266 +13827,6 @@ export const PgClientLive = PgClient.layerConfig(config).pipe(Layer.tapErrorCaus
 		"typecheck": "tsc --noEmit"
 	}
 }
-````
-
-## File: packages/sync-client/src/layer.ts
-````typescript
-import { BrowserKeyValueStore } from "@effect/platform-browser"
-import {
-	ActionModifiedRowRepo,
-	ActionRecordRepo,
-	ActionRegistry,
-	ClockService,
-	SyncService
-} from "@synchrotron/sync-core"
-import {
-	SynchrotronClientConfig,
-	SynchrotronClientConfigData,
-	createSynchrotronConfig
-} from "@synchrotron/sync-core/config"
-import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
-import { Effect, Layer } from "effect"
-import { PgLiteClientLive } from "./db/connection"
-import { ElectricSyncService } from "./electric/ElectricSyncService"
-import { SyncNetworkServiceLive } from "./SyncNetworkService"
-
-/**
- * Layer that automatically starts Electric sync after schema initialization
- */
-export const ElectricSyncLive = Layer.scopedDiscard(
-	Effect.gen(function* () {
-		yield* Effect.logInfo(`Starting electric sync setup`)
-		const service = yield* ElectricSyncService
-		const config = yield* SynchrotronClientConfig
-
-		yield* initializeDatabaseSchema
-		yield* Effect.logInfo("Database schema initialized, starting Electric sync")
-
-		return service
-	}).pipe(Effect.withSpan("ElectricSyncLive"))
-)
-
-/**
- * Creates a fully configured Synchrotron client layer with custom configuration
- *
- * @example
- * ```ts
- * // Create a custom configured client
- * const customClient = makeSynchrotronClientLayer({
- *   electricSyncUrl: "https://my-sync-server.com",
- *   pglite: {
- *     dataDir: "idb://my-custom-db"
- *   }
- * })
- * ```
- */
-export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConfigData> = {}) => {
-	// Create the config layer with custom config merged with defaults
-	const configLayer = createSynchrotronConfig(config)
-
-	return ElectricSyncService.Default.pipe(
-		Layer.provideMerge(SyncService.Default),
-		Layer.provideMerge(SyncNetworkServiceLive),
-		Layer.provideMerge(ActionRegistry.Default),
-		Layer.provideMerge(ActionRecordRepo.Default),
-		Layer.provideMerge(ActionModifiedRowRepo.Default),
-		Layer.provideMerge(ClockService.Default),
-
-		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
-
-		Layer.provideMerge(PgLiteClientLive),
-
-		Layer.provideMerge(configLayer)
-	)
-}
-
-/**
- * Default Synchrotron client layer with standard configuration
- */
-export const SynchrotronClientLive = makeSynchrotronClientLayer()
-````
-
-## File: package.json
-````json
-{
-	"name": "synchrotron",
-	"private": true,
-	"author": {
-		"name": "Andrew Morsillo",
-		"url": "https://github.com/evelant/synchrotron"
-	},
-	"bugs": {
-		"url": "https://github.com/evelant/synchrotron/issues"
-	},
-	"description": "A ",
-	"homepage": "https://github.com/evelant/synchrotron",
-	"license": "MIT",
-	"version": "0.0.1",
-	"type": "module",
-	"workspaces": [
-		"packages/*"
-	],
-	"scripts": {
-		"dev": "pnpm run --cwd packages/app dev",
-		"dev:electric": "pnpm run --cwd packages/app dev:electric",
-		"build": "pnpm run -r build",
-		"clean": "rm -rf .tsbuildinfo build dist && pnpm run --filter=./packages/* clean",
-		"start": "vinxi start",
-		"format": "prettier --write .",
-		"check": "tsc -b",
-		"check:watch": "tsc -b --watch",
-		"generate-supabase-types": "supabase gen types typescript --local > src/lib/types/database.types.ts",
-		"lint": "prettier --check . && eslint .",
-		"test": "vitest run -c vitest.config.ts",
-		"test:watch": "vitest -c vitest.config.ts",
-		"test:coverage": "vitest run --coverage -c vitest.config.ts",
-		"changeset": "changeset",
-		"version": "changeset version",
-		"release": "changeset publish"
-	},
-	"devDependencies": {
-		"@changesets/cli": "^2.28.1",
-		"@effect/language-service": "^0.6.0",
-		"@types/bun": "^1.2.8",
-		"@types/node": "22.14.0",
-		"@types/uuid": "^10.0.0",
-		"blob-polyfill": "^9.0.20240710",
-		"eslint": "^9.24.0",
-		"eslint-config-prettier": "^10.0.1",
-		"prettier": "^3.4.2",
-		"typescript": "^5.8.3",
-		"typescript-eslint": "^8.29.1",
-		"vite": "^6.0.0",
-		"vite-plugin-top-level-await": "^1.5.0",
-		"vite-plugin-wasm": "^3.4.1",
-		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.0.0",
-		"repomix": "^0.3.1"
-	},
-	"packageManager": "pnpm@10.7.1+sha512.2d92c86b7928dc8284f53494fb4201f983da65f0fb4f0d40baafa5cf628fa31dae3e5968f12466f17df7e97310e30f343a648baea1b9b350685dafafffdf5808"
-}
-````
-
-## File: examples/todo-app/src/main.tsx
-````typescript
-import React, {
-	createContext,
-	useContext,
-	useEffect,
-	useRef,
-	useState,
-	type ReactNode
-} from "react"
-import ReactDOM from "react-dom/client"
-import { createBrowserRouter, RouterProvider } from "react-router"
-import ErrorPage from "./error-page"
-
-import "@fontsource/alegreya-sans/latin.css"
-import { Theme } from "@radix-ui/themes"
-import "@radix-ui/themes/styles.css"
-import { makeSynchrotronClientLayer } from "@synchrotron/sync-client"
-import { Effect, Layer, Logger, LogLevel, ManagedRuntime, type Context } from "effect" // Import Layer
-import Root from "./routes/root"
-import "./style.css"
-
-import { setupDatabase } from "examples/todo-app/src/db/setup"
-import { TodoActions } from "./actions"
-import { TodoRepo } from "./db/repositories" // Import app-specific layers
-import Index from "./routes/index"
-
-// App-specific synchrotron configuration
-const syncConfig = {
-	electricSyncUrl: "http://localhost:5133",
-	pglite: {
-		dataDir: "idb://todo-app",
-		debug: 0, //1, //import.meta.env.DEV ? 1 : 0,
-		relaxedDurability: true
-	}
-}
-
-// Create the application runtime layer
-// The proper order matters for dependency resolution
-// Start with TodoRepo and other app services that require Synchrotron
-const AppLive = TodoRepo.Default.pipe(
-	Layer.provideMerge(TodoActions.Default),
-	Layer.provideMerge(Layer.effectDiscard(setupDatabase)),
-	Layer.provideMerge(makeSynchrotronClientLayer(syncConfig)),
-	Layer.provideMerge(Layer.effectDiscard(Effect.logInfo(`creating layers`))),
-	Layer.provideMerge(
-		Logger.replace(Logger.defaultLogger, Logger.prettyLoggerDefault.pipe(Logger.withLeveledConsole))
-	),
-	Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Trace))
-)
-
-const runtime = ManagedRuntime.make(AppLive)
-export type AppServices = ManagedRuntime.ManagedRuntime.Context<typeof runtime>
-// 5. Define Runtime Type and Context
-const RuntimeContext = createContext<typeof runtime | null>(null)
-
-// 6. Hook to use Runtime
-export const useRuntime = () => {
-	const ctx = useContext(RuntimeContext)
-	if (!ctx) {
-		throw new Error("useRuntime must be used within a RuntimeProvider")
-	}
-	return ctx
-}
-
-export function useService<T extends AppServices, U>(tag: Context.Tag<T, U>): U | undefined {
-	const runtime = useRuntime()
-	const svc = useRef<U | undefined>(undefined)
-	const [_, set] = useState(false)
-	useEffect(() => {
-		if (runtime) {
-			runtime
-				.runPromise(tag)
-				.then((s) => {
-					svc.current = s
-					set(true)
-				})
-				.catch((e) => console.error(`useService error getting service`, e))
-		}
-	}, [runtime, tag])
-
-	return svc.current
-}
-
-// 7. Provider Component
-const RuntimeProvider = ({ children }: { children: ReactNode }) => {
-	// ManagedRuntime handles its own lifecycle, just provide the instance
-	return <RuntimeContext.Provider value={runtime}>{children}</RuntimeContext.Provider>
-}
-
-// 8. Define Router
-const router = createBrowserRouter([
-	{
-		path: `/`,
-		element: <Root />,
-		errorElement: <ErrorPage />,
-		children: [
-			{
-				index: true,
-				element: <Index />
-			}
-		]
-	}
-])
-
-// 9. Render Application
-const rootElement = document.getElementById("root")
-if (!rootElement) {
-	throw new Error("Root element not found")
-}
-
-ReactDOM.createRoot(rootElement).render(
-	<React.StrictMode>
-		<Theme appearance="dark" accentColor="violet" panelBackground="solid">
-			<RuntimeProvider>
-				<RouterProvider router={router} />
-			</RuntimeProvider>
-		</Theme>
-	</React.StrictMode>
-)
 ````
 
 ## File: packages/sync-server/src/rpcRouter.ts
@@ -14396,35 +14292,243 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 }) {}
 ````
 
+## File: package.json
+````json
+{
+	"name": "synchrotron",
+	"private": true,
+	"author": {
+		"name": "Andrew Morsillo",
+		"url": "https://github.com/evelant/synchrotron"
+	},
+	"bugs": {
+		"url": "https://github.com/evelant/synchrotron/issues"
+	},
+	"description": "A ",
+	"homepage": "https://github.com/evelant/synchrotron",
+	"license": "MIT",
+	"version": "0.0.1",
+	"type": "module",
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"dev": "pnpm run --cwd packages/app dev",
+		"dev:electric": "pnpm run --cwd packages/app dev:electric",
+		"clean:node_modules": "pnpm run -r clean:node_modules",
+		"build": "pnpm run -r build",
+		"clean": "rm -rf .tsbuildinfo build dist && pnpm run --filter=./packages/* clean",
+		"start": "vinxi start",
+		"format": "prettier --write .",
+		"check": "tsc -b",
+		"check:watch": "tsc -b --watch",
+		"generate-supabase-types": "supabase gen types typescript --local > src/lib/types/database.types.ts",
+		"lint": "prettier --check . && eslint .",
+		"test": "vitest run -c vitest.config.ts",
+		"test:watch": "vitest -c vitest.config.ts",
+		"test:coverage": "vitest run --coverage -c vitest.config.ts",
+		"changeset": "changeset",
+		"version": "changeset version",
+		"release": "changeset publish"
+	},
+	"devDependencies": {
+		"@changesets/cli": "^2.28.1",
+		"@effect/language-service": "^0.6.0",
+		"@types/bun": "^1.2.8",
+		"@types/node": "22.14.0",
+		"@types/uuid": "^10.0.0",
+		"blob-polyfill": "^9.0.20240710",
+		"eslint": "^9.24.0",
+		"eslint-config-prettier": "^10.0.1",
+		"prettier": "^3.4.2",
+		"typescript": "^5.8.3",
+		"typescript-eslint": "^8.29.1",
+		"vite": "^6.0.0",
+		"vite-plugin-top-level-await": "^1.5.0",
+		"vite-plugin-wasm": "^3.4.1",
+		"vite-tsconfig-paths": "^5.1.4",
+		"vitest": "^3.0.0",
+		"repomix": "^0.3.1"
+	},
+	"packageManager": "pnpm@10.7.1+sha512.2d92c86b7928dc8284f53494fb4201f983da65f0fb4f0d40baafa5cf628fa31dae3e5968f12466f17df7e97310e30f343a648baea1b9b350685dafafffdf5808"
+}
+````
+
+## File: examples/todo-app/src/main.tsx
+````typescript
+import React, {
+	createContext,
+	useContext,
+	useEffect,
+	useRef,
+	useState,
+	type ReactNode
+} from "react"
+import ReactDOM from "react-dom/client"
+import { createBrowserRouter, RouterProvider, useRouteError } from "react-router"
+import ErrorPage from "./error-page"
+
+import "@fontsource/alegreya-sans/latin.css"
+import { Theme } from "@radix-ui/themes"
+import "@radix-ui/themes/styles.css"
+import { makeSynchrotronClientLayer } from "@synchrotron/sync-client"
+import { Effect, Layer, Logger, LogLevel, ManagedRuntime, type Context } from "effect" // Import Layer
+import Root from "./routes/root"
+import "./style.css"
+
+import { setupDatabase } from "examples/todo-app/src/db/setup"
+import { TodoActions } from "./actions"
+import { TodoRepo } from "./db/repositories" // Import app-specific layers
+import Index from "./routes/index"
+
+// App-specific synchrotron configuration
+const syncConfig = {
+	electricSyncUrl: "http://localhost:5133",
+	pglite: {
+		dataDir: "idb://todo-app",
+		debug: 0, //1, //import.meta.env.DEV ? 1 : 0,
+		relaxedDurability: true
+	}
+}
+
+// Create the application runtime layer
+// The proper order matters for dependency resolution
+// Start with TodoRepo and other app services that require Synchrotron
+const AppLive = TodoRepo.Default.pipe(
+	Layer.provideMerge(TodoActions.Default),
+	Layer.provideMerge(Layer.effectDiscard(setupDatabase)),
+	Layer.provideMerge(makeSynchrotronClientLayer(syncConfig)),
+	Layer.provideMerge(Layer.effectDiscard(Effect.logInfo(`creating layers`))),
+	Layer.provideMerge(
+		Logger.replace(Logger.defaultLogger, Logger.prettyLoggerDefault.pipe(Logger.withLeveledConsole))
+	),
+	Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Trace))
+)
+
+const runtime = ManagedRuntime.make(AppLive)
+export type AppServices = ManagedRuntime.ManagedRuntime.Context<typeof runtime>
+// 5. Define Runtime Type and Context
+const RuntimeContext = createContext<typeof runtime | null>(null)
+
+// 6. Hook to use Runtime
+export const useRuntime = () => {
+	const ctx = useContext(RuntimeContext)
+	if (!ctx) {
+		throw new Error("useRuntime must be used within a RuntimeProvider")
+	}
+	return ctx
+}
+
+export function useService<T extends AppServices, U>(tag: Context.Tag<T, U>): U | undefined {
+	const runtime = useRuntime()
+	const svc = useRef<U | undefined>(undefined)
+	const [_, set] = useState(false)
+	useEffect(() => {
+		if (runtime) {
+			runtime
+				.runPromise(tag)
+				.then((s) => {
+					svc.current = s
+					set(true)
+				})
+				.catch((e) => console.error(`useService error getting service`, e))
+		}
+	}, [runtime, tag])
+
+	return svc.current
+}
+
+// 7. Provider Component
+const RuntimeProvider = ({ children }: { children: ReactNode }) => {
+	// ManagedRuntime handles its own lifecycle, just provide the instance
+	return <RuntimeContext.Provider value={runtime}>{children}</RuntimeContext.Provider>
+}
+
+// 8. Define Router
+const router = createBrowserRouter([
+	{
+		path: `/`,
+		element: <Root />,
+		// errorElement: <ErrorPage />,
+		children: [
+			{
+				index: true,
+				element: <Index />
+			}
+		]
+	}
+])
+
+// 9. Render Application
+const rootElement = document.getElementById("root")
+if (!rootElement) {
+	throw new Error("Root element not found")
+}
+
+ReactDOM.createRoot(rootElement).render(
+	<React.StrictMode>
+		<Theme appearance="dark" accentColor="violet" panelBackground="solid">
+			<RuntimeProvider>
+				<RouterProvider router={router} />
+			</RuntimeProvider>
+		</Theme>
+	</React.StrictMode>
+)
+````
+
 ## File: pnpm-workspace.yaml
 ````yaml
 packages:
   - packages/*
   - examples/*
 catalog:
-  effect: ^3.14.6
-  "@effect/experimental": ^0.44.6
-  "@effect/platform": ^0.80.6
-  "@effect/platform-browser": ^0.59.6
-  "@effect/platform-node": ^0.76.11
-  "@effect/platform-bun": ^0.60.11
-  "@effect/rpc": ^0.55.9
-  "@effect/sql": ^0.33.6
-  "@effect/vitest": ^0.20.6
-  "@types/node": ^22.14.0
+  effect: ^3.14.7
+  '@effect/experimental': ^0.44.7
+  '@effect/platform': ^0.80.7
+  '@effect/platform-browser': ^0.59.7
+  '@effect/platform-node': ^0.76.12
+  '@effect/platform-bun': ^0.60.12
+  '@effect/rpc': ^0.55.10
+  '@effect/sql': ^0.33.7
+  '@effect/vitest': ^0.20.7
+  '@types/node': ^22.14.0
   typescript: ^5.8.3
   vite: ^6.2.5
   vitest: ^3.1.1
-  "@electric-sql/client": ^1.0.3
-  "@electric-sql/pglite": ^0.2.17
-  "@electric-sql/pglite-sync": ^0.3.1
-  "@electric-sql/experimental": ^1.0.3
+  '@electric-sql/client': ^1.0.3
+  '@electric-sql/pglite': ^0.2.17
+  '@electric-sql/pglite-sync': ^0.3.1
+  '@electric-sql/experimental': ^1.0.3
   uuid: ^11.1.0
   msgpackr: ^1.11.2
-  fast-check: ^4.1.0
-  "@opentelemetry/semantic-conventions": 1.30.0
+  fast-check: ^4.1.1
+  '@opentelemetry/semantic-conventions': 1.30.0
 onlyBuiltDependencies:
   - esbuild
+overrides:
+  '@electric-sql/client': 'catalog:'
+  '@electric-sql/pglite': 'catalog:'
+  '@electric-sql/pglite-sync': 'catalog:'
+  '@electric-sql/experimental': 'catalog:'
+  effect: 'catalog:'
+  '@effect/experimental': 'catalog:'
+  '@effect/platform': 'catalog:'
+  '@effect/platform-browser': 'catalog:'
+  '@effect/platform-node': 'catalog:'
+  '@effect/platform-bun': 'catalog:'
+  '@effect/rpc': 'catalog:'
+  '@effect/sql': 'catalog:'
+  '@effect/vitest': 'catalog:'
+  '@types/node': 'catalog:'
+  typescript: 'catalog:'
+  vite: 'catalog:'
+  vitest: 'catalog:'
+  uuid: 'catalog:'
+  msgpackr: 'catalog:'
+  fast-check: 'catalog:'
+  '@opentelemetry/semantic-conventions': 'catalog:'
+patchedDependencies:
+  '@electric-sql/pglite-repl': patches/@electric-sql__pglite-repl.patch
 ````
 
 ## File: packages/sync-core/src/SyncService.ts

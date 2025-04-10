@@ -63,13 +63,12 @@ describe("Basic Action Execution", () => {
 
 				// Create and execute action
 				const action = createNoteAction({
-					id: "test-note-1",
 					title: "Test Note",
 					content: "Test Content",
 					user_id: "test-user"
 				})
 
-				const actionRecord = yield* syncService.executeAction(action)
+				const { actionRecord, result } = yield* syncService.executeAction(action)
 
 				// Verify action record
 				expect(actionRecord.id).toBeDefined()
@@ -79,7 +78,7 @@ describe("Basic Action Execution", () => {
 				expect(actionRecord.clock).toBeDefined()
 
 				// Verify note was created
-				const note = yield* noteRepo.findById("test-note-1")
+				const note = yield* noteRepo.findById(result.id)
 				expect(note._tag).toBe("Some")
 				if (note._tag === "Some") {
 					expect(note.value.title).toBe("Test Note")
@@ -101,12 +100,11 @@ describe("Basic Action Execution", () => {
 				// Define an action that will fail
 				const failingAction = registry.defineAction(
 					"test-failing-transaction",
-					(args: { id: string; timestamp: number }) =>
+					(args: { timestamp: number }) =>
 						Effect.gen(function* () {
 							// First insert a note
 							yield* noteRepo.insert(
 								NoteModel.insert.make({
-									id: args.id,
 									title: "Will Fail",
 									content: "This should be rolled back",
 									user_id: "test-user",
@@ -120,7 +118,7 @@ describe("Basic Action Execution", () => {
 				)
 
 				// Execute the failing action
-				const action = failingAction({ id: "failing-note" })
+				const action = failingAction({})
 				const result = yield* Effect.either(syncService.executeAction(action))
 
 				// Verify action failed

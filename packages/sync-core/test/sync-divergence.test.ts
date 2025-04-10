@@ -12,27 +12,26 @@ describe("Sync Divergence Scenarios", () => {
 				const serverSql = yield* PgLiteClient.PgLiteClient
 				const clientA = yield* createTestClient("clientA", serverSql)
 				const clientB = yield* createTestClient("clientB", serverSql)
-				const noteId = "note-sync-div"
 				const baseContent = "Base Content"
 				const suffixA = " Suffix Client A"
 				const initialContent = "Initial" // Added for clarity
 
 				// 1. ClientA creates initial note
-				yield* clientA.syncService.executeAction(
+				const { result } = yield* clientA.syncService.executeAction(
 					clientA.testHelpers.createNoteAction({
-						id: noteId,
 						title: "Divergence Test",
 						content: initialContent, // Use initial content variable
 						user_id: "user1"
 					})
 				)
+				const noteId = result.id
 
 				// 2. Sync both clients to establish common state
 				yield* clientA.syncService.performSync()
 				yield* clientB.syncService.performSync()
 
 				// 3. ClientA executes conditional update (will add suffix)
-				const actionA = yield* clientA.syncService.executeAction(
+				const { actionRecord: actionA } = yield* clientA.syncService.executeAction(
 					clientA.testHelpers.conditionalUpdateAction({
 						id: noteId,
 						baseContent: baseContent, // This base content doesn't match initial, so condition fails on B
@@ -113,20 +112,19 @@ describe("Sync Divergence Scenarios", () => {
 				const clientA = yield* createTestClient("clientA", serverSql)
 				const clientB = yield* createTestClient("clientB", serverSql)
 				const clientC = yield* createTestClient("clientC", serverSql)
-				const noteId = "note-sync-apply"
 				const baseContent = "Base Apply"
 				const suffixA = " Suffix Apply A"
 				const initialContent = "Initial Apply"
 
 				// 1. ClientA creates initial note
-				yield* clientA.syncService.executeAction(
+				const { result } = yield* clientA.syncService.executeAction(
 					clientA.testHelpers.createNoteAction({
-						id: noteId,
 						title: "SYNC Apply Test",
 						content: initialContent,
 						user_id: "user1"
 					})
 				)
+				const noteId = result.id
 
 				// 2. Sync all clients
 				yield* clientA.syncService.performSync()
@@ -134,7 +132,7 @@ describe("Sync Divergence Scenarios", () => {
 				yield* clientC.syncService.performSync()
 
 				// 3. ClientA executes conditional update (adds suffix)
-				const actionA = yield* clientA.syncService.executeAction(
+				const { actionRecord: actionA } = yield* clientA.syncService.executeAction(
 					clientA.testHelpers.conditionalUpdateAction({
 						id: noteId,
 						baseContent: baseContent, // Condition will fail on B and C
@@ -211,17 +209,16 @@ describe("Sync Divergence Scenarios", () => {
 			const serverSql = yield* PgLiteClient.PgLiteClient
 			const clientA = yield* createTestClient("clientA", serverSql)
 			const clientB = yield* createTestClient("clientB", serverSql)
-			const noteId = "note-conflict-reject"
 
 			// 1. ClientA creates note
-			yield* clientA.syncService.executeAction(
+			const { result } = yield* clientA.syncService.executeAction(
 				clientA.testHelpers.createNoteAction({
-					id: noteId,
 					title: "Initial Conflict Title",
 					content: "Initial Content",
 					user_id: "user1"
 				})
 			)
+			const noteId = result.id
 
 			// 2. ClientA syncs, ClientB syncs to get the note
 			yield* clientA.syncService.performSync()
@@ -237,7 +234,7 @@ describe("Sync Divergence Scenarios", () => {
 			yield* clientA.syncService.performSync()
 
 			// 4. ClientB updates title offline (creates a pending action)
-			const actionB_update = yield* clientB.syncService.executeAction(
+			const { actionRecord: actionB_update } = yield* clientB.syncService.executeAction(
 				clientB.testHelpers.updateTitleAction({
 					id: noteId,
 					title: "Title from B"
@@ -283,6 +280,4 @@ describe("Sync Divergence Scenarios", () => {
 			}
 		}).pipe(Effect.provide(makeTestLayers("server")))
 	)
-
-	// TODO: Add more complex rollback/replay tests
 })

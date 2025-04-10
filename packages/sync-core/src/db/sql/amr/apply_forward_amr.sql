@@ -61,6 +61,9 @@ BEGIN
 				values_list := values_list || 'NULL';
 			ELSIF jsonb_typeof(column_value) = 'array' AND column_name = 'tags' THEN
 				values_list := values_list || format(CASE WHEN jsonb_array_length(column_value) = 0 THEN '''{}''::text[]' ELSE quote_literal(ARRAY(SELECT jsonb_array_elements_text(column_value))) || '::text[]' END);
+			ELSIF jsonb_typeof(column_value) = 'object' THEN
+				-- For JSONB objects, preserve the structure
+				values_list := values_list || format('%L::jsonb', column_value);
 			ELSE
 				values_list := values_list || quote_nullable(column_value#>>'{}');
 			END IF;
@@ -88,6 +91,9 @@ BEGIN
 					columns_list := columns_list || format('%I = NULL', column_name);
 				ELSIF jsonb_typeof(column_value) = 'array' AND column_name = 'tags' THEN
 					columns_list := columns_list || format('%I = %L::text[]', column_name, CASE WHEN jsonb_array_length(column_value) = 0 THEN '{}' ELSE ARRAY(SELECT jsonb_array_elements_text(column_value)) END);
+				ELSIF jsonb_typeof(column_value) = 'object' THEN
+					-- For JSONB objects, preserve the structure
+					columns_list := columns_list || format('%I = %L::jsonb', column_name, column_value);
 				ELSE
 					columns_list := columns_list || format('%I = %L', column_name, column_value#>>'{}');
 				END IF;

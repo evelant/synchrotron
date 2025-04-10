@@ -1,5 +1,5 @@
 import { SqlClient } from "@effect/sql"
-import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
+import { applySyncTriggers, initializeDatabaseSchema } from "@synchrotron/sync-core/db" // Import applySyncTriggers
 import { Effect } from "effect"
 
 export const setupDatabase = Effect.gen(function* () {
@@ -12,7 +12,7 @@ export const setupDatabase = Effect.gen(function* () {
 	yield* Effect.logInfo("Creating todos table...")
 	yield* sql`
       CREATE TABLE IF NOT EXISTS todos (
-          id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+          id TEXT PRIMARY KEY, 
           text TEXT NOT NULL,
           completed BOOLEAN NOT NULL DEFAULT FALSE,
           owner_id TEXT NOT NULL
@@ -21,8 +21,8 @@ export const setupDatabase = Effect.gen(function* () {
 	yield* Effect.logInfo("Todos table created.")
 
 	yield* Effect.logInfo("Attaching patches trigger to todos table...")
-	// initializeDatabaseSchema already creates the create_patches_trigger function
-	yield* sql`SELECT create_patches_trigger('todos');`
+	// Apply both deterministic ID and patch triggers
+	yield* applySyncTriggers(["todos"])
 	yield* Effect.logInfo("Patches trigger attached to todos table.")
 
 	yield* Effect.logInfo("Database setup complete.")

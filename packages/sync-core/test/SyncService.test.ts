@@ -32,10 +32,7 @@ describe("SyncService", () => {
 				)
 
 				// Create an action instance
-				const action = testAction({ value: 42 })
-
-				// Execute the action
-				const actionRecord = yield* syncService.executeAction(action)
+				const { actionRecord, result } = yield* syncService.executeAction(testAction({ value: 42 }))
 
 				// Verify the action was executed
 				expect(executed).toBe(true)
@@ -114,8 +111,8 @@ describe("SyncService", () => {
 				const action2 = testAction({ value: "second" })
 
 				// Execute actions in sequence
-				const record1 = yield* syncService.executeAction(action1)
-				const record2 = yield* syncService.executeAction(action2)
+				const { actionRecord: record1 } = yield* syncService.executeAction(action1)
+				const { actionRecord: record2 } = yield* syncService.executeAction(action2)
 
 				// Verify initial state - actions should be unsynced and locally applied
 				const initialRecords = yield* sql<ActionRecord>`
@@ -226,7 +223,7 @@ describe("SyncService", () => {
 				)
 
 				const action = testAction({})
-				const actionRecord = yield* syncService.executeAction(action)
+				const { actionRecord } = yield* syncService.executeAction(action)
 				expect(actionRecord).toBeDefined()
 				expect(actionRecord.id).toBeDefined()
 				expect(actionRecord.transaction_id).toBeDefined()
@@ -272,14 +269,15 @@ describe("Sync Algorithm Integration", () => {
 				const createNoteAction = remoteClient.testHelpers.createNoteAction
 
 				// Remote client executes the action
-				const remoteActionRecord = yield* remoteClient.syncService.executeAction(
-					createNoteAction({
-						id: "remote-note-1",
-						title: "Remote Note",
-						content: "Content from remote",
-						user_id: "remote-user" // Added user_id as required by TestHelpers action
-					})
-				)
+				const { actionRecord: remoteActionRecord, result: remoteNoteResult } =
+					yield* remoteClient.syncService.executeAction(
+						createNoteAction({
+							title: "Remote Note",
+							content: "Content from remote",
+							user_id: "remote-user" // Added user_id as required by TestHelpers action
+						})
+					)
+				const remoteNoteId = remoteNoteResult.id
 
 				// Remote client syncs (sends action to serverSql)
 				yield* remoteClient.syncService.performSync()
@@ -299,7 +297,7 @@ describe("Sync Algorithm Integration", () => {
 				expect(result[0]?._tag).toBe("test-create-note") // Tag comes from TestHelpers
 
 				// Verify note creation on client1
-				const localNote = yield* client1.noteRepo.findById("remote-note-1")
+				const localNote = yield* client1.noteRepo.findById(remoteNoteId)
 				expect(localNote._tag).toBe("Some")
 				if (localNote._tag === "Some") {
 					expect(localNote.value.title).toBe("Remote Note")
@@ -342,15 +340,16 @@ describe("Sync Algorithm Integration", () => {
 				const updateContentActionC2 = client2.testHelpers.updateContentAction
 
 				// Create initial note on client 1
-				yield* client1.syncService.executeAction(
-					createNoteAction({
-						id: "test-note",
-						title: "Initial Title",
-						content: "Initial content",
-						user_id: "test-user", // Added user_id
-						tags: ["initial"]
-					})
-				)
+				const { actionRecord: initialActionRecord, result: initialNoteResult } =
+					yield* client1.syncService.executeAction(
+						createNoteAction({
+							title: "Initial Title",
+							content: "Initial content",
+							user_id: "test-user", // Added user_id
+							tags: ["initial"]
+						})
+					)
+				const initialNoteId = initialNoteResult.id
 
 				// Sync to get to common ancestor state
 				yield* client1.syncService.performSync()
@@ -358,22 +357,24 @@ describe("Sync Algorithm Integration", () => {
 
 				// Make concurrent changes to different fields
 				// Client 1 updates title (using updateContentAction with title)
-				const updateTitleRecord = yield* client1.syncService.executeAction(
-					// Use updateTitleActionC1
-					updateTitleActionC1({
-						id: "test-note",
-						title: "Updated Title from Client 1"
-					})
-				)
+				const { actionRecord: updateTitleRecord, result: updateTitleResult } =
+					yield* client1.syncService.executeAction(
+						// Use updateTitleActionC1
+						updateTitleActionC1({
+							id: initialNoteId,
+							title: "Updated Title from Client 1"
+						})
+					)
 
 				// Client 2 updates content
-				const updateContentRecord = yield* client2.syncService.executeAction(
-					updateContentActionC2({
-						id: "test-note",
-						content: "Updated content from Client 2"
-						// Title remains initial from C2's perspective
-					})
-				)
+				const { actionRecord: updateContentRecord, result: updateContentResult } =
+					yield* client2.syncService.executeAction(
+						updateContentActionC2({
+							id: initialNoteId,
+							content: "Updated content from Client 2"
+							// Title remains initial from C2's perspective
+						})
+					)
 
 				// Get all action records to verify order (using client 1's perspective)
 				const allActionsC1Initial = yield* client1.actionRecordRepo.all()
@@ -388,8 +389,8 @@ describe("Sync Algorithm Integration", () => {
 				)
 
 				// Verify initial states are different
-				const client1Note = yield* client1.noteRepo.findById("test-note")
-				const client2Note = yield* client2.noteRepo.findById("test-note")
+				const client1Note = yield* client1.noteRepo.findById(initialNoteId)
+				const client2Note = yield* client2.noteRepo.findById(initialNoteId)
 				expect(client1Note._tag).toBe("Some")
 				expect(client2Note._tag).toBe("Some")
 				if (client1Note._tag === "Some" && client2Note._tag === "Some") {
@@ -413,8 +414,8 @@ describe("Sync Algorithm Integration", () => {
 				yield* client1.syncService.performSync() // One more sync to ensure client 1 gets client 2's reconciled state
 
 				// Verify both clients have same final state with both updates applied
-				const finalClient1Note = yield* client1.noteRepo.findById("test-note")
-				const finalClient2Note = yield* client2.noteRepo.findById("test-note")
+				const finalClient1Note = yield* client1.noteRepo.findById(initialNoteId)
+				const finalClient2Note = yield* client2.noteRepo.findById(initialNoteId)
 				expect(finalClient1Note._tag).toBe("Some")
 				expect(finalClient2Note._tag).toBe("Some")
 				if (finalClient1Note._tag === "Some" && finalClient2Note._tag === "Some") {

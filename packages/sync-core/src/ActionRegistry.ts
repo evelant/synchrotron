@@ -1,7 +1,4 @@
-import { SqlClient } from "@effect/sql"
 import { Effect, Schema } from "effect"
-import { ActionModifiedRowRepo } from "./ActionModifiedRowRepo"
-import { ActionRecordRepo } from "./ActionRecordRepo"
 import { Action } from "./models"
 
 /**
@@ -14,9 +11,9 @@ export class UnknownActionError extends Schema.TaggedError<UnknownActionError>()
 	}
 ) {}
 
-export type ActionCreator = <A extends Record<string, unknown> = any, EE = any, R = never>(
+export type ActionCreator = <A1, A extends Record<string, unknown> = any, EE = any, R = never>(
 	args: A
-) => Action<A, EE, R>
+) => Action<A1, A, EE, R>
 
 /**
  * ActionRegistry Service
@@ -67,15 +64,20 @@ export class ActionRegistry extends Effect.Service<ActionRegistry>()("ActionRegi
 		 * Helper to create a type-safe action definition that automatically registers with the registry
 		 */
 		// A represents the arguments provided by the caller (without timestamp)
-		const defineAction = <A extends Record<string, unknown> & { timestamp: number }, EE, R = never>(
+		const defineAction = <
+			A1,
+			A extends Record<string, unknown> & { timestamp: number },
+			EE,
+			R = never
+		>(
 			tag: string,
-			actionFn: (args: A) => Effect.Effect<void, EE, R> // The implementation receives timestamp
+			actionFn: (args: A) => Effect.Effect<A1, EE, R> // The implementation receives timestamp
 		) => {
 			// Create action constructor function
 			// createAction now accepts the full arguments object 'A', including the timestamp
 			const createAction = (
 				args: Omit<A, "timestamp"> & { timestamp?: number | undefined }
-			): Action<A, EE, R> => {
+			): Action<A1, A, EE, R> => {
 				if (typeof args.timestamp !== "number") {
 					// If timestamp is not provided, use the current timestamp
 					args.timestamp = Date.now()

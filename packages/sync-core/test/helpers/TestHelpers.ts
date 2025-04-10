@@ -22,7 +22,6 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 		const createNoteAction = actionRegistry.defineAction(
 			"test-create-note",
 			(args: {
-				id: string
 				title: string
 				content: string
 				user_id: string
@@ -32,7 +31,7 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 				Effect.gen(function* () {
 					yield* Effect.logInfo(`Creating note: ${JSON.stringify(args)} at ${args.timestamp}`)
 
-					yield* noteRepo.insertVoid({
+					return yield* noteRepo.insert({
 						...args,
 						updated_at: new Date(args.timestamp)
 					})

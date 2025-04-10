@@ -22,15 +22,15 @@ describe("Core Sync Functionality", () => {
 				const client2 = yield* createTestClient("client2", serverSql).pipe(Effect.orDie)
 
 				// 1. Client 1 creates a note
-				yield* client1.syncService.executeAction(
+				const { result } = yield* client1.syncService.executeAction(
 					client1.testHelpers.createNoteAction({
-						id: "note-1",
 						title: "Title C1",
 						content: "Content C1",
 						tags: [],
 						user_id: "user1"
 					})
 				)
+				const noteId = result.id
 
 				// 2. Client 1 syncs (Case 2: Sends local actions)
 				const c1Synced = yield* client1.syncService.performSync()
@@ -41,8 +41,8 @@ describe("Core Sync Functionality", () => {
 				expect(c2Received.length).toBe(1) // Verify one action was received/applied
 
 				// 4. Verify note exists on both clients
-				const noteC1 = yield* client1.noteRepo.findById("note-1")
-				const noteC2 = yield* client2.noteRepo.findById("note-1")
+				const noteC1 = yield* client1.noteRepo.findById(noteId)
+				const noteC2 = yield* client2.noteRepo.findById(noteId)
 
 				expect(noteC1._tag).toBe("Some")
 				expect(noteC2._tag).toBe("Some")
@@ -66,27 +66,29 @@ describe("Core Sync Functionality", () => {
 				yield* Effect.log("--- Setting up Case 4: Local A < Remote B ---")
 
 				// 1. Client 1 creates Action A (local pending)
-				const actionA = yield* client1.syncService.executeAction(
-					// Renamed from actionA7
-					client1.testHelpers.createNoteAction({
-						id: "note-A", // Renamed from note-A7
-						title: "Note A",
-						content: "",
-						user_id: "user1"
-					})
-				)
+				const { result: actionAResult, actionRecord: actionA } =
+					yield* client1.syncService.executeAction(
+						// Renamed from actionA7
+						client1.testHelpers.createNoteAction({
+							title: "Note A",
+							content: "",
+							user_id: "user1"
+						})
+					)
+				const noteAId = actionAResult.id
 
 				// 2. Client 2 creates Action B (newer HLC), syncs B to server
 				yield* TestClock.adjust("10 millis") // Ensure B's clock is newer
-				const actionB = yield* client2.syncService.executeAction(
-					// Renamed from actionB8
-					client2.testHelpers.createNoteAction({
-						id: "note-B", // Renamed from note-B8
-						title: "Note B",
-						content: "",
-						user_id: "user1"
-					})
-				)
+				const { result: actionBResult, actionRecord: actionB } =
+					yield* client2.syncService.executeAction(
+						// Renamed from actionB8
+						client2.testHelpers.createNoteAction({
+							title: "Note B",
+							content: "",
+							user_id: "user1"
+						})
+					)
+				const noteBId = actionBResult.id
 				yield* client2.syncService.performSync() // Server now has B
 
 				// 3. Client 1 syncs. Pending: [A]. Remote: [B].
@@ -101,12 +103,12 @@ describe("Core Sync Functionality", () => {
 				// - Both notes A and B should exist on Client 1.
 				// - Server should now have both A and B.
 
-				const noteA_C1 = yield* client1.noteRepo.findById("note-A") // Updated ID
-				const noteB_C1 = yield* client1.noteRepo.findById("note-B") // Updated ID
+				const noteA_C1 = yield* client1.noteRepo.findById(noteAId)
+				const noteB_C1 = yield* client1.noteRepo.findById(noteBId)
 				expect(noteA_C1._tag).toBe("Some")
-				expect(noteB_C1._tag).toBe("Some") // This was the failing assertion
+				expect(noteB_C1._tag).toBe("Some")
 
-				const syncedActionA = yield* client1.actionRecordRepo.findById(actionA.id) // Updated var name
+				const syncedActionA = yield* client1.actionRecordRepo.findById(actionA.id)
 				expect(syncedActionA._tag).toBe("Some")
 				if (syncedActionA._tag === "Some") {
 					expect(syncedActionA.value.synced).toBe(true)
@@ -143,25 +145,27 @@ describe("Core Sync Functionality", () => {
 				const client2 = yield* createTestClient("client2", serverSql).pipe(Effect.orDie)
 
 				// 1. Client 1 creates note A
-				const actionA = yield* client1.syncService.executeAction(
-					client1.testHelpers.createNoteAction({
-						id: "note-R1",
-						title: "Note R1",
-						content: "",
-						user_id: "user1"
-					})
-				)
+				const { result: actionAResult, actionRecord: actionA } =
+					yield* client1.syncService.executeAction(
+						client1.testHelpers.createNoteAction({
+							title: "Note R1",
+							content: "",
+							user_id: "user1"
+						})
+					)
+				const noteAId = actionAResult.id
 
 				// 2. Client 2 creates note B
 				yield* TestClock.adjust("10 millis") // Ensure different clocks
-				const actionB = yield* client2.syncService.executeAction(
-					client2.testHelpers.createNoteAction({
-						id: "note-R2",
-						title: "Note R2",
-						content: "",
-						user_id: "user1"
-					})
-				)
+				const { result: actionBResult, actionRecord: actionB } =
+					yield* client2.syncService.executeAction(
+						client2.testHelpers.createNoteAction({
+							title: "Note R2",
+							content: "",
+							user_id: "user1"
+						})
+					)
+				const noteBId = actionBResult.id
 
 				// 3. Client 1 syncs (sends A)
 				yield* client1.syncService.performSync()
@@ -180,8 +184,8 @@ describe("Core Sync Functionality", () => {
 				// 5. Both notes R1 and R2 should exist on Client 2.
 				// 6. Server should have original A, original B, Rollback, new A, new B (or similar, depending on exact reconcile impl)
 
-				const noteA_C2 = yield* client2.noteRepo.findById("note-R1")
-				const noteB_C2 = yield* client2.noteRepo.findById("note-R2")
+				const noteA_C2 = yield* client2.noteRepo.findById(noteAId)
+				const noteB_C2 = yield* client2.noteRepo.findById(noteBId)
 				expect(noteA_C2._tag).toBe("Some")
 				expect(noteB_C2._tag).toBe("Some")
 

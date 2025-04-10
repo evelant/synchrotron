@@ -10,7 +10,7 @@ import { Effect, Schema } from "effect"
  * 2. A method to apply changes to the database
  * 3. Serializable arguments that capture all non-deterministic inputs to the action so that the action is pure and can be replayed on different clients with the same result
  */
-export interface Action<A extends Record<string, unknown>, EE, R = never> {
+export interface Action<A1, A extends Record<string, unknown>, EE, R = never> {
 	/**
 	 * Unique identifier for the action
 	 */
@@ -19,7 +19,7 @@ export interface Action<A extends Record<string, unknown>, EE, R = never> {
 	 * Apply the changes to the database.
 	 * Receives the original arguments plus the timestamp injected by executeAction.
 	 */
-	execute: () => Effect.Effect<void, EE, R>
+	execute: () => Effect.Effect<A1, EE, R>
 	/**
 	 * Serializable arguments to be saved with the action for later replay
 	 * This now includes the timestamp.

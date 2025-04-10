@@ -32,16 +32,17 @@
 	"dependencies": {
 		"@effect/experimental": "catalog:",
 		"@effect/platform": "catalog:",
-		"@effect/sql": "catalog:",
 		"@effect/rpc": "catalog:",
-		"effect": "catalog:",
-		"uuid": "catalog:",
+		"@effect/sql": "catalog:",
+		"@effect/sql-pglite": "workspace:*",
 		"@synchrotron/sync-core": "workspace:*",
-		"@effect/sql-pglite": "workspace:*"
+		"effect": "catalog:",
+		"uuid": "catalog:"
 	},
 	"devDependencies": {
-		"@types/node": "catalog:",
 		"@effect/vitest": "catalog:",
+		"@electric-sql/pglite": "catalog:",
+		"@types/node": "catalog:",
 		"typescript": "catalog:",
 		"vite": "catalog:",
 		"vitest": "catalog:"

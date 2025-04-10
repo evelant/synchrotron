@@ -1,5 +1,6 @@
 import { PgLiteClient } from "@effect/sql-pglite"
 import { electricSync } from "@electric-sql/pglite-sync"
+import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp"
 import { live } from "@electric-sql/pglite/live"
 import { SynchrotronClientConfig, SynchrotronClientConfigData } from "@synchrotron/sync-core/config"
 import { Effect, Layer } from "effect"
@@ -7,6 +8,7 @@ import { Effect, Layer } from "effect"
 export const PgLiteSyncTag = PgLiteClient.tag<{
 	live: typeof live
 	electric: ReturnType<typeof electricSync>
+	uuid_ossp: typeof uuid_ossp
 }>()
 
 /**
@@ -22,7 +24,8 @@ const createPgLiteClientLayer = (config: SynchrotronClientConfigData["pglite"]) 
 		relaxedDurability: config.relaxedDurability,
 		extensions: {
 			electric: electricSync(),
-			live
+			live,
+			uuid_ossp
 		}
 	})
 }

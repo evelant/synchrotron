@@ -395,6 +395,9 @@ importers:
       '@effect/vitest':
         specifier: ^0.20.7
         version: 0.20.7(effect@3.14.7)(vitest@3.1.1(@types/node@22.14.0)(tsx@4.19.3))
+      '@electric-sql/pglite':
+        specifier: ^0.2.17
+        version: 0.2.17
       '@types/node':
         specifier: ^22.14.0
         version: 22.14.0
@@ -2776,7 +2779,6 @@ packages:
 
   bun@1.2.9:
     resolution: {integrity: sha512-4l1MnbCk2aEDeyJPs8+St6XsVPwkQvq7XTHG501e7pdFOWvWCy9shfxsHtBwYzmT82gdvx9//AL4qStYfYMO4Q==}
-    cpu: [arm64, x64, aarch64]
     os: [darwin, linux, win32]
     hasBin: true
 

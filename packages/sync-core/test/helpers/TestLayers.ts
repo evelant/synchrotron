@@ -3,6 +3,7 @@ import { Model, SqlClient, SqlSchema } from "@effect/sql"
 import { PgLiteClient } from "@effect/sql-pglite"
 import type { Row } from "@effect/sql/SqlConnection"
 import type { Argument, Statement } from "@effect/sql/Statement"
+import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
@@ -13,7 +14,7 @@ import {
 	SynchrotronClientConfig,
 	type SynchrotronClientConfigData
 } from "@synchrotron/sync-core/config"
-import { createPatchTriggersForTables, initializeDatabaseSchema } from "@synchrotron/sync-core/db"
+import { applySyncTriggers, initializeDatabaseSchema } from "@synchrotron/sync-core/db" // Import applySyncTriggers
 import {
 	SyncNetworkService,
 	type TestNetworkState
@@ -54,7 +55,7 @@ export const makeDbInitLayer = (schema: string) =>
 			// Create the notes table (Removed DEFAULT NOW() from updated_at)
 			yield* sql`
 		CREATE TABLE IF NOT EXISTS notes (
-			id TEXT PRIMARY KEY,
+			id TEXT PRIMARY KEY, -- Removed DEFAULT gen_random_uuid() or similar
 			title TEXT NOT NULL,
 			content TEXT NOT NULL,
 			tags TEXT[] DEFAULT '{}'::text[],
@@ -66,8 +67,8 @@ export const makeDbInitLayer = (schema: string) =>
 			// Initialize schema
 			yield* initializeDatabaseSchema
 
-			// Create trigger for notes table - split into separate statements to avoid "cannot insert multiple commands into a prepared statement" error
-			yield* createPatchTriggersForTables(["notes"])
+			// Apply deterministic ID and patch triggers to the notes table
+			yield* applySyncTriggers(["notes"])
 
 			// 			// Check current schema
 			// 			const currentSchema = yield* sql<{ current_schema: string }>`SELECT current_schema()`
@@ -98,7 +99,7 @@ export const makeDbInitLayer = (schema: string) =>
 export const testConfig: SynchrotronClientConfigData = {
 	electricSyncUrl: "http://localhost:5133",
 	pglite: {
-		debug: 1,
+		debug: 0,
 		dataDir: "memory://",
 		relaxedDurability: true
 	}
@@ -108,9 +109,12 @@ export const testConfig: SynchrotronClientConfigData = {
  * Create a layer that provides PgLiteClient with Electric extensions based on config
  */
 export const PgLiteClientLive = PgLiteClient.layer({
-	debug: 1,
+	// debug: 1,
 	dataDir: "memory://",
-	relaxedDurability: true
+	relaxedDurability: true,
+	extensions: {
+		uuid_ossp
+	}
 })
 
 const logger = Logger.prettyLogger({ mode: "tty", colors: true })
@@ -240,7 +244,7 @@ export const createTestClient = (id: string, serverSql: PgLiteClient.PgLiteClien
 		} as TestClient
 	}).pipe(Effect.provide(makeTestLayers(id, serverSql)), Effect.annotateLogs("clientId", id))
 export class NoteModel extends Model.Class<NoteModel>("notes")({
-	id: Schema.String,
+	id: Model.Generated(Schema.String),
 	title: Schema.String,
 	content: Schema.String,
 	tags: Schema.Array(Schema.String).pipe(Schema.mutable, Schema.optional),
