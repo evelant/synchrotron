@@ -2,7 +2,7 @@
 
 An opinionated yet flexible approach to offline-first data sync with [PGlite](https://pglite.dev/), [Electric SQL](https://electric-sql.com/), and [Effect](https://effect.website/).
 
-Synchrotron is an offline-first data sync system using Effect-TS, PGlite, and Hybrid Logical Clocks (HLCs). It is unique (as far as I know) in that it executes business logic functions to advance state rather than using patches. It allows for unrestricted offline database operations while still guaranteeing eventual consistency, and all without requiring dedicated conflict resolution code. It operates like a CRDT but at the application level. For more details see [DESIGN.md](DESIGN.md).
+Synchrotron is an offline-first data sync system using Effect-TS, PGlite, and Hybrid Logical Clocks (HLCs). It is unique (as far as I know) in that it executes business logic functions to advance state rather than using patches. It allows for unrestricted offline database operations while still guaranteeing eventual consistency, and all without requiring dedicated conflict resolution code. It operates like a CRDT but at the application level.
 
 ## Status
 
@@ -43,9 +43,9 @@ Core principles:
 
 3. **Action-Based**: All data changes occur through deterministic actions that can be recorded and replayed in the same order
 
-4. **Patch Tracking**: Captures patches for server state advancement and divergence detection, not as the primary synchronization mechanism. Advancing state only through patches can result in "valid" states that are semantically invalid for the application because they're not aware of business logic rules.
+4. **Patch Tracking**: Captures patches for server state advancement and divergence detection, not as the primary synchronization mechanism. Advancing state only through patches can result in "valid" states that are semantically invalid for the application because they're not aware of business logic rules. This is a core problem with traditional CRDTs which this project aims to solve.
 
-5. **Conflict Resolution**: When conflicts occur, rolls back to common ancestor database state and replays actions in global order, letting your normal business logic handle invariants
+5. **Conflict Resolution**: When conflicts occur, rolls back to common ancestor database state and replays actions in global order, letting your normal business logic handle invariants. Preserves user intention to the maximum extent possible.
 
 ## Capabilities
 
@@ -78,6 +78,10 @@ To ensure proper synchronization and avoid inconsistencies there are a few simpl
 - Not a good fit for applications with high write volume data shared between many users. The greater the write volume and number of users writing a piece of data the more action records the system will need to sync and track. This could lead to performance issues. This algorithm is probably better suited to data that is naturally scoped to relatively smaller subsets of users. For high-write volume-broadly-shared data use a traditional through-server write strategy and electric-sql to sync changes.
 - While designed to be broadly applicable and flexible it may not be a good fit for all applications. There is no one-size-fits-all for offline-first writes.
 - It is deeply tied to the [Effect](https://effect.website/) library. Effect offers massive advantages in most areas over plain async TS but not everybody may be in a position to use it.
+
+## Design and brainstorming
+
+For more (less structured and possibly out of date) brainstorming and details see [DESIGN.md](DESIGN.md).
 
 ## License
 
