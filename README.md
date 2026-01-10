@@ -4,7 +4,7 @@ Offline-first sync for Postgres that converges by replaying business logic.
 
 Synchrotron records deterministic _actions_ (your application business logic functions that mutate data) and syncs those, rather than treating row-level patches as the primary source of truth. When clients diverge, they roll back to a common ancestor and replay actions in a global order. This keeps business rules in one place and avoids writing bespoke conflict-resolution handlers.
 
-It is designed to work with private data (Postgres RLS): actions can be conditional on private rows and still converge by emitting SYNC deltas when replay produces different results.
+It is designed to work with private data (Postgres RLS): actions can be conditional on private rows and still converge (per-user view) by emitting SYNC deltas when replay produces different results.
 
 It also depends on a few simple but hard requirements (see Usage). They're not optional.
 
@@ -62,6 +62,7 @@ Synchrotron moves the merge boundary up a level:
 ## TODO
 
 - Add tests for RLS (row level security). The system should work with RLS as-is but it's not tested yet. The design relies on RLS to filter out `action_modified_rows` affecting private data, which prevents unauthorized data from being sent to clients.
+- Formalize SYNC semantics (monotonic/additive deltas) and document recommended RLS policies for `action_records` / `action_modified_rows` (see `docs/planning/todo/0003-sync-action-semantics.md` and `docs/planning/todo/0004-rls-policies.md`).
 - Add end-to-end tests with the example app
 - Add pruning for old action records to prevent unbounded growth. Add a "rebase" function for clients that are offline long enough that they would need pruned actions to catch up.
 - Improve the APIs. They're proof-of-concept level at the moment and could be significantly nicer.

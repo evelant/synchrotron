@@ -117,7 +117,9 @@ Replaying an action can legitimately produce different writes when:
 - branches depend on rows the client cannot see (RLS),
 - logic is conditional on private state.
 
-When patch comparison finds a mismatch, the client emits a SYNC action record containing only the patch delta needed to converge. Incoming SYNC actions are applied directly as patches (no action code to run).
+When patch comparison finds a mismatch, the client may emit a SYNC action record (patch-only) to reconcile outcomes. In the common case (private-data divergence), SYNC is intended to be additive: it adds missing row/field effects that were not present in the received patch set due to partial visibility. Incoming SYNC actions are applied directly as patches (no action code to run).
+
+The exact “monotonic/additive” semantics (and the edge cases when private state influences shared rows) need to be pinned down; see `docs/planning/todo/0003-sync-action-semantics.md`.
 
 ### Conflict detection
 
@@ -165,16 +167,22 @@ Analogy: this is a bit like Git. Find the merge base (common ancestor), rewind t
 
 ## Security and privacy
 
-- PostgreSQL RLS filters both data tables and the action/patch tables.
-- Clients must not receive patches that touch private rows they cannot see.
+- Convergence is defined per-user view (as determined by RLS): for a given user, the user’s visible state converges (different users can legitimately see different overall DB contents).
+- PostgreSQL RLS must protect both application tables and the sync tables (`action_records`, `action_modified_rows`) on reads and writes.
+- Synchrotron does not generate RLS policies; the application must define them for its own data tables.
+- Trust model: clients are assumed honest; the server never runs action logic and largely relies on Postgres constraints + RLS for safety.
+- Clients must not receive patches that touch rows they cannot see; this implies `action_modified_rows` must be filtered by policies that track underlying row visibility (this is currently underspecified; see `docs/planning/todo/0004-rls-policies.md`).
+- `action_records.args` must not leak sensitive data unless `action_records` visibility is scoped similarly (see `docs/planning/todo/0004-rls-policies.md`).
 - Patch verification (for reverse patches) can be enforced server-side with a SECURITY INVOKER function: check that every referenced row is visible under the caller's RLS policy; missing rows imply unauthorized modifications.
 
 Private-data divergence example:
 
 - Client B modifies shared rows and private rows in one action.
-- Client A can only see shared rows; replay can produce different results.
-- Client A emits a SYNC action so shared state converges.
+- Client A can only see shared rows, so it only receives patches for shared rows.
+- A replica with access to the private rows can emit an (additive) SYNC action containing additional patches for those private rows.
 - On rollback, Client B rolls back and replays with its full state, restoring shared + private rows.
+
+Note: if hidden/private state influences writes to shared rows, SYNC can become visible and may leak derived information via shared state; this is application-dependent and should be treated as a design constraint.
 
 Avoiding unintended writes:
 

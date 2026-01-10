@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS action_records (
 	args JSONB NOT NULL,
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 	synced BOOLEAN DEFAULT FALSE,
-	-- Sortable string representation of HLC
-	-- Correctly orders by timestamp, then by version vector, then by client ID alphabetically
+	-- Sortable string representation of HLC (legacy heuristic; scheduled for replacement).
+	-- See `docs/planning/todo/0001-rework-sort-key.md`.
 	sortable_clock TEXT
 );
 
