@@ -1,6 +1,5 @@
 import { KeyValueStore } from "@effect/platform"
 import { HLC } from "@synchrotron/sync-core/HLC"
-import { ActionRecord } from "@synchrotron/sync-core/models"
 import {
 	FetchRemoteActions,
 	SendLocalActions,
@@ -30,9 +29,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 
 				// return { actions: [], modifiedRows: [] }
 				return {
-					actions: result.actions.map(
-						(a) => ActionRecord.make({ ...a, clock: HLC.make(a.clock) } as any) as any
-					),
+					actions: result.actions.map((a) => ({ ...a, clock: HLC.make(a.clock) })),
 					// actions: [],
 					modifiedRows: result.modifiedRows
 				}

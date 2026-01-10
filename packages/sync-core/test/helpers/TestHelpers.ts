@@ -2,7 +2,7 @@ import { SqlClient } from "@effect/sql" // Import Model
 import { PgLiteClient } from "@effect/sql-pglite/PgLiteClient"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry" // Corrected Import
 import { ClockService } from "@synchrotron/sync-core/ClockService"
-import { Effect, Option } from "effect" // Import DateTime
+import { Effect, Option, Schema } from "effect" // Import DateTime
 import { createNoteRepo } from "./TestLayers"
 
 /**
@@ -21,32 +21,46 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 
 		const createNoteAction = actionRegistry.defineAction(
 			"test-create-note",
-			(args: {
-				title: string
-				content: string
-				user_id: string
-				tags?: string[]
-				timestamp: number
-			}) =>
+			Schema.Struct({
+				title: Schema.String,
+				content: Schema.String,
+				user_id: Schema.String,
+				tags: Schema.optional(Schema.Array(Schema.String)),
+				timestamp: Schema.Number
+			}),
+			(args) =>
 				Effect.gen(function* () {
 					yield* Effect.logInfo(`Creating note: ${JSON.stringify(args)} at ${args.timestamp}`)
 
-					return yield* noteRepo.insert({
-						...args,
-						updated_at: new Date(args.timestamp)
-					})
+						const insert: {
+							title: string
+							content: string
+							user_id: string
+							updated_at: Date
+							tags?: string[] | undefined
+						} = {
+							title: args.title,
+							content: args.content,
+							user_id: args.user_id,
+							updated_at: new Date(args.timestamp)
+						}
+
+					if (args.tags) insert.tags = Array.from(args.tags)
+
+					return yield* noteRepo.insert(insert)
 				})
 		)
 
 		const updateTagsAction = actionRegistry.defineAction(
 			"test-update-tags",
-			(args: { id: string; tags: string[]; timestamp: number }) =>
+			Schema.Struct({ id: Schema.String, tags: Schema.Array(Schema.String), timestamp: Schema.Number }),
+			(args) =>
 				Effect.gen(function* () {
 					const note = yield* noteRepo.findById(args.id)
 					if (note._tag === "Some") {
 						yield* noteRepo.updateVoid({
 							...note.value,
-							tags: args.tags,
+							tags: Array.from(args.tags),
 							updated_at: new Date(args.timestamp)
 						})
 					}
@@ -55,7 +69,8 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 
 		const updateContentAction = actionRegistry.defineAction(
 			"test-update-content",
-			(args: { id: string; content: string; timestamp: number }) =>
+			Schema.Struct({ id: Schema.String, content: Schema.String, timestamp: Schema.Number }),
+			(args) =>
 				Effect.gen(function* () {
 					const note = yield* noteRepo.findById(args.id)
 					if (note._tag === "Some") {
@@ -70,7 +85,8 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 
 		const updateTitleAction = actionRegistry.defineAction(
 			"test-update-title",
-			(args: { id: string; title: string; timestamp: number }) =>
+			Schema.Struct({ id: Schema.String, title: Schema.String, timestamp: Schema.Number }),
+			(args) =>
 				Effect.gen(function* () {
 					const note = yield* noteRepo.findById(args.id)
 					if (note._tag === "Some") {
@@ -85,7 +101,13 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 
 		const conditionalUpdateAction = actionRegistry.defineAction(
 			"test-conditional-update",
-			(args: { id: string; baseContent: string; conditionalSuffix?: string; timestamp: number }) =>
+			Schema.Struct({
+				id: Schema.String,
+				baseContent: Schema.String,
+				conditionalSuffix: Schema.optional(Schema.String),
+				timestamp: Schema.Number
+			}),
+			(args) =>
 				Effect.gen(function* () {
 					const clientId = yield* clockService.getNodeId
 					const noteOpt = yield* noteRepo.findById(args.id)
@@ -107,7 +129,8 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 
 		const deleteContentAction = actionRegistry.defineAction(
 			"test-delete-content",
-			(args: { id: string; user_id: string; timestamp: number }) =>
+			Schema.Struct({ id: Schema.String, user_id: Schema.String, timestamp: Schema.Number }),
+			(args) =>
 				Effect.gen(function* () {
 					yield* noteRepo.delete(args.id)
 				})

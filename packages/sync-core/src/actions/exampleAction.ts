@@ -37,7 +37,6 @@ interface CreateNoteArgs extends Record<string, unknown> {
 	title: string
 	content: string
 	tags: string[]
-	timestamp: number
 }
 
 // TypeScript interface for query results
@@ -55,18 +54,19 @@ interface QueryResult<T> {
  */
 export const createNote = Effect.gen(function* () {
 	const registry = yield* ActionRegistry
+	const db = yield* SqlClient.SqlClient
 
-	return registry.defineAction<
-		CreateNoteArgs, // Type of action arguments
-		SqlError.SqlError | NoteError, // Possible error from apply
-		SqlClient.SqlClient
-	>(
+	return registry.defineAction(
 		// Unique tag for this action
 		"notes/createNote",
+		Schema.Struct({
+			title: Schema.String,
+			content: Schema.String,
+			tags: Schema.Array(Schema.String),
+			timestamp: Schema.Number
+		}),
 		({ title, content, tags }) =>
 			Effect.gen(function* () {
-				const db = yield* SqlClient.SqlClient
-
 				const id = crypto.randomUUID()
 				const now = new Date()
 

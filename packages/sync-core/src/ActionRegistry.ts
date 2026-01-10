@@ -11,9 +11,9 @@ export class UnknownActionError extends Schema.TaggedError<UnknownActionError>()
 	}
 ) {}
 
-export type ActionCreator = <A1, A extends Record<string, unknown> = any, EE = any, R = never>(
-	args: A
-) => Action<A1, A, EE, R>
+export type ActionCreator = (
+	args: Record<string, unknown>
+) => Action<unknown, Record<string, unknown>, unknown, never>
 
 /**
  * ActionRegistry Service
@@ -63,52 +63,51 @@ export class ActionRegistry extends Effect.Service<ActionRegistry>()("ActionRegi
 		/**
 		 * Helper to create a type-safe action definition that automatically registers with the registry
 		 */
-		// A represents the arguments provided by the caller (without timestamp)
-		const defineAction = <
-			A1,
-			A extends Record<string, unknown> & { timestamp: number },
-			EE,
-			R = never
-		>(
+		const defineAction = <A1, A extends Record<string, unknown> & { timestamp: number }, EE>(
 			tag: string,
-			actionFn: (args: A) => Effect.Effect<A1, EE, R> // The implementation receives timestamp
+			argsSchema: Schema.Schema<A>,
+			actionFn: (args: A) => Effect.Effect<A1, EE, never>
 		) => {
-			// Create action constructor function
-			// createAction now accepts the full arguments object 'A', including the timestamp
-			const createAction = (
-				args: Omit<A, "timestamp"> & { timestamp?: number | undefined }
-			): Action<A1, A, EE, R> => {
-				if (typeof args.timestamp !== "number") {
-					// If timestamp is not provided, use the current timestamp
-					args.timestamp = Date.now()
-				}
-				return {
-					_tag: tag,
-					// The execute function now takes no parameters.
-					// It uses the 'args' captured in this closure when createAction was called.
-					execute: () => actionFn(args as any),
-					// Store the full args object (including timestamp) that was used to create this action instance.
-					args: args as any
-				}
+			type ArgsWithoutTimestamp = Omit<A, "timestamp">
+
+			const decodeArgs = (args: Record<string, unknown>): A => {
+				const timestamp = typeof args.timestamp === "number" ? args.timestamp : Date.now()
+				return Schema.decodeUnknownSync(argsSchema)({ ...args, timestamp })
 			}
 
-			// Automatically register the action creator in the registry
-			registerActionCreator(tag, createAction as ActionCreator)
+			const createActionFromRecord = (args: Record<string, unknown>): Action<A1, A, EE, never> => {
+				const decodedArgs = decodeArgs(args)
+				Object.freeze(decodedArgs)
 
-			// Return the action creator function
+				const action: Action<A1, A, EE, never> = {
+					_tag: tag,
+					execute: () => actionFn(decodedArgs),
+					args: decodedArgs
+				}
+				Object.freeze(action)
+				return action
+			}
+
+			const createAction = (
+				args: ArgsWithoutTimestamp & { timestamp?: number | undefined }
+			): Action<A1, A, EE, never> => createActionFromRecord(args)
+
+			registerActionCreator(tag, createActionFromRecord)
+
 			return createAction
 		}
 
 		const rollbackAction = defineAction(
 			"RollbackAction",
+			Schema.Struct({ target_action_id: Schema.NullOr(Schema.String), timestamp: Schema.Number }),
 			// Args: only target_action_id and timestamp are needed for the record
-			(args: { target_action_id: string; timestamp: number }) =>
+			(args: { target_action_id: string | null; timestamp: number }) =>
 				Effect.gen(function* () {
 					// This action's execute method now only records the event.
 					// The actual database state rollback happens in SyncService.rollbackToCommonAncestor
 					// *before* this action is executed.
 					yield* Effect.logInfo(
-						`Executing no-op RollbackAction targeting ancestor: ${args.target_action_id}`
+						`Executing no-op RollbackAction targeting ancestor: ${args.target_action_id ?? "<genesis>"}`
 					)
 					// No database operations or trigger disabling needed here.
 				})

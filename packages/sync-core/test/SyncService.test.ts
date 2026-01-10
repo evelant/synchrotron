@@ -6,7 +6,7 @@ import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { ActionRecord } from "@synchrotron/sync-core/models"
 import { ActionExecutionError, SyncService } from "@synchrotron/sync-core/SyncService" // Corrected import path
-import { Effect, Option } from "effect" // Import DateTime
+import { Effect, Option, Schema } from "effect" // Import DateTime
 import { expect } from "vitest"
 import { createTestClient, makeTestLayers } from "./helpers/TestLayers" // Removed TestServices import
 
@@ -25,7 +25,8 @@ describe("SyncService", () => {
 				let executed = false
 				const testAction = actionRegistry.defineAction(
 					"test-execute-action",
-					(args: { value: number; timestamp: number }) =>
+					Schema.Struct({ value: Schema.Number, timestamp: Schema.Number }),
+					() =>
 						Effect.sync(() => {
 							executed = true
 						})
@@ -66,8 +67,10 @@ describe("SyncService", () => {
 				const syncService = yield* SyncService
 				const actionRegistry = yield* ActionRegistry
 				// Define an action that will fail
-				const failingAction = actionRegistry.defineAction("test-failing-action", (_: {}) =>
-					Effect.fail(new Error("Test error"))
+				const failingAction = actionRegistry.defineAction(
+					"test-failing-action",
+					Schema.Struct({ timestamp: Schema.Number }),
+					() => Effect.fail(new Error("Test error"))
 				)
 
 				// Create action instance
@@ -100,7 +103,8 @@ describe("SyncService", () => {
 				// Define and execute multiple test actions
 				const testAction = actionRegistry.defineAction(
 					"test-sync-action",
-					(args: { value: string; timestamp: number }) =>
+					Schema.Struct({ value: Schema.String, timestamp: Schema.Number }),
+					() =>
 						Effect.sync(() => {
 							/* simulate some work */
 						})
@@ -219,7 +223,8 @@ describe("SyncService", () => {
 				// Define and execute a test action
 				const testAction = actionRegistry.defineAction(
 					"test-cleanup-action",
-					(_: {}) => Effect.void
+					Schema.Struct({ timestamp: Schema.Number }),
+					() => Effect.void
 				)
 
 				const action = testAction({})

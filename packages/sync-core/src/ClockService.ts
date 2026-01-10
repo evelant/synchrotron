@@ -85,12 +85,17 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			})
 
 			yield* sql`
-				INSERT INTO client_sync_status ${sql.insert({
-					client_id: initialStatus.client_id,
-					current_clock: initialStatus.current_clock as any,
-					last_synced_clock: initialStatus.last_synced_clock as any,
-					last_seen_server_ingest_id: initialStatus.last_seen_server_ingest_id
-				})}
+				INSERT INTO client_sync_status (
+					client_id,
+					current_clock,
+					last_synced_clock,
+					last_seen_server_ingest_id
+				) VALUES (
+					${initialStatus.client_id},
+					${JSON.stringify(initialStatus.current_clock)}::jsonb,
+					${JSON.stringify(initialStatus.last_synced_clock)}::jsonb,
+					${initialStatus.last_seen_server_ingest_id}
+				)
 				ON CONFLICT (client_id)
 				DO NOTHING
 			`

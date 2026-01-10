@@ -66,7 +66,7 @@ Backend state:
 
 ## Components
 
-- Action registry: maps `_tag` -> action implementation (in the current implementation, actions are registered and replayed via an Effect service).
+- Action registry: maps `_tag` -> action implementation (today: `ActionRegistry.defineAction(tag, argsSchema, fn)` validates/decodes args via Effect Schema and injects a `timestamp` for recording + replay).
 - Database access layer: built on `@effect/sql` models/repositories.
 - Trigger system:
   - deterministic ID trigger (BEFORE INSERT)

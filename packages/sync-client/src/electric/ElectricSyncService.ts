@@ -3,14 +3,10 @@ import type { Row } from "@electric-sql/client"
 
 import { isChangeMessage, isControlMessage } from "@electric-sql/client"
 import { TransactionalMultiShapeStream, type MultiShapeMessages } from "@electric-sql/experimental"
-import {
-	SyncService,
-	type ActionModifiedRowJson,
-	type ActionRecordJson
-} from "@synchrotron/sync-core"
+import { SyncService } from "@synchrotron/sync-core"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
-import { Effect, Schema, Stream } from "effect"
+import { Effect, Ref, Schema, Stream } from "effect"
 
 export class ElectricSyncError extends Schema.TaggedError<ElectricSyncError>()(
 	"ElectricSyncError",
@@ -29,14 +25,15 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 			const syncService = yield* SyncService
 			const config = yield* SynchrotronClientConfig
 			const sql = yield* PgLiteClient.PgLiteClient
+			const fullySyncedRef = yield* Ref.make(false)
 			const electricUrl = config.electricSyncUrl
 			yield* Effect.logInfo(`Creating TransactionalMultiShapeStream`)
 
 			const multiShapeStream = yield* Effect.tryPromise({
 				try: async () => {
 					return new TransactionalMultiShapeStream<{
-						action_records: Row<ActionRecordJson>
-						action_modified_rows: Row<ActionModifiedRowJson>
+						action_records: Row
+						action_modified_rows: Row
 					}>({
 						shapes: {
 							action_records: {
@@ -60,8 +57,8 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 			// Create a single stream for all shape messages
 			const multiShapeMessagesStream = Stream.asyncScoped<
 				MultiShapeMessages<{
-					action_records: Row<ActionRecordJson>
-					action_modified_rows: Row<ActionModifiedRowJson>
+					action_records: Row
+					action_modified_rows: Row
 				}>[],
 				ElectricSyncError
 			>((emit) =>
@@ -102,12 +99,59 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 				Stream.flatMap((messages) =>
 					Stream.fromEffect(
 						Effect.gen(function* () {
+							const requireString = (row: Row, key: string): string => {
+								const value = row[key]
+								if (typeof value === "string") return value
+								throw new ElectricSyncError({
+									message: `Expected "${key}" to be a string, got: ${typeof value}`,
+									cause: value
+								})
+							}
+
+							const optionalNumberFromValue = (row: Row, key: string): number | null => {
+								const value = row[key]
+								if (value === null || value === undefined) return null
+								if (typeof value === "number") return value
+								if (typeof value === "bigint") return Number(value)
+								if (typeof value === "string") {
+									const parsed = Number(value)
+									if (Number.isFinite(parsed)) return parsed
+								}
+								throw new ElectricSyncError({
+									message: `Expected "${key}" to be a number, bigint, stringified number, or null`,
+									cause: value
+								})
+							}
+
+							const requireNumberFromValue = (row: Row, key: string): number => {
+								const value = row[key]
+								if (typeof value === "number") return value
+								if (typeof value === "bigint") return Number(value)
+								if (typeof value === "string") {
+									const parsed = Number(value)
+									if (Number.isFinite(parsed)) return parsed
+								}
+								throw new ElectricSyncError({
+									message: `Expected "${key}" to be a number, bigint, or stringified number`,
+									cause: value
+								})
+							}
+
+							const requireBoolean = (row: Row, key: string): boolean => {
+								const value = row[key]
+								if (typeof value === "boolean") return value
+								throw new ElectricSyncError({
+									message: `Expected "${key}" to be a boolean, got: ${typeof value}`,
+									cause: value
+								})
+							}
+
 							// Group messages by shape
 							const actionRecordsMessages: MultiShapeMessages<{
-								action_records: Row<ActionRecordJson>
+								action_records: Row
 							}>[] = []
 							const actionModifiedRowsMessages: MultiShapeMessages<{
-								action_modified_rows: Row<ActionModifiedRowJson>
+								action_modified_rows: Row
 							}>[] = []
 							let allShapesUpToDate = true
 
@@ -119,14 +163,28 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 									// Only insert if it's a change message (not a control message)
 									if (!isControlMessage(message)) {
 										// Insert with ON CONFLICT DO NOTHING
-										// Cast to any to work around type issues with ChangeMessage
 										const row = message.value
-										yield* Effect.flatMap(
-											sql`
-												INSERT INTO action_records ${sql.insert(row as any)} ON CONFLICT (id) DO NOTHING
-											`,
-											() => Effect.succeed(undefined)
-										)
+										const id = requireString(row, "id")
+										const tag = requireString(row, "_tag")
+										const clientId = requireString(row, "client_id")
+										const transactionId = requireNumberFromValue(row, "transaction_id")
+										const serverIngestId = optionalNumberFromValue(row, "server_ingest_id")
+										const createdAt = new Date(String(row["created_at"]))
+										const synced = requireBoolean(row, "synced")
+										yield* sql`
+											INSERT INTO action_records ${sql.insert({
+												server_ingest_id: serverIngestId,
+												id,
+												_tag: tag,
+												client_id: clientId,
+												transaction_id: transactionId,
+												clock: sql.json(row["clock"]),
+												args: sql.json(row["args"]),
+												created_at: createdAt,
+												synced
+											})}
+											ON CONFLICT (id) DO NOTHING
+										`
 									}
 								} else if (isChangeMessage(message) && message.shape === "action_modified_rows") {
 									actionModifiedRowsMessages.push(message)
@@ -134,14 +192,26 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 									// Only insert if it's a change message (not a control message)
 									if (!isControlMessage(message)) {
 										// Insert with ON CONFLICT DO NOTHING
-										// Cast to any to work around type issues with ChangeMessage
 										const row = message.value
-										yield* Effect.flatMap(
-											sql`
-												INSERT INTO action_modified_rows ${sql.insert(row as any)} ON CONFLICT (id) DO NOTHING
-											`,
-											() => Effect.succeed(undefined)
-										)
+										const id = requireString(row, "id")
+										const tableName = requireString(row, "table_name")
+										const rowId = requireString(row, "row_id")
+										const actionRecordId = requireString(row, "action_record_id")
+										const operation = requireString(row, "operation")
+										const sequence = requireNumberFromValue(row, "sequence")
+										yield* sql`
+											INSERT INTO action_modified_rows ${sql.insert({
+												id,
+												table_name: tableName,
+												row_id: rowId,
+												action_record_id: actionRecordId,
+												operation,
+												forward_patches: sql.json(row["forward_patches"]),
+												reverse_patches: sql.json(row["reverse_patches"]),
+												sequence
+											})}
+											ON CONFLICT (id) DO NOTHING
+										`
 									}
 								}
 							}
@@ -160,6 +230,7 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 								yield* Effect.logInfo(
 									"All shapes in multi-stream are synced. Triggering performSync."
 								)
+								yield* Ref.set(fullySyncedRef, true)
 								yield* syncService.performSync()
 							}
 
@@ -177,7 +248,9 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 
 			yield* Effect.logInfo(`ElectricSyncService created`)
 
-			return {}
+			return {
+				isFullySynced: () => Ref.get(fullySyncedRef)
+			} as const
 		})
 	}
 ) {}

@@ -59,12 +59,12 @@ describe("Reliable fetch cursor (server_ingest_id)", () => {
 				yield* clientA.syncService.performSync()
 
 				const lastSyncedClock = yield* clientA.clockService.getLastSyncedClock
-				expect(actionBOld.clock.timestamp).toBeLessThan(lastSyncedClock.timestamp)
+					expect(actionBOld.clock.timestamp).toBeLessThan(lastSyncedClock.timestamp)
 
-				const compare = yield* serverSql<{ result: number }>`
-					SELECT compare_hlc(${serverSql.json(actionBOld.clock as any)}, ${serverSql.json(lastSyncedClock as any)}) as result
-				`
-				expect(compare[0]?.result).toBeLessThan(0)
+					const compare = yield* serverSql<{ result: number }>`
+						SELECT compare_hlc(${serverSql.json(actionBOld.clock)}, ${serverSql.json(lastSyncedClock)}) as result
+					`
+					expect(compare[0]?.result).toBeLessThan(0)
 
 				// Upload the offline action late (server assigns a new server_ingest_id).
 				yield* clientB.syncService.performSync()
@@ -80,4 +80,3 @@ describe("Reliable fetch cursor (server_ingest_id)", () => {
 			}).pipe(Effect.provide(makeTestLayers("server")))
 	)
 })
-

@@ -77,4 +77,4 @@ const Main = HttpRouter.Default.serve(middlewares).pipe(
 	Layer.provide(BunHttpServer.layer({ port: 3010 }))
 )
 
-BunRuntime.runMain(Layer.launch(Main2) as any)
+BunRuntime.runMain(Layer.launch(Main2).pipe(Effect.scoped))

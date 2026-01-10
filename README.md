@@ -88,6 +88,8 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
     yield * applySyncTriggers(["notes", "todos", "other_synced_table"])
     ```
 2.  **Action Determinism:** Actions must be deterministic aside from database operations. Capture any non-deterministic inputs (like current time, random values, user context not in the database, network call results, etc.) as arguments passed into the action. The `timestamp` argument (`Date.now()`) is automatically provided. Row IDs are generated automatically and deterministically on insert by hashing row content. You have full access to the database in actions, no restrictions on reads or writes.
+    - Actions are defined via `ActionRegistry.defineAction(tag, argsSchema, fn)`.
+    - `argsSchema` must include `timestamp: Schema.Number`, but the returned action creator accepts `timestamp` optionally; it is injected automatically when you create an action (and preserved for replay).
 3.  **Mutations via Actions:** All modifications (INSERT, UPDATE, DELETE) to synchronized tables _must_ be performed exclusively through actions executed via `SyncService.executeAction`. Direct database manipulation outside of actions will bypass the tracking mechanism and lead to inconsistencies.
 4.  **No Manual IDs:** Do not manually provide or set the `id` column when inserting rows within an action. The system relies on the automatic, trigger-based deterministic ID generation to ensure consistency across clients. Remove any `DEFAULT` clauses for ID columns in your table schemas.
 

@@ -41,6 +41,7 @@ vite.config.ts.timestamp-*
 
 # Temp
 gitignore
+repomix-output.md
 
 # System Files
 .DS_Store

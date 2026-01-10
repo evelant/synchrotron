@@ -178,40 +178,51 @@ export const createTestSyncNetworkServiceLayer = (
 							yield* Effect.logInfo(
 								`Server Simulation: Received ${incomingRollbacks.length} RollbackAction(s). Determining oldest target.`
 							)
-							// Extract target_action_id from args
-							const targetActionIds = incomingRollbacks.map(
-								// Access target_action_id safely using bracket notation and cast
-								(rb) => rb.args["target_action_id"] as string
+							const rollbackTargets = incomingRollbacks.map((rb) => rb.args["target_action_id"])
+							const hasGenesisRollback = rollbackTargets.some((id) => id === null)
+							const targetActionIds = rollbackTargets.filter(
+								(id): id is string => typeof id === "string"
 							)
 
-							// Fetch the target actions to compare their clocks
-							const targetActions = yield* serverSql<ActionRecord>`
-								SELECT * FROM action_records WHERE id IN ${sql.in(targetActionIds)}
-							`
+							if (hasGenesisRollback) {
+								yield* Effect.logInfo(
+									"Server Simulation: Received RollbackAction targeting genesis. Rolling back server state to genesis."
+								)
+								yield* serverSql`SELECT rollback_to_action(${null})`
+							} else if (targetActionIds.length > 0) {
+								// Fetch the target actions to compare their clocks
+								const targetActions = yield* serverSql<ActionRecord>`
+									SELECT * FROM action_records WHERE id IN ${sql.in(targetActionIds)}
+								`
 
-							if (targetActions.length > 0) {
-								// Sort targets by clock to find the oldest
-								const sortedTargets = targetActions
-									// Map to the structure expected by compareClock
-									.map((a) => ({ clock: a.clock, clientId: a.client_id, id: a.id }))
-									.sort((a, b) => clockService.compareClock(a, b)) // Sort ascending (oldest first)
+								if (targetActions.length > 0) {
+									// Sort targets by clock to find the oldest
+									const sortedTargets = targetActions
+										// Map to the structure expected by compareClock
+										.map((a) => ({ clock: a.clock, clientId: a.client_id, id: a.id }))
+										.sort((a, b) => clockService.compareClock(a, b)) // Sort ascending (oldest first)
 
-								const oldestTargetAction = sortedTargets[0]
-								if (oldestTargetAction) {
-									yield* Effect.logInfo(
-										`Server Simulation: Rolling back server state to target action: ${oldestTargetAction.id}`
-									)
-									// Call the rollback function on the server DB
-									yield* serverSql`SELECT rollback_to_action(${oldestTargetAction.id})`
+									const oldestTargetAction = sortedTargets[0]
+									if (oldestTargetAction) {
+										yield* Effect.logInfo(
+											`Server Simulation: Rolling back server state to target action: ${oldestTargetAction.id}`
+										)
+										// Call the rollback function on the server DB
+										yield* serverSql`SELECT rollback_to_action(${oldestTargetAction.id})`
+									} else {
+										// Should not happen if targetActions.length > 0
+										yield* Effect.logWarning(
+											"Server Simulation: Could not determine the oldest target action for rollback."
+										)
+									}
 								} else {
-									// Should not happen if targetActions.length > 0
 									yield* Effect.logWarning(
-										"Server Simulation: Could not determine the oldest target action for rollback."
+										`Server Simulation: Received RollbackAction(s) but could not find target action(s) with IDs: ${targetActionIds.join(", ")}`
 									)
 								}
 							} else {
 								yield* Effect.logWarning(
-									`Server Simulation: Received RollbackAction(s) but could not find target action(s) with IDs: ${targetActionIds.join(", ")}`
+									"Server Simulation: Received RollbackAction(s) without a valid target_action_id."
 								)
 							}
 						}
@@ -412,13 +423,13 @@ export const createTestSyncNetworkServiceLayer = (
 										server_ingest_id: action.server_ingest_id,
 										_tag: action._tag,
 										client_id: action.client_id,
-										transaction_id: action.transaction_id,
-										clock: sql.json(action.clock), // Ensure clock is JSON
-										args: sql.json(action.args), // Ensure args are JSON
-										created_at: action.created_at as any as Date, // Cast to bypass TS, assuming runtime value is Date
-										synced: true // Mark as synced locally
-									})} ON CONFLICT (id) DO UPDATE SET synced = true` // Update status on conflict
-								}
+											transaction_id: action.transaction_id,
+											clock: sql.json(action.clock), // Ensure clock is JSON
+											args: sql.json(action.args), // Ensure args are JSON
+											created_at: new Date(action.created_at),
+											synced: true // Mark as synced locally
+										})} ON CONFLICT (id) DO UPDATE SET synced = true` // Update status on conflict
+									}
 
 								// Insert Modified Rows
 								for (const row of fetchedData.modifiedRows) {

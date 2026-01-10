@@ -1,6 +1,6 @@
 import { it, describe } from "@effect/vitest" // Import describe
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { makeTestLayers } from "./helpers/TestLayers"
 import { expect } from "vitest"
 
@@ -17,7 +17,8 @@ describe("ActionRegistry", () => {
 				// Define a test action
 				const testAction = registry.defineAction(
 					"test-action",
-					(args: { value: number; timestamp: number }) => Effect.void
+					Schema.Struct({ value: Schema.Number, timestamp: Schema.Number }),
+					() => Effect.void
 				)
 
 				// Check that the action was registered
@@ -42,7 +43,8 @@ describe("ActionRegistry", () => {
 				// Define a test action that sets the flag when executed
 				const testAction = registry.defineAction(
 					"test-apply-action",
-					(args: { value: number; timestamp: number }) =>
+					Schema.Struct({ value: Schema.Number, timestamp: Schema.Number }),
+					() =>
 						Effect.sync(() => {
 							executed = true
 							return
@@ -92,7 +94,8 @@ describe("ActionRegistry", () => {
 				// Define a test action
 				const testAction = registry.defineAction(
 					"test-retrieve-action",
-					(args: { value: string; timestamp: number }) => Effect.void
+					Schema.Struct({ value: Schema.String, timestamp: Schema.Number }),
+					() => Effect.void
 				)
 
 				// Get the action creator from the registry
@@ -101,9 +104,10 @@ describe("ActionRegistry", () => {
 				// Should return the same action creator
 				expect(retrievedCreator).toBeDefined()
 
-				// Create actions with both creators and compare
-				const originalAction = testAction({ value: "test" })
-				const retrievedAction = retrievedCreator!({ value: "test" })
+					// Create actions with both creators and compare
+					const timestamp = Date.now()
+					const originalAction = testAction({ value: "test", timestamp })
+					const retrievedAction = retrievedCreator!({ value: "test", timestamp })
 
 				expect(retrievedAction._tag).toBe(originalAction._tag)
 				expect(retrievedAction.args).toEqual(originalAction.args)
@@ -123,28 +127,15 @@ describe("ActionRegistry", () => {
 				// Define a test action
 				const testAction = registry.defineAction(
 					"test-immutable-action",
-					(args: { value: number; timestamp: number }) => Effect.void
+					Schema.Struct({ value: Schema.Number, timestamp: Schema.Number }),
+					() => Effect.void
 				)
 
 				// Create an action instance
 				const action = testAction({ value: 42 })
 
-				// Attempt to modify the action (this shouldn't be allowed in TypeScript)
-				// but we can verify the behavior in a test
-				const actionAny = action as any
-
-				// Store original values
-				const originalTag = action._tag
-				const originalArgs = { ...action.args }
-
-				// Try to modify
-				actionAny._tag = "modified-tag"
-				actionAny.args.value = 100
-
-				// Apply the action and check if modifications had any effect
-				// on the execution (they shouldn't)
-				const gotActionCreator = registry.getActionCreator(originalTag)
-				expect(gotActionCreator).toBeDefined()
+				expect(Object.isFrozen(action)).toBe(true)
+				expect(Object.isFrozen(action.args)).toBe(true)
 
 				// Clean up
 				registry.removeActionCreator("test-immutable-action")

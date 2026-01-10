@@ -100,7 +100,8 @@ describe("Basic Action Execution", () => {
 				// Define an action that will fail
 				const failingAction = registry.defineAction(
 					"test-failing-transaction",
-					(args: { timestamp: number }) =>
+					Schema.Struct({ timestamp: Schema.Number }),
+					(args) =>
 						Effect.gen(function* () {
 							// First insert a note
 							yield* noteRepo.insert(

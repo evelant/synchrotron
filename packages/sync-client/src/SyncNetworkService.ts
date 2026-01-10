@@ -69,13 +69,39 @@ export const SyncNetworkServiceLive = Layer.scoped(
 				)
 				yield* Effect.all(
 					actions.actions.map(
-						(a) => sql`insert into action_records ${sql.insert(a as any)} ON CONFLICT DO NOTHING`
+						(a) =>
+							sql`
+								INSERT INTO action_records ${sql.insert({
+									server_ingest_id: a.server_ingest_id,
+									id: a.id,
+									_tag: a._tag,
+									client_id: a.client_id,
+									transaction_id: a.transaction_id,
+									clock: sql.json(a.clock),
+									args: sql.json(a.args),
+									created_at: new Date(a.created_at),
+									synced: true
+								})}
+								ON CONFLICT (id) DO NOTHING
+							`
 					)
 				)
 				yield* Effect.all(
 					actions.modifiedRows.map(
 						(a) =>
-							sql`insert into action_modified_rows ${sql.insert(a as any)} ON CONFLICT DO NOTHING`
+							sql`
+								INSERT INTO action_modified_rows ${sql.insert({
+									id: a.id,
+									table_name: a.table_name,
+									row_id: a.row_id,
+									action_record_id: a.action_record_id,
+									operation: a.operation,
+									forward_patches: sql.json(a.forward_patches),
+									reverse_patches: sql.json(a.reverse_patches),
+									sequence: a.sequence
+								})}
+								ON CONFLICT (id) DO NOTHING
+							`
 					)
 				)
 				return actions

@@ -1,31 +1,8 @@
-import { Effect, Option, Array } from "effect"
+import { Effect, Option, Array, Schema } from "effect"
 import { ActionRegistry } from "@synchrotron/sync-core"
 import { TodoRepo } from "./db/repositories"
 import { Todo } from "./db/schema"
 import { SqlClient } from "@effect/sql"
-
-type CreateTodoArgs = {
-  timestamp: number
-  owner_id: string
-  text: string
-}
-type ToggleTodoArgs = {
-  timestamp: number
-  id: string
-}
-type UpdateTodoTextArgs = {
-  timestamp: number
-  id: string
-  text: string
-}
-type DeleteTodoArgs = {
-  timestamp: number
-  id: string
-}
-type ClearCompletedArgs = {
-  timestamp: number
-  owner_id: string
-}
 
 export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
   effect: Effect.gen(function* () {
@@ -35,7 +12,12 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 
     const createTodoAction = registry.defineAction(
       "CreateTodo",
-      (args: CreateTodoArgs) =>
+      Schema.Struct({
+        timestamp: Schema.Number,
+        owner_id: Schema.String,
+        text: Schema.String,
+      }),
+      (args) =>
         Effect.gen(function* () {
           const { timestamp, ...insertData } = args
           yield* todoRepo.insert({
@@ -47,7 +29,11 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 
     const toggleTodoCompletionAction = registry.defineAction(
       "ToggleTodoCompletion",
-      (args: ToggleTodoArgs) =>
+      Schema.Struct({
+        timestamp: Schema.Number,
+        id: Schema.String,
+      }),
+      (args) =>
         Effect.gen(function* () {
           const result =
             yield* sql<Todo>`SELECT * FROM todos WHERE id = ${args.id}`
@@ -64,7 +50,12 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 
     const updateTodoTextAction = registry.defineAction(
       "UpdateTodoText",
-      (args: UpdateTodoTextArgs) =>
+      Schema.Struct({
+        timestamp: Schema.Number,
+        id: Schema.String,
+        text: Schema.String,
+      }),
+      (args) =>
         Effect.gen(function* () {
           const result =
             yield* sql<Todo>`SELECT * FROM todos WHERE id = ${args.id}`
@@ -80,7 +71,11 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 
     const deleteTodoAction = registry.defineAction(
       "DeleteTodo",
-      (args: DeleteTodoArgs) =>
+      Schema.Struct({
+        timestamp: Schema.Number,
+        id: Schema.String,
+      }),
+      (args) =>
         Effect.gen(function* () {
           yield* todoRepo.delete(args.id)
         })
@@ -88,7 +83,11 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 
     const clearCompletedTodosAction = registry.defineAction(
       "ClearCompletedTodos",
-      (args: ClearCompletedArgs) =>
+      Schema.Struct({
+        timestamp: Schema.Number,
+        owner_id: Schema.String,
+      }),
+      (args) =>
         Effect.gen(function* () {
           yield* sql`DELETE FROM todos WHERE completed = ${true} AND owner_id = ${args.owner_id}`
         })
