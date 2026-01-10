@@ -2,6 +2,7 @@ import { SqlClient } from "@effect/sql"
 import { PgLiteClient } from "@effect/sql-pglite"
 import { describe, it } from "@effect/vitest" // Import describe
 import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
 import { applySyncTriggers } from "@synchrotron/sync-core/db"
 import { ActionModifiedRow } from "@synchrotron/sync-core/models"
 import { Effect } from "effect"
@@ -11,7 +12,7 @@ import { makeTestLayers } from "./helpers/TestLayers"
 // Use describe instead of it.layer
 describe("Clock Operations", () => {
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should correctly increment clock with single client",
 		() =>
 			Effect.gen(function* (_) {
@@ -35,7 +36,7 @@ describe("Clock Operations", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should correctly merge clocks from different clients",
 		() =>
 			Effect.gen(function* (_) {
@@ -99,7 +100,7 @@ describe("Clock Operations", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should correctly compare clocks",
 		() =>
 			Effect.gen(function* (_) {
@@ -143,7 +144,7 @@ describe("Clock Operations", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should use client ID as tiebreaker when comparing identical clocks",
 		() =>
 			Effect.gen(function* (_) {
@@ -169,7 +170,7 @@ describe("Clock Operations", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should sort clocks correctly",
 		() =>
 			Effect.gen(function* (_) {
@@ -194,7 +195,7 @@ describe("Clock Operations", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should find latest common clock",
 		() =>
 			Effect.gen(function* (_) {
@@ -276,7 +277,7 @@ describe("Clock Operations", () => {
 describe("DB Reverse Patch Functions", () => {
 	// Test setup and core functionality
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should correctly create tables and initialize triggers",
 		() =>
 			Effect.gen(function* () {
@@ -387,11 +388,12 @@ describe("DB Reverse Patch Functions", () => {
 
 	// Test patch generation for INSERT operations
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should generate patches for INSERT operations",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient
+				const deterministicId = yield* DeterministicId
 
 				yield* Effect.gen(function* () {
 					// Begin a transaction to ensure consistent txid
@@ -409,16 +411,19 @@ describe("DB Reverse Patch Functions", () => {
 
 					const actionId = actionResult[0]!.id
 
-					// Set context for the deterministic ID trigger before the insert
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${actionId}, true), set_config('sync.collision_map', '{}', true)`
-
-					// Insert a row in the notes table
-					const insertNoteResult = yield* sql<{ id: string }>`
-						INSERT INTO notes (title, content, user_id)
-						VALUES ('Test Note', 'This is a test note', 'user1')
-						RETURNING id
+					const noteRow = {
+						title: "Test Note",
+						content: "This is a test note",
+						user_id: "user1"
+					} as const
+					const noteId = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id)
+						VALUES (${noteId}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
 					`
-					const noteId = insertNoteResult[0]!.id
 
 					// Commit transaction
 					// yield* sql`COMMIT` // Removed commit as it's handled by withTransaction
@@ -460,11 +465,12 @@ describe("DB Reverse Patch Functions", () => {
 
 	// Test patch generation for UPDATE operations
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should generate patches for UPDATE operations",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient
+				const deterministicId = yield* DeterministicId
 
 				// Execute everything in a single transaction to maintain consistent transaction ID
 				const result = yield* Effect.gen(function* () {
@@ -480,16 +486,20 @@ describe("DB Reverse Patch Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
-					// Set context for the deterministic ID trigger before the insert/update
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${actionId}, true), set_config('sync.collision_map', '{}', true)`
-
 					// First, create a note
-					const insertNoteResult = yield* sql<{ id: string }>`
-						INSERT INTO notes (title, content, user_id)
-						VALUES ('Original Title', 'Original Content', 'user1')
-						RETURNING id
+					const noteRow = {
+						title: "Original Title",
+						content: "Original Content",
+						user_id: "user1"
+					} as const
+					const noteId = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id)
+						VALUES (${noteId}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
 					`
-					const noteId = insertNoteResult[0]!.id
 
 					// Then update the note (still in the same transaction)
 					yield* sql`
@@ -551,11 +561,12 @@ describe("DB Reverse Patch Functions", () => {
 
 	// Test patch generation for DELETE operations
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should generate patches for DELETE operations",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient
+				const deterministicId = yield* DeterministicId
 
 				// First transaction: Create an action record and note
 				const noteId = yield* Effect.gen(function* () {
@@ -571,16 +582,20 @@ describe("DB Reverse Patch Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
-					// Set context for the deterministic ID trigger before the insert
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${actionId}, true), set_config('sync.collision_map', '{}', true)`
-
-					// Create a note to delete and get its ID
-					const insertNoteResult = yield* sql<{ id: string }>`
-						INSERT INTO notes (title, content, user_id)
-						VALUES ('Note to Delete', 'This note will be deleted', 'user1')
-						RETURNING id
+					const noteRow = {
+						title: "Note to Delete",
+						content: "This note will be deleted",
+						user_id: "user1"
+					} as const
+					const noteId = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id)
+						VALUES (${noteId}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
 					`
-					return insertNoteResult[0]!.id // Pass the noteId to the next transaction
+					return noteId
 				}).pipe(sql.withTransaction)
 
 				// Second transaction: Create an action record and delete the note
@@ -597,9 +612,6 @@ describe("DB Reverse Patch Functions", () => {
 					RETURNING id, transaction_id
 				`
 					const actionId = actionResult[0]!.id
-
-					// Set context for the deterministic ID trigger before the delete
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${actionId}, true), set_config('sync.collision_map', '{}', true)`
 
 					// Delete the note in the same transaction
 					yield* sql`
@@ -647,11 +659,12 @@ describe("DB Reverse Patch Functions", () => {
 
 	// Test applying forward patches
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should apply forward patches correctly",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient
+				const deterministicId = yield* DeterministicId
 
 				// First transaction: Create an action record and note
 				const noteId = yield* Effect.gen(function* () {
@@ -667,16 +680,20 @@ describe("DB Reverse Patch Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
-					// Set context for the deterministic ID trigger before the insert
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${actionId}, true), set_config('sync.collision_map', '{}', true)`
-
-					// Create a note and get its ID
-					const insertNoteResult = yield* sql<{ id: string }>`
-						INSERT INTO notes (title, content, user_id)
-						VALUES ('Original Title', 'Original Content', 'user1')
-						RETURNING id
+					const noteRow = {
+						title: "Original Title",
+						content: "Original Content",
+						user_id: "user1"
+					} as const
+					const noteId = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id)
+						VALUES (${noteId}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
 					`
-					return insertNoteResult[0]!.id
+					return noteId
 				}).pipe(sql.withTransaction)
 
 				// Second transaction: Create an action record and update the note
@@ -694,9 +711,6 @@ describe("DB Reverse Patch Functions", () => {
 					RETURNING id, transaction_id
 				`
 					actionId = actionResult[0]!.id
-
-					// Set context for the deterministic ID trigger before the update
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${actionId}, true), set_config('sync.collision_map', '{}', true)`
 
 					// Update the note to generate patches
 					yield* sql`
@@ -727,9 +741,6 @@ describe("DB Reverse Patch Functions", () => {
 					RETURNING id
 				`
 					const actionId = actionResult[0]!.id
-
-					// Set context for the deterministic ID trigger before the reset update
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${actionId}, true), set_config('sync.collision_map', '{}', true)`
 
 					// Reset the note to original state
 					yield* sql`
@@ -772,7 +783,7 @@ describe("DB Reverse Patch Functions", () => {
 
 	// Test applying reverse patches
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should apply reverse patches correctly",
 		() =>
 			Effect.gen(function* () {
@@ -783,6 +794,7 @@ describe("DB Reverse Patch Functions", () => {
 					data: Record<string, unknown>
 				}
 				const sql = yield* PgLiteClient.PgLiteClient
+				const deterministicId = yield* DeterministicId
 
 				// Create test table
 				yield* sql`CREATE TABLE IF NOT EXISTS test_apply_patches (
@@ -792,7 +804,7 @@ describe("DB Reverse Patch Functions", () => {
 					data JSONB
 				)`
 
-				// Apply sync triggers to enable automatic ID generation
+				// Apply sync triggers (patch capture)
 				yield* applySyncTriggers(["test_apply_patches"])
 				const rowIdFromInsert = yield* Effect.gen(function* () {
 					// Create initial action record and set transaction variables
@@ -803,15 +815,25 @@ describe("DB Reverse Patch Functions", () => {
 					VALUES ('test_initial_data', 'test-client', ${initTxResult[0]!.txid}, '{"timestamp": 1000, "vector": { "test-client": 1 }}'::jsonb, '{}'::jsonb, false)
 					RETURNING id
 				`
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${initActionRecord[0]!.id}, true), set_config('sync.collision_map', '{}', true)`
+					const initActionId = initActionRecord[0]!.id
 
 					// Disable the trigger temporarily to avoid generating patches during initial insert
 					yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 
-					// Insert initial test data (trigger will generate ID)
+					const row = {
+						name: "initial",
+						value: 10,
+						data: { key: "value" }
+					} as const
+					const rowId = yield* deterministicId.withActionContext(
+						initActionId,
+						deterministicId.forRow("test_apply_patches", row)
+					)
+
+					// Insert initial test data (IDs are provided by the app)
 					const rowResult = yield* sql<{ id: string }>`
-					INSERT INTO test_apply_patches (name, value, data)
-					VALUES ('initial', 10, ('{"key": "value"}'))
+					INSERT INTO test_apply_patches (id, name, value, data)
+					VALUES (${rowId}, ${row.name}, ${row.value}, ${JSON.stringify(row.data)}::jsonb)
 					RETURNING id`
 
 					// Re-enable the trigger
@@ -865,15 +887,10 @@ describe("DB Reverse Patch Functions", () => {
 					const currentTxId = txResult[0]!.txid
 
 					// Create an action record for this transaction
-					const modifyActionResult = yield* sql<{ id: string }>`
+					yield* sql`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('test_modify_before_reverse', 'test-client', ${currentTxId}, '{"timestamp": 1001, "vector": { "test-client": 2 }}'::jsonb, '{}'::jsonb, false)
-						RETURNING id
 					`
-					const modifyActionId = modifyActionResult[0]!.id
-
-					// Set the current action record ID for the trigger
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${modifyActionId}, true), set_config('sync.collision_map', '{}', true)`
 
 					// Update the row
 					yield* sql`
@@ -897,14 +914,10 @@ describe("DB Reverse Patch Functions", () => {
 				const result = yield* Effect.gen(function* () {
 					// Create new action record for reverse operation
 					const reverseTxResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
-					const reverseActionRecord = yield* sql<{ id: string }>`
+					yield* sql`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('test_reverse_patch', 'test-client', ${reverseTxResult[0]!.txid}, '{"timestamp": 1002, "vector": { "test-client": 3 }}'::jsonb, '{}'::jsonb, false)
-						RETURNING id
 					`
-
-					// Set required transaction local variables with the NEW action record ID
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${reverseActionRecord[0]!.id}, true), set_config('sync.collision_map', '{}', true)`
 
 					// Disable the trigger temporarily to avoid generating patches during the reverse operation
 					yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
@@ -942,7 +955,7 @@ describe("DB Reverse Patch Functions", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should correctly detect concurrent updates",
 		() =>
 			Effect.gen(function* (_) {

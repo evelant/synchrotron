@@ -21,7 +21,7 @@ export const setupDatabase = Effect.gen(function* () {
 	yield* Effect.logInfo("Todos table created.")
 
 	yield* Effect.logInfo("Attaching patches trigger to todos table...")
-	// Apply both deterministic ID and patch triggers
+	// Apply sync patch-capture triggers
 	yield* applySyncTriggers(["todos"])
 	yield* Effect.logInfo("Patches trigger attached to todos table.")
 

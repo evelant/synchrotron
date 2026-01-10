@@ -8,6 +8,7 @@ export * from "./SyncNetworkService"
 export * from "./ClientIdOverride"
 export * from "./SyncService"
 export * from "./SyncNetworkRpc"
+export * from "./DeterministicId"
 
 export * from "./db/schema"
 export * from "./utils"

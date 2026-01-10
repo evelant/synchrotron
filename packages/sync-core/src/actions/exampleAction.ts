@@ -1,5 +1,6 @@
 import { SqlClient, type SqlError } from "@effect/sql"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
+import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
 import { Effect, Schema } from "effect"
 
 /**
@@ -55,6 +56,7 @@ interface QueryResult<T> {
 export const createNote = Effect.gen(function* () {
 	const registry = yield* ActionRegistry
 	const db = yield* SqlClient.SqlClient
+	const deterministicId = yield* DeterministicId
 
 	return registry.defineAction(
 		// Unique tag for this action
@@ -65,13 +67,21 @@ export const createNote = Effect.gen(function* () {
 			tags: Schema.Array(Schema.String),
 			timestamp: Schema.Number
 		}),
-		({ title, content, tags }) =>
+		({ title, content, tags, timestamp }) =>
 			Effect.gen(function* () {
-				const id = crypto.randomUUID()
-				const now = new Date()
+				const now = new Date(timestamp)
+				const row = { title, content, tags } as const
+				const id = yield* deterministicId.forRow("notes", row)
 
 				// Insert the new note into the database
-				yield* db`INSERT INTO notes ${db.insert({ id, title, content, tags: JSON.stringify(tags), created_at: now, updated_at: now })}`
+				yield* db`INSERT INTO notes ${db.insert({
+					id,
+					title,
+					content,
+					tags: db.array(tags),
+					created_at: now,
+					updated_at: now
+				})}`
 			}).pipe()
 	)
 })

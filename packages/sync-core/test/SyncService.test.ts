@@ -13,7 +13,7 @@ import { createTestClient, makeTestLayers } from "./helpers/TestLayers" // Remov
 // Use describe instead of it.layer
 describe("SyncService", () => {
 	// Use .pipe(Effect.provide(...)) for layer provisioning
-	it.effect(
+	it.scoped(
 		"should execute an action and store it as a record",
 		() =>
 			Effect.gen(function* ($) {
@@ -59,7 +59,7 @@ describe("SyncService", () => {
 		{ timeout: 10000 }
 	)
 
-	it.effect(
+	it.scoped(
 		"should handle errors during action application",
 		() =>
 			Effect.gen(function* ($) {
@@ -89,7 +89,7 @@ describe("SyncService", () => {
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Keep user's preferred style
 	)
 
-	it.effect(
+	it.scoped(
 		"should properly sync local actions and update their status",
 		() =>
 			Effect.gen(function* ($) {
@@ -210,7 +210,7 @@ describe("SyncService", () => {
 		{ timeout: 10000 } // Keep timeout if needed
 	)
 
-	it.effect(
+	it.scoped(
 		"should clean up old action records",
 		() =>
 			Effect.gen(function* ($) {
@@ -259,7 +259,7 @@ describe("SyncService", () => {
 // Integration tests for the sync algorithm
 describe("Sync Algorithm Integration", () => {
 	// Test Case 1: No Pending Actions, Remote Actions Exist
-	it.effect(
+	it.scoped(
 		"should apply remote actions when no local actions are pending (no divergence)",
 		() =>
 			Effect.gen(function* ($) {
@@ -329,7 +329,7 @@ describe("Sync Algorithm Integration", () => {
 	)
 
 	// Test Case: Concurrent Modifications (Different Fields) -> Reconciliation (Case 5)
-	it.effect(
+	it.scoped(
 		"should correctly handle concurrent modifications to different fields",
 		() =>
 			Effect.gen(function* ($) {

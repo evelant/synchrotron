@@ -6,6 +6,7 @@ import { Array, Effect, Option, Schema } from "effect" // Import ReadonlyArray
 import { ActionModifiedRowRepo, compareActionModifiedRows } from "./ActionModifiedRowRepo"
 import { ActionRecordRepo } from "./ActionRecordRepo"
 import { ClockService } from "./ClockService"
+import { DeterministicId } from "./DeterministicId"
 import { Action, ActionRecord } from "./models" // Import ActionModifiedRow type from models
 import { NetworkRequestError, SyncNetworkService } from "./SyncNetworkService"
 // Error types
@@ -30,6 +31,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		const syncNetworkService = yield* SyncNetworkService
 		const clientId = yield* clockService.getNodeId
 		const actionRegistry = yield* ActionRegistry
+		const deterministicId = yield* DeterministicId
 		/**
 		 * Execute an action and record it for later synchronization
 		 *
@@ -94,13 +96,10 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						)
 					)
 
-				// Set context for deterministic ID trigger before executing action
-				yield* sql`SELECT set_config('sync.current_action_record_id', ${actionRecord.id}, true), set_config('sync.collision_map', '{}', true)`
-				// 6. Apply the action - this will trigger database changes
-				// The trigger will use the context set above.
+				// 6. Apply the action (action-scoped deterministic ID generation is provided via DeterministicId)
 				// and will throw an exception if the action fails
 				// all changes, including the action record inserted above
-				const result = yield* action.execute() // Pass args with timestamp to apply
+				const result = yield* deterministicId.withActionContext(actionRecord.id, action.execute())
 
 				// 7. Fetch the updated action record with patches
 				const updatedRecord = yield* actionRecordRepo.findById(actionRecord.id)
@@ -415,9 +414,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				)
 
 				for (const actionRecord of sortedRemoteActions) {
-					// Set context for deterministic ID trigger before applying this specific action
-					yield* sql`SELECT set_config('sync.current_action_record_id', ${actionRecord.id}, true), set_config('sync.collision_map', '{}', true)`
-
 					if (actionRecord._tag === "_Rollback") {
 						yield* Effect.logTrace(
 							`Skipping application of Rollback action during apply phase: ${actionRecord.id}`
@@ -452,7 +448,10 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							`Applying logic for remote action: ${actionRecord.id} (${actionRecord._tag}) ${JSON.stringify(actionRecord.args)}`
 						)
 
-						yield* actionCreator(actionRecord.args).execute()
+						yield* deterministicId.withActionContext(
+							actionRecord.id,
+							actionCreator(actionRecord.args).execute()
+						)
 					}
 					yield* actionRecordRepo.markLocallyApplied(actionRecord.id) // Use new method
 					yield* Effect.logDebug(`Marked remote action ${actionRecord.id} as applied locally.`)
@@ -585,6 +584,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 	dependencies: [
 		ActionRecordRepo.Default,
 		ActionModifiedRowRepo.Default, // Add ActionModifiedRowRepo dependency
-		ActionRegistry.Default // Added ActionRegistry
+		ActionRegistry.Default, // Added ActionRegistry
+		DeterministicId.Default
 	]
 }) {}

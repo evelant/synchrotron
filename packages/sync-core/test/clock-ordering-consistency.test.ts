@@ -7,7 +7,7 @@ import { expect } from "vitest"
 import { makeTestLayers } from "./helpers/TestLayers"
 
 describe("Clock ordering consistency", () => {
-	it.effect("TS action ordering matches DB ordering key columns", () =>
+	it.scoped("TS action ordering matches DB ordering key columns", () =>
 		Effect.gen(function* () {
 			const sql = yield* PgLiteClient.PgLiteClient
 			const clockService = yield* ClockService

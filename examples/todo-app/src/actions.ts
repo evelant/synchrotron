@@ -1,5 +1,6 @@
 import { Effect, Option, Array, Schema } from "effect"
 import { ActionRegistry } from "@synchrotron/sync-core"
+import { DeterministicId } from "@synchrotron/sync-core"
 import { TodoRepo } from "./db/repositories"
 import { Todo } from "./db/schema"
 import { SqlClient } from "@effect/sql"
@@ -9,6 +10,7 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
     const registry = yield* ActionRegistry
     const todoRepo = yield* TodoRepo
     const sql = yield* SqlClient.SqlClient
+    const deterministicId = yield* DeterministicId
 
     const createTodoAction = registry.defineAction(
       "CreateTodo",
@@ -19,11 +21,14 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
       }),
       (args) =>
         Effect.gen(function* () {
-          const { timestamp, ...insertData } = args
-          yield* todoRepo.insert({
-            ...insertData,
+          const row = {
+            text: args.text,
             completed: false,
-          })
+            owner_id: args.owner_id,
+          } as const
+
+          const id = yield* deterministicId.forRow("todos", row)
+          yield* todoRepo.insert({ id, ...row })
         })
     )
 

@@ -69,19 +69,20 @@ Backend state:
 - Action registry: maps `_tag` -> action implementation (today: `ActionRegistry.defineAction(tag, argsSchema, fn)` validates/decodes args via Effect Schema and injects a `timestamp` for recording + replay).
 - Database access layer: built on `@effect/sql` models/repositories.
 - Trigger system:
-  - deterministic ID trigger (BEFORE INSERT)
   - patch generation triggers (AFTER INSERT/UPDATE/DELETE) that write `action_modified_rows`
 - HLC service: generates/merges clocks and provides a total order for action replay using `(clock_time_ms, clock_counter, client_id, id)` (btree index-friendly).
 - Electric SQL integration: streams `action_records` and `action_modified_rows` using a reliable receipt cursor (`server_ingest_id`) and up-to-date signals so a transaction's full set of patches arrives before applying.
 
 ## Deterministic row IDs
 
-Inserts generate deterministic primary keys via a BEFORE INSERT trigger:
+Synced tables require app-provided `id`s. To keep replay deterministic across client databases, Synchrotron generates row IDs in TypeScript (not via DB triggers):
 
-- `SyncService` sets `sync.current_action_record_id` (and resets a `sync.collision_map`) at the start of each execute/apply transaction.
-- The trigger hashes the row content (excluding `id`) and produces a UUIDv5 using the action record id as the namespace.
-- If two identical rows are inserted in the same action, the collision map appends a counter suffix (`hash_1`, `hash_2`, …) so IDs remain unique.
-- This relies on a stable string representation of row content; today it uses the `jsonb` text representation and `md5`.
+- `SyncService` wraps action execution/replay in `DeterministicId.withActionContext(actionRecord.id, ...)`.
+- Actions call `DeterministicId.forRow(tableName, row)` to compute a UUIDv5 from:
+  - the table name
+  - a canonical JSON representation of the row content (excluding `id`)
+  - a per-action collision counter (so identical inserts within one action remain unique)
+- The collision counter is maintained in-memory per action replay/execute, not in the database.
 
 Result: replaying the same action record on different clients produces the same inserted row IDs.
 
@@ -97,10 +98,9 @@ Result: replaying the same action record on different clients produces the same 
 
 1. Begin a DB transaction.
 2. Insert an `action_records` row (recording `txid_current()` as `transaction_id`).
-3. Set trigger context (`sync.current_action_record_id`, reset collision map).
-4. Run the action function.
-5. AFTER triggers append `action_modified_rows` for every insert/update/delete (with increasing `sequence`) and associate them to the action via the transaction id.
-6. Commit (or roll back on error).
+3. Run the action function (with `DeterministicId` scoped to the action record id).
+4. AFTER triggers append `action_modified_rows` for every insert/update/delete (with increasing `sequence`) and associate them to the action via the transaction id.
+5. Commit (or roll back on error).
 
 ## Sync and convergence
 

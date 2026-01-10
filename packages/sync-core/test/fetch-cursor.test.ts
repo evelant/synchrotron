@@ -11,7 +11,7 @@ const waitForNextMillisecond = Effect.sync(() => {
 })
 
 describe("Reliable fetch cursor (server_ingest_id)", () => {
-	it.effect(
+	it.scoped(
 		"fetches late-arriving actions even if their HLC is older than last_synced_clock",
 		() =>
 			Effect.gen(function* () {

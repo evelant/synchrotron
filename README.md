@@ -40,7 +40,7 @@ Synchrotron moves the merge boundary up a level:
 - **Intent preservation**: Invariants live in your actions and are re-applied during replay
 - **No dedicated conflict-resolution code**: No per-field merge functions; resolution is "re-run the logic"
 - **RLS-friendly**: PostgreSQL Row Level Security filters what each client can see; clients still converge
-- **Deterministic IDs**: Inserts generate stable IDs from content so clients don't fight over primary keys
+- **Deterministic IDs**: Actions generate stable IDs in TypeScript so clients don't fight over primary keys
 - **Eventual consistency**: Converges even with private data and conditional logic (via SYNC deltas)
 
 ## Differences
@@ -79,19 +79,18 @@ Synchrotron moves the merge boundary up a level:
 ## Usage
 
 Synchrotron only works if you follow these rules. They're simple, but they're hard requirements:
-
-1.  **Apply Sync Triggers:** The `applySyncTriggers` function (from `@synchrotron/sync-core/db`) must be called during your database initialization for _all_ tables whose changes should be tracked and synchronized by the system. This function sets up both the deterministic ID generation trigger and the patch generation trigger.
+1.  **Apply Sync Triggers:** The `applySyncTriggers` function (from `@synchrotron/sync-core/db`) must be called during your database initialization for _all_ tables whose changes should be tracked and synchronized by the system. This function installs patch-capture triggers (AFTER INSERT/UPDATE/DELETE) that write to `action_modified_rows`.
     ```typescript
     // Example during setup:
     import { applySyncTriggers } from "@synchrotron/sync-core/db"
     // ... after creating tables ...
     yield * applySyncTriggers(["notes", "todos", "other_synced_table"])
     ```
-2.  **Action Determinism:** Actions must be deterministic aside from database operations. Capture any non-deterministic inputs (like current time, random values, user context not in the database, network call results, etc.) as arguments passed into the action. The `timestamp` argument (`Date.now()`) is automatically provided. Row IDs are generated automatically and deterministically on insert by hashing row content. You have full access to the database in actions, no restrictions on reads or writes.
+2.  **Action Determinism:** Actions must be deterministic aside from database operations. Capture any non-deterministic inputs (like current time, random values, user context not in the database, network call results, etc.) as arguments passed into the action. The `timestamp` argument (`Date.now()`) is automatically provided. You have full access to the database in actions, no restrictions on reads or writes.
     - Actions are defined via `ActionRegistry.defineAction(tag, argsSchema, fn)`.
     - `argsSchema` must include `timestamp: Schema.Number`, but the returned action creator accepts `timestamp` optionally; it is injected automatically when you create an action (and preserved for replay).
 3.  **Mutations via Actions:** All modifications (INSERT, UPDATE, DELETE) to synchronized tables _must_ be performed exclusively through actions executed via `SyncService.executeAction`. Direct database manipulation outside of actions will bypass the tracking mechanism and lead to inconsistencies.
-4.  **No Manual IDs:** Do not manually provide or set the `id` column when inserting rows within an action. The system relies on the automatic, trigger-based deterministic ID generation to ensure consistency across clients. Remove any `DEFAULT` clauses for ID columns in your table schemas.
+4.  **IDs are App-Provided (Required):** Inserts into synchronized tables must explicitly include `id`. Use `DeterministicId.forRow(tableName, row)` inside `SyncService`-executed actions to compute deterministic UUIDs scoped to the current action. Avoid relying on DB defaults/triggers for IDs; prefer removing `DEFAULT` clauses for `id` columns so missing IDs fail fast.
 
 ## Downsides and limitations
 

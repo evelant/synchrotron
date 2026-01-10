@@ -53,7 +53,7 @@ const createNoteRepo = () =>
 // Use describe instead of it.layer
 describe("Basic Action Execution", () => {
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should create and apply actions through the action system",
 		() =>
 			Effect.gen(function* ($) {
@@ -88,30 +88,33 @@ describe("Basic Action Execution", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
-		"should ensure action record creation and action execution happen in a single transaction",
-		() =>
-			Effect.gen(function* () {
-				const syncService = yield* SyncService
-				const sql = yield* SqlClient.SqlClient
-				const noteRepo = yield* createNoteRepo()
-				const registry = yield* ActionRegistry
+		it.scoped(
+			"should ensure action record creation and action execution happen in a single transaction",
+			() =>
+				Effect.gen(function* () {
+					const syncService = yield* SyncService
+					const sql = yield* SqlClient.SqlClient
+					const noteRepo = yield* createNoteRepo()
+					const registry = yield* ActionRegistry
 
-				// Define an action that will fail
-				const failingAction = registry.defineAction(
-					"test-failing-transaction",
-					Schema.Struct({ timestamp: Schema.Number }),
-					(args) =>
-						Effect.gen(function* () {
-							// First insert a note
-							yield* noteRepo.insert(
-								NoteModel.insert.make({
-									title: "Will Fail",
-									content: "This should be rolled back",
-									user_id: "test-user",
-									updated_at: new Date(args.timestamp)
-								})
-							)
+					const failingNoteId = "00000000-0000-4000-8000-000000000001"
+
+					// Define an action that will fail
+					const failingAction = registry.defineAction(
+						"test-failing-transaction",
+						Schema.Struct({ timestamp: Schema.Number }),
+						(args) =>
+							Effect.gen(function* () {
+								// First insert a note
+								yield* noteRepo.insert(
+									NoteModel.insert.make({
+										id: failingNoteId,
+										title: "Will Fail",
+										content: "This should be rolled back",
+										user_id: "test-user",
+										updated_at: new Date(args.timestamp)
+									})
+								)
 
 							// Then fail
 							return yield* Effect.fail(new Error("Intentional failure"))
@@ -125,9 +128,9 @@ describe("Basic Action Execution", () => {
 				// Verify action failed
 				expect(result._tag).toBe("Left")
 
-				// Verify note was not created (rolled back)
-				const note = yield* noteRepo.findById("failing-note")
-				expect(note._tag).toBe("None")
+					// Verify note was not created (rolled back)
+					const note = yield* noteRepo.findById(failingNoteId)
+					expect(note._tag).toBe("None")
 
 				// Verify no action record was created
 				const actionRecord = yield* sql`

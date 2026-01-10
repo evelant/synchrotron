@@ -12,7 +12,7 @@ import { createTestClient, makeTestLayers } from "./helpers/TestLayers"
 describe("Core Sync Functionality", () => {
 	// --- Test 1: Basic Send/Receive ---
 	// Provide the layer individually to each test using .pipe(Effect.provide(...))
-	it.effect(
+	it.scoped(
 		"should synchronize a new action from client1 to client2",
 		() =>
 			Effect.gen(function* () {
@@ -54,7 +54,7 @@ describe("Core Sync Functionality", () => {
 	)
 
 	// --- Test 2: Case 4 (Remote Newer) - No Conflict/Divergence ---
-	it.effect(
+	it.scoped(
 		"should handle remote actions arriving after local pending actions",
 		() =>
 			Effect.gen(function* () {
@@ -136,7 +136,7 @@ describe("Core Sync Functionality", () => {
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer here
 	)
 
-	it.effect(
+	it.scoped(
 		"should reconcile interleaved actions",
 		() =>
 			Effect.gen(function* () {

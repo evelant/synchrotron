@@ -4,7 +4,7 @@ import { Effect, Option } from "effect"
 import { createTestClient, makeTestLayers } from "./helpers/TestLayers"
 
 describe("Sync Divergence Scenarios", () => {
-	it.effect(
+	it.scoped(
 		"should create SYNC action when local apply diverges from remote patches",
 		() =>
 			Effect.gen(function* () {
@@ -103,7 +103,7 @@ describe("Sync Divergence Scenarios", () => {
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer for the test
 	)
 
-	it.effect(
+	it.scoped(
 		"should apply received SYNC action directly",
 		() =>
 			Effect.gen(function* () {
@@ -202,7 +202,7 @@ describe("Sync Divergence Scenarios", () => {
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer for the test
 	)
 
-	it.live("should reconcile locally when pending action conflicts with newer remote action", () =>
+		it.scopedLive("should reconcile locally when pending action conflicts with newer remote action", () =>
 		// This test now verifies client-side reconciliation preempts server rejection
 		Effect.gen(function* () {
 			// --- Arrange ---

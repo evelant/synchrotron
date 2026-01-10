@@ -9,6 +9,7 @@ import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { ClientIdOverride } from "@synchrotron/sync-core/ClientIdOverride"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
 
 import {
 	SynchrotronClientConfig,
@@ -67,7 +68,7 @@ export const makeDbInitLayer = (schema: string) =>
 			// Initialize schema
 			yield* initializeDatabaseSchema
 
-			// Apply deterministic ID and patch triggers to the notes table
+			// Apply sync patch-capture triggers to the notes table
 			yield* applySyncTriggers(["notes"])
 
 			// 			// Check current schema
@@ -135,6 +136,7 @@ export const makeTestLayers = (
 
 		Layer.provideMerge(TestHelpers.Default),
 		Layer.provideMerge(ActionRegistry.Default),
+		Layer.provideMerge(DeterministicId.Default),
 		Layer.provideMerge(ClockService.Default),
 		Layer.provideMerge(ActionRecordRepo.Default),
 		Layer.provideMerge(ActionModifiedRowRepo.Default),
@@ -244,7 +246,7 @@ export const createTestClient = (id: string, serverSql: PgLiteClient.PgLiteClien
 		} as TestClient
 	}).pipe(Effect.provide(makeTestLayers(id, serverSql)), Effect.annotateLogs("clientId", id))
 export class NoteModel extends Model.Class<NoteModel>("notes")({
-	id: Model.Generated(Schema.String),
+	id: Schema.UUID,
 	title: Schema.String,
 	content: Schema.String,
 	tags: Schema.Array(Schema.String).pipe(Schema.mutable, Schema.optional),

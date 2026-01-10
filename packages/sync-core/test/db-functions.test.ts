@@ -2,6 +2,7 @@ import { PgLiteClient } from "@effect/sql-pglite"
 import { describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { expect } from "vitest"
+import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
 import { makeTestLayers } from "./helpers/TestLayers"
 
 // Variables to store generated IDs for batch tests
@@ -10,15 +11,7 @@ let batchFwd2Id = ""
 let batchRev1Id = ""
 let batchRev2Id = ""
 
-// Helper function to set up transaction local variables for deterministic ID generation
-const setupDeterministicIdVariables = (sql: PgLiteClient.PgLiteClient, actionId: string) =>
-	sql`
-		SELECT
-			set_config('sync.current_action_record_id', ${actionId}, true),
-			set_config('sync.collision_map', '{}', true)
-	`
-
-it.effect("should support multiple independent PgLite instances", () =>
+it.scoped("should support multiple independent PgLite instances", () =>
 	Effect.gen(function* () {
 		// Create two independent PgLite layers with unique memory identifiers
 		// Use unique identifiers with timestamps to ensure they don't clash
@@ -116,9 +109,7 @@ const createActionAndModifyNote = (
 			return yield* Effect.dieMessage("Failed to get action ID after insert")
 		}
 
-		// Set up transaction local variables for deterministic ID generation
-		yield* setupDeterministicIdVariables(sql, actionId)
-
+		// Update the note to generate patches
 		yield* sql`
 			UPDATE notes SET title = ${newTitle}, content = ${newContent} WHERE id = ${noteId}
 		`
@@ -137,7 +128,7 @@ const createActionAndModifyNote = (
 describe("Sync Database Functions", () => {
 	// Test setup and core functionality
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should correctly create tables and initialize triggers",
 		() =>
 			Effect.gen(function* () {
@@ -249,11 +240,12 @@ describe("Sync Database Functions", () => {
 
 	// Test patch generation for INSERT operations
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should generate patches for INSERT operations",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				const deterministicId = yield* DeterministicId
 
 				yield* Effect.gen(function* () {
 					// Begin a transaction to ensure consistent txid
@@ -271,16 +263,19 @@ describe("Sync Database Functions", () => {
 
 					const actionId = actionResult[0]!.id
 
-					// Set up transaction local variables for deterministic ID generation
-					yield* setupDeterministicIdVariables(sql, actionId)
-
-					// Insert a row in the notes table and get the generated ID
-					const insertResult = yield* sql<{ id: string }>`
-				INSERT INTO notes (title, content, user_id)
-				VALUES ('Test Note', 'This is a test note', 'user1')
-				RETURNING id
-			`
-					const noteId = insertResult[0]!.id
+					const noteRow = {
+						title: "Test Note",
+						content: "This is a test note",
+						user_id: "user1"
+					} as const
+					const noteId = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id)
+						VALUES (${noteId}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
+					`
 
 					// Commit transaction
 					// yield* sql`COMMIT` // Removed commit as it's handled by withTransaction
@@ -321,11 +316,12 @@ describe("Sync Database Functions", () => {
 
 	// Test patch generation for UPDATE operations
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should generate patches for UPDATE operations",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				const deterministicId = yield* DeterministicId
 				let noteId: string // Declare noteId in the outer scope
 
 				// Execute everything in a single transaction to maintain consistent transaction ID
@@ -342,16 +338,19 @@ describe("Sync Database Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
-					// Set up transaction local variables for deterministic ID generation
-					yield* setupDeterministicIdVariables(sql, actionId)
-
-					// First, create a note and get the generated ID
-					const insertResult = yield* sql<{ id: string }>`
-					INSERT INTO notes (title, content, user_id)
-					VALUES ('Original Title', 'Original Content', 'user1')
-					RETURNING id
-				`
-					noteId = insertResult[0]!.id // Assign to the outer scope variable
+					const noteRow = {
+						title: "Original Title",
+						content: "Original Content",
+						user_id: "user1"
+					} as const
+					noteId = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id)
+						VALUES (${noteId}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
+					`
 
 					// Then update the note (still in the same transaction)
 					yield* sql`
@@ -424,11 +423,12 @@ describe("Sync Database Functions", () => {
 
 	// Test patch generation for DELETE operations
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should generate patches for DELETE operations",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				const deterministicId = yield* DeterministicId
 				let noteIdToDelete: string // Declare in outer scope
 
 				// First transaction: Create an action record and note
@@ -445,16 +445,19 @@ describe("Sync Database Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
-					// Set up transaction local variables for deterministic ID generation
-					yield* setupDeterministicIdVariables(sql, actionId)
-
-					// Create a note to delete
-					const insertResult = yield* sql<{ id: string }>`
-					INSERT INTO notes (title, content, user_id)
-					VALUES ('Note to Delete', 'This note will be deleted', 'user1')
-					RETURNING id
-				`
-					noteIdToDelete = insertResult[0]!.id // Capture the generated ID
+					const noteRow = {
+						title: "Note to Delete",
+						content: "This note will be deleted",
+						user_id: "user1"
+					} as const
+					noteIdToDelete = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id)
+						VALUES (${noteIdToDelete}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
+					`
 				}).pipe(sql.withTransaction)
 
 				// Second transaction: Create an action record and delete the note
@@ -517,11 +520,12 @@ describe("Sync Database Functions", () => {
 
 	// Test applying forward patches
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should apply forward patches correctly",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				const deterministicId = yield* DeterministicId
 				let noteIdToUpdate: string // Declare in outer scope
 				let amrId: string // Declare amrId in outer scope
 
@@ -539,16 +543,19 @@ describe("Sync Database Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
-					// Set up transaction local variables for deterministic ID generation
-					yield* setupDeterministicIdVariables(sql, actionId)
-
-					// Create a note
-					const insertResult = yield* sql<{ id: string }>`
-					INSERT INTO notes (title, content, user_id)
-					VALUES ('Original Title', 'Original Content', 'user1')
-					RETURNING id
-				`
-					noteIdToUpdate = insertResult[0]!.id // Capture the generated ID
+					const noteRow = {
+						title: "Original Title",
+						content: "Original Content",
+						user_id: "user1"
+					} as const
+					noteIdToUpdate = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id)
+						VALUES (${noteIdToUpdate}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
+					`
 				}).pipe(sql.withTransaction)
 
 				// Second transaction: Create an action record and update the note
@@ -632,7 +639,7 @@ describe("Sync Database Functions", () => {
 
 	// Test applying reverse patches
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should apply reverse patches correctly",
 		() =>
 			Effect.gen(function* () {
@@ -695,9 +702,6 @@ describe("Sync Database Functions", () => {
 
 				// Apply reverse patches using Effect's error handling - wrap in transaction to maintain local variables
 				const result = yield* Effect.gen(function* () {
-					// Set up transaction local variables for deterministic ID generation
-					yield* setupDeterministicIdVariables(sql, "patch-test-id")
-
 					// Assuming apply_reverse_amr expects the AMR ID, not action ID
 					yield* sql`SELECT apply_reverse_amr('modified-row-test-id')`
 
@@ -725,7 +729,7 @@ describe("Sync Database Functions", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should correctly detect concurrent updates",
 		() =>
 			Effect.gen(function* (_) {
@@ -760,7 +764,7 @@ describe("Sync Database Functions", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should require id column for tables", // Removed deleted_at requirement
 		() =>
 			Effect.gen(function* () {
@@ -822,11 +826,12 @@ describe("Sync Database Functions", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should handle UPDATE followed by DELETE in same transaction",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				const deterministicId = yield* DeterministicId
 				let uniqueRowId: string // Declare in outer scope
 
 				// First transaction: Create an initial note
@@ -843,16 +848,21 @@ describe("Sync Database Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
-					// Set up transaction local variables for deterministic ID generation
-					yield* setupDeterministicIdVariables(sql, actionId)
-
 					// Create a note that will be updated and then deleted
-					const insertResult = yield* sql<{ id: string }>`
-					INSERT INTO notes (title, content, user_id, tags)
-					VALUES ('Original Title', 'Original Content', 'user1', '{"tag1","tag2"}')
-					RETURNING id
-				`
-					uniqueRowId = insertResult[0]!.id // Capture the generated ID
+					const noteRow = {
+						title: "Original Title",
+						content: "Original Content",
+						user_id: "user1",
+						tags: ["tag1", "tag2"]
+					} as const
+					uniqueRowId = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id, tags)
+						VALUES (${uniqueRowId}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id}, ${sql.array(noteRow.tags)})
+					`
 				}).pipe(sql.withTransaction)
 
 				// Second transaction: Update and then delete the note
@@ -868,9 +878,6 @@ describe("Sync Database Functions", () => {
 					RETURNING id, transaction_id
 				`
 					const actionId = actionResult[0]!.id
-
-					// Set up transaction local variables for deterministic ID generation
-					yield* setupDeterministicIdVariables(sql, actionId)
 
 					// First update the note
 					yield* sql`
@@ -966,11 +973,12 @@ describe("Sync Database Functions", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should handle INSERT followed by UPDATE in same transaction",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				const deterministicId = yield* DeterministicId
 				let noteId: string // Declare noteId in the outer scope
 
 				// Execute everything in a single transaction
@@ -987,16 +995,20 @@ describe("Sync Database Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
-					// Set up transaction local variables for deterministic ID generation
-					yield* setupDeterministicIdVariables(sql, actionId)
-
 					// First insert a new note
-					const insertResult = yield* sql<{ id: string }>`
-					INSERT INTO notes (title, content, user_id)
-					VALUES ('Initial Title', 'Initial Content', 'user1')
-					RETURNING id
-				`
-					noteId = insertResult[0]!.id // Capture the generated ID
+					const noteRow = {
+						title: "Initial Title",
+						content: "Initial Content",
+						user_id: "user1"
+					} as const
+					noteId = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id)
+						VALUES (${noteId}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
+					`
 
 					// Then update the note in the same transaction
 					yield* sql`
@@ -1071,11 +1083,12 @@ describe("Sync Database Functions", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should handle multiple UPDATEs on the same row in one transaction",
 		() =>
 			Effect.gen(function* () {
 				const sql = yield* PgLiteClient.PgLiteClient
+				const deterministicId = yield* DeterministicId
 				let noteId: string // Declare noteId in the outer scope
 
 				// First transaction: Create an initial note
@@ -1092,16 +1105,20 @@ describe("Sync Database Functions", () => {
 				`
 					const actionId = actionResult[0]!.id
 
-					// Set up transaction local variables for deterministic ID generation
-					yield* setupDeterministicIdVariables(sql, actionId)
-
 					// Create a note that will be updated multiple times
-					const insertResult = yield* sql<{ id: string }>`
-					INSERT INTO notes (title, content, user_id)
-					VALUES ('Original Title', 'Original Content', 'user1')
-					RETURNING id
-				`
-					noteId = insertResult[0]!.id // Capture the generated ID
+					const noteRow = {
+						title: "Original Title",
+						content: "Original Content",
+						user_id: "user1"
+					} as const
+					noteId = yield* deterministicId.withActionContext(
+						actionId,
+						deterministicId.forRow("notes", noteRow)
+					)
+					yield* sql`
+						INSERT INTO notes (id, title, content, user_id)
+						VALUES (${noteId}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
+					`
 				}).pipe(sql.withTransaction)
 
 				// Second transaction: Multiple updates to the same note
@@ -1117,9 +1134,6 @@ describe("Sync Database Functions", () => {
 					RETURNING id, transaction_id
 				`
 					const actionId = actionResult[0]!.id
-
-					// Set up transaction local variables for deterministic ID generation
-					yield* setupDeterministicIdVariables(sql, actionId)
 
 					// First update
 					yield* sql`
@@ -1206,9 +1220,10 @@ describe("Sync Database Functions", () => {
 // --- New Tests for Batch and Rollback Functions ---
 
 describe("Sync DB Batch and Rollback Functions", () => {
-	it.effect("should apply forward patches in batch", () =>
+	it.scoped("should apply forward patches in batch", () =>
 		Effect.gen(function* () {
 			const sql = yield* PgLiteClient.PgLiteClient
+			const deterministicId = yield* DeterministicId
 			// Setup: Create initial notes within a transaction that includes a dummy action record
 			yield* Effect.gen(function* () {
 				const setupTxResult = yield* sql<{ txid: number }>`SELECT txid_current() as txid`
@@ -1227,21 +1242,25 @@ describe("Sync DB Batch and Rollback Functions", () => {
 					RETURNING id
 				`)[0]!.id
 
-				// Set up the action ID for deterministic ID generation
-				yield* setupDeterministicIdVariables(sql, setupActionId)
+				const note1Row = { title: "Orig 1", content: "Cont 1", user_id: "u1" } as const
+				const note1 = yield* deterministicId.withActionContext(
+					setupActionId,
+					deterministicId.forRow("notes", note1Row)
+				)
+				yield* sql`
+					INSERT INTO notes (id, title, content, user_id)
+					VALUES (${note1}, ${note1Row.title}, ${note1Row.content}, ${note1Row.user_id})
+				`
 
-				// Insert the notes - the deterministic ID trigger will generate IDs based on content
-				const note1 = (yield* sql<{ id: string }>`
-					INSERT INTO notes (title, content, user_id)
-					VALUES ('Orig 1', 'Cont 1', 'u1')
-					RETURNING id
-				`)[0]!.id
-
-				const note2 = (yield* sql<{ id: string }>`
-					INSERT INTO notes (title, content, user_id)
-					VALUES ('Orig 2', 'Cont 2', 'u1')
-					RETURNING id
-				`)[0]!.id
+				const note2Row = { title: "Orig 2", content: "Cont 2", user_id: "u1" } as const
+				const note2 = yield* deterministicId.withActionContext(
+					setupActionId,
+					deterministicId.forRow("notes", note2Row)
+				)
+				yield* sql`
+					INSERT INTO notes (id, title, content, user_id)
+					VALUES (${note2}, ${note2Row.title}, ${note2Row.content}, ${note2Row.user_id})
+				`
 
 				// Store the generated IDs in the global scope for later use
 				batchFwd1Id = note1
@@ -1299,9 +1318,6 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_fwd', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, true) RETURNING id`)[0]!
 					.id
 
-				// Set up transaction local variables for deterministic ID generation
-				yield* setupDeterministicIdVariables(sql, dummyActionId)
-
 				// Call the batch function (trigger will fire but find the dummy record)
 				yield* sql`SELECT apply_forward_amr_batch(${sql.array([amrId1, amrId2])})`
 			}).pipe(sql.withTransaction)
@@ -1334,9 +1350,10 @@ describe("Sync DB Batch and Rollback Functions", () => {
 		}).pipe(Effect.provide(makeTestLayers("server")))
 	)
 
-	it.effect("should apply reverse patches in batch (in reverse order)", () =>
+	it.scoped("should apply reverse patches in batch (in reverse order)", () =>
 		Effect.gen(function* () {
 			const sql = yield* PgLiteClient.PgLiteClient
+			const deterministicId = yield* DeterministicId
 			// Setup: Create initial notes within a transaction that includes a dummy action record
 			yield* Effect.gen(function* () {
 				const setupTxResult = yield* sql<{ txid: number }>`SELECT txid_current() as txid`
@@ -1355,21 +1372,25 @@ describe("Sync DB Batch and Rollback Functions", () => {
 					RETURNING id
 				`)[0]!.id
 
-				// Set up the action ID for deterministic ID generation
-				yield* setupDeterministicIdVariables(sql, setupActionId)
+				const note1Row = { title: "Orig 1", content: "Cont 1", user_id: "u1" } as const
+				const note1 = yield* deterministicId.withActionContext(
+					setupActionId,
+					deterministicId.forRow("notes", note1Row)
+				)
+				yield* sql`
+					INSERT INTO notes (id, title, content, user_id)
+					VALUES (${note1}, ${note1Row.title}, ${note1Row.content}, ${note1Row.user_id})
+				`
 
-				// Insert the notes - the deterministic ID trigger will generate IDs based on content
-				const note1 = (yield* sql<{ id: string }>`
-					INSERT INTO notes (title, content, user_id)
-					VALUES ('Orig 1', 'Cont 1', 'u1')
-					RETURNING id
-				`)[0]!.id
-
-				const note2 = (yield* sql<{ id: string }>`
-					INSERT INTO notes (title, content, user_id)
-					VALUES ('Orig 2', 'Cont 2', 'u1')
-					RETURNING id
-				`)[0]!.id
+				const note2Row = { title: "Orig 2", content: "Cont 2", user_id: "u1" } as const
+				const note2 = yield* deterministicId.withActionContext(
+					setupActionId,
+					deterministicId.forRow("notes", note2Row)
+				)
+				yield* sql`
+					INSERT INTO notes (id, title, content, user_id)
+					VALUES (${note2}, ${note2Row.title}, ${note2Row.content}, ${note2Row.user_id})
+				`
 
 				// Store the generated IDs in the global scope for later use
 				batchRev1Id = note1
@@ -1421,9 +1442,6 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_rev', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, true) RETURNING id`)[0]!
 					.id
 
-				// Set up transaction local variables for deterministic ID generation
-				yield* setupDeterministicIdVariables(sql, dummyActionId)
-
 				// Call the batch function
 				yield* sql`SELECT apply_reverse_amr_batch(${sql.array([amrId1, amrId2])})`
 			}).pipe(sql.withTransaction)
@@ -1457,9 +1475,10 @@ describe("Sync DB Batch and Rollback Functions", () => {
 	)
 })
 
-it.effect("should rollback to a specific action", () =>
+it.scoped("should rollback to a specific action", () =>
 	Effect.gen(function* () {
 		const sql = yield* PgLiteClient.PgLiteClient
+		const deterministicId = yield* DeterministicId
 
 		// Setup: Create note within a transaction with a dummy action record
 		const noteId = yield* Effect.gen(function* () {
@@ -1473,13 +1492,16 @@ it.effect("should rollback to a specific action", () =>
 			}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_setup_rollback_test', 'server', ${setupTxId}, ${sql.json({ timestamp: 50, vector: {} })}, '{}'::jsonb, true) RETURNING id`
 			const actionId = actionResult[0]!.id
 
-			// Set up transaction local variables for deterministic ID generation
-			yield* setupDeterministicIdVariables(sql, actionId)
-
-			const insertResult = yield* sql<{
-				id: string
-			}>`INSERT INTO notes (title, content, user_id) VALUES ('Orig', 'Cont', 'u1') RETURNING id`
-			return insertResult[0]!.id // Capture the generated ID
+			const noteRow = { title: "Orig", content: "Cont", user_id: "u1" } as const
+			const noteId = yield* deterministicId.withActionContext(
+				actionId,
+				deterministicId.forRow("notes", noteRow)
+			)
+			yield* sql`
+				INSERT INTO notes (id, title, content, user_id)
+				VALUES (${noteId}, ${noteRow.title}, ${noteRow.content}, ${noteRow.user_id})
+			`
+			return noteId
 		}).pipe(sql.withTransaction)
 
 		const { actionId: actionIdA } = yield* createActionAndModifyNote(
@@ -1522,9 +1544,6 @@ it.effect("should rollback to a specific action", () =>
 		// Test: Rollback to state *after* action A completed (i.e., undo B and C)
 		// Wrap rollback and verification in a transaction
 		yield* Effect.gen(function* () {
-			// Set up transaction local variables for deterministic ID generation
-			yield* setupDeterministicIdVariables(sql, actionIdA)
-
 			yield* sql`SELECT rollback_to_action(${actionIdA})`
 
 			// Verify state is A
@@ -1542,7 +1561,7 @@ it.effect("should rollback to a specific action", () =>
 )
 
 describe("Sync DB Comparison Functions", () => {
-	it.effect("should compare vector clocks using SQL function", () =>
+	it.scoped("should compare vector clocks using SQL function", () =>
 		Effect.gen(function* () {
 			const sql = yield* PgLiteClient.PgLiteClient
 			const v1 = { a: 1, b: 2 }
@@ -1572,7 +1591,7 @@ describe("Sync DB Comparison Functions", () => {
 		}).pipe(Effect.provide(makeTestLayers("server")))
 	)
 
-	it.effect("should compare HLCs using SQL function", () =>
+	it.scoped("should compare HLCs using SQL function", () =>
 		Effect.gen(function* () {
 			const sql = yield* PgLiteClient.PgLiteClient
 			const hlc1 = { timestamp: 100, vector: { a: 1 } }

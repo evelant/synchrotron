@@ -7,7 +7,7 @@ import { expect } from "vitest"
 // Use describe instead of it.layer
 describe("ActionRegistry", () => {
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should define and register an action",
 		() =>
 			Effect.gen(function* () {
@@ -31,7 +31,7 @@ describe("ActionRegistry", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should create actions that can fetch and apply changes",
 		() =>
 			Effect.gen(function* () {
@@ -72,7 +72,7 @@ describe("ActionRegistry", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should return undefined for unknown action tags",
 		() =>
 			Effect.gen(function* () {
@@ -85,7 +85,7 @@ describe("ActionRegistry", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should retrieve the same action creator that was registered",
 		() =>
 			Effect.gen(function* () {
@@ -118,7 +118,7 @@ describe("ActionRegistry", () => {
 	)
 
 	// Provide layer individually
-	it.effect(
+	it.scoped(
 		"should ensure actions are immutable",
 		() =>
 			Effect.gen(function* () {
