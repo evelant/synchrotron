@@ -1,0 +1,3 @@
+- This project is experimental, not used in production, never worry about backward compatibility
+- Use context7 mcp to read documentation for Effect (effect, @effect/sql, etc) and @electric-sql/pglite
+- README.md and DESIGN.md must be kept up to date with any behavioral/architectural changes as the project evolves

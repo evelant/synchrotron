@@ -98,15 +98,15 @@ export const createTestSyncNetworkServiceLayer = (
 
 					// Query actions from server schema that are newer than last synced clock
 					// Use compare_hlc to filter actions strictly newer than the client's clock
-					const actions = yield* serverSql<ActionRecord>`
-						SELECT * FROM action_records
-						${
-							isInitialSync
-								? sql`` // Fetch all if initial sync
-								: sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0` // Otherwise fetch newer
-						}
-						ORDER BY sortable_clock ASC
-          `
+						const actions = yield* serverSql<ActionRecord>`
+							SELECT * FROM action_records
+							${
+								isInitialSync
+									? sql`` // Fetch all if initial sync
+									: sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0` // Otherwise fetch newer
+							}
+							ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC
+	          `
 
 					yield* Effect.logDebug(
 						`getServerData for ${clientId}: Found ${actions.length} actions on server. Raw result: ${JSON.stringify(actions)}`
@@ -239,14 +239,14 @@ export const createTestSyncNetworkServiceLayer = (
 								FROM action_modified_rows amr
 								WHERE ${sql.or(rowConditions)}
 							)
-							SELECT ar.*
-							FROM action_records ar
-							JOIN conflicting_rows cr ON ar.id = cr.action_record_id
-							WHERE compare_hlc(ar.clock, ${sql.json(
-								latestIncomingClock // Compare against latest clock
-							)}) > 0
-							ORDER BY sortable_clock ASC
-						`
+								SELECT ar.*
+								FROM action_records ar
+								JOIN conflicting_rows cr ON ar.id = cr.action_record_id
+								WHERE compare_hlc(ar.clock, ${sql.json(
+									latestIncomingClock // Compare against latest clock
+								)}) > 0
+								ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
+							`
 
 						yield* Effect.logDebug(
 							`Found ${conflictingServerActions.length} conflicting server actions: ${JSON.stringify(conflictingServerActions.map((a) => a.id))}`

@@ -41,7 +41,7 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
 
 - `id` (text UUID)
 - `_tag`, `client_id`, `transaction_id`, `created_at`, `synced`
-- `clock` (HLC JSONB) and `sortable_clock` (generated string for indexing / ordering)
+- `clock` (HLC JSONB) plus derived ordering columns: `clock_time_ms`, `clock_counter`
 - `args` (JSONB; includes `timestamp`)
 
 `action_modified_rows`:
@@ -55,7 +55,7 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
 
 Client-side:
 
-- `client_sync_status`: `current_clock`, `last_synced_clock` (+ sortable clock columns)
+- `client_sync_status`: `current_clock`, `last_synced_clock`
 - `local_applied_action_ids`: action ids already applied locally
 
 Backend state:
@@ -70,7 +70,7 @@ Backend state:
 - Trigger system:
   - deterministic ID trigger (BEFORE INSERT)
   - patch generation triggers (AFTER INSERT/UPDATE/DELETE) that write `action_modified_rows`
-- HLC service: generates/merges clocks and provides a total order (also reflected in `sortable_clock` for indexing).
+- HLC service: generates/merges clocks and provides a total order for action replay using `(clock_time_ms, clock_counter, client_id, id)` (btree index-friendly).
 - Electric SQL integration: streams `action_records` and `action_modified_rows` (using up-to-date signals so a transaction's full set of patches arrives before applying).
 
 ## Deterministic row IDs

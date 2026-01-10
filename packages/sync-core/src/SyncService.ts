@@ -191,32 +191,41 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					)
 					return yield* sendLocalActions()
 				}
-				if (hasPending && hasRemote) {
-					const latestPendingClockOpt = clockService.getLatestClock(pendingActions)
-					const earliestRemoteClockOpt = clockService.getEarliestClock(remoteActions)
-
-					if (Option.isSome(latestPendingClockOpt) && Option.isSome(earliestRemoteClockOpt)) {
-						const latestPendingClock = latestPendingClockOpt.value
-						const earliestRemoteClock = earliestRemoteClockOpt.value
-						const latestPendingAction = pendingActions.find((a) =>
-							HLC.equals(a.clock, latestPendingClock)
+					if (hasPending && hasRemote) {
+						const sortedPending = clockService.sortClocks(
+							pendingActions.map((a) => ({
+								action: a,
+								clock: a.clock,
+								clientId: a.client_id,
+								id: a.id
+							}))
 						)
-						const earliestRemoteAction = remoteActions.find((a) =>
-							HLC.equals(a.clock, earliestRemoteClock)
+						const sortedRemote = clockService.sortClocks(
+							remoteActions.map((a) => ({ action: a, clock: a.clock, clientId: a.client_id, id: a.id }))
 						)
 
-						if (
-							!remoteActions.find((a) => a._tag === "RollbackAction") &&
-							latestPendingAction &&
-							earliestRemoteAction &&
-							clockService.compareClock(
-								{ clock: latestPendingAction.clock, clientId },
-								{ clock: earliestRemoteAction.clock, clientId: earliestRemoteAction.client_id }
-							) < 0
-						) {
-							yield* Effect.logInfo(
-								`Case 4: Latest pending action (${latestPendingAction.id}) is older than earliest remote action (${earliestRemoteAction.id}). Applying remote, then sending pending.`
-							)
+						const latestPendingAction = sortedPending[sortedPending.length - 1]?.action
+						const earliestRemoteAction = sortedRemote[0]?.action
+
+						if (latestPendingAction && earliestRemoteAction) {
+							if (
+								!remoteActions.find((a) => a._tag === "RollbackAction") &&
+								clockService.compareClock(
+									{
+										clock: latestPendingAction.clock,
+										clientId: latestPendingAction.client_id,
+										id: latestPendingAction.id
+									},
+									{
+										clock: earliestRemoteAction.clock,
+										clientId: earliestRemoteAction.client_id,
+										id: earliestRemoteAction.id
+									}
+								) < 0
+							) {
+								yield* Effect.logInfo(
+									`Case 4: Latest pending action (${latestPendingAction.id}) is older than earliest remote action (${earliestRemoteAction.id}). Applying remote, then sending pending.`
+								)
 
 							// 1. Apply remote actions
 							const appliedRemotes = yield* applyActionRecords(remoteActions)
@@ -229,17 +238,17 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 								"Case 3: Actions interleaved or remote older than pending. Reconciliation required."
 							)
 							const allLocalActions = yield* actionRecordRepo.all()
-							yield* reconcile(pendingActions, remoteActions, allLocalActions)
-							return yield* sendLocalActions()
+								yield* reconcile(pendingActions, remoteActions, allLocalActions)
+								return yield* sendLocalActions()
+							}
+						} else {
+							return yield* Effect.fail(
+								new SyncError({
+									message: "Could not determine latest pending or earliest remote clock."
+								})
+							)
 						}
-					} else {
-						return yield* Effect.fail(
-							new SyncError({
-								message: "Could not determine latest pending or earliest remote clock."
-							})
-						)
 					}
-				}
 				return yield* Effect.dieMessage("Unreachable code reached in performSync")
 			}).pipe(
 				Effect.catchAll((error) =>
@@ -315,30 +324,41 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				return yield* actionRecordRepo.allUnsynced()
 			})
 
-		const findRollbackTarget = (incomingActions: readonly ActionRecord[]) =>
-			Effect.gen(function* () {
-				const rollbacks = incomingActions.filter((a) => a._tag === "RollbackAction")
-				// find oldest target of all rollback in the incoming actions
-				//findByIds sorts by sortable_clock so we can take array head
-				const oldestRollbackTarget = Array.head(
-					yield* actionRecordRepo.findByIds(rollbacks.map((a: any) => a.args.target_action_id))
-				)
+			const findRollbackTarget = (incomingActions: readonly ActionRecord[]) =>
+				Effect.gen(function* () {
+					const rollbacks = incomingActions.filter((a) => a._tag === "RollbackAction")
+					// find oldest target of all rollback in the incoming actions
+					// findByIds sorts by canonical replay order so we can take array head
+					const oldestRollbackTarget = Array.head(
+						yield* actionRecordRepo.findByIds(rollbacks.map((a: any) => a.args.target_action_id))
+					)
 
-				const pendingActions = yield* actionRecordRepo.findBySynced(false)
+					const pendingActions = yield* actionRecordRepo.findBySynced(false)
 
-				const currentRollbackTarget = yield* findCommonAncestor()
-				let rollbackTarget = Option.none<ActionRecord>()
-				if (
-					pendingActions.length > 0 &&
-					incomingActions.length > 0 &&
-					Option.isSome(oldestRollbackTarget) &&
-					Option.isSome(currentRollbackTarget) &&
-					oldestRollbackTarget.value.sortable_clock < currentRollbackTarget.value.sortable_clock
-				) {
-					rollbackTarget = oldestRollbackTarget
-				} else {
-					rollbackTarget = currentRollbackTarget
-				}
+					const currentRollbackTarget = yield* findCommonAncestor()
+					let rollbackTarget = Option.none<ActionRecord>()
+					if (
+						pendingActions.length > 0 &&
+						incomingActions.length > 0 &&
+						Option.isSome(oldestRollbackTarget) &&
+						Option.isSome(currentRollbackTarget) &&
+						clockService.compareClock(
+							{
+								clock: oldestRollbackTarget.value.clock,
+								clientId: oldestRollbackTarget.value.client_id,
+								id: oldestRollbackTarget.value.id
+							},
+							{
+								clock: currentRollbackTarget.value.clock,
+								clientId: currentRollbackTarget.value.client_id,
+								id: currentRollbackTarget.value.id
+							}
+						) < 0
+					) {
+						rollbackTarget = oldestRollbackTarget
+					} else {
+						rollbackTarget = currentRollbackTarget
+					}
 
 				return rollbackTarget
 			})

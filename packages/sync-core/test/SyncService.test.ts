@@ -118,7 +118,7 @@ describe("SyncService", () => {
 				const initialRecords = yield* sql<ActionRecord>`
 					SELECT * FROM action_records
 					WHERE _tag = 'test-sync-action'
-					ORDER BY sortable_clock ASC
+					ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC
 				`
 				expect(initialRecords.length).toBe(2)
 				expect(initialRecords.every((r) => !r.synced)).toBe(true)
@@ -176,7 +176,7 @@ describe("SyncService", () => {
 				const finalRecords = yield* sql<ActionRecord>`
 					SELECT * FROM action_records
 					WHERE _tag = 'test-sync-action' AND (id = ${record1.id} OR id = ${record2.id})
-					ORDER BY sortable_clock ASC
+					ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC
 				`
 				expect(finalRecords.length).toBe(2)
 				expect(finalRecords.every((r) => r.synced)).toBe(true)

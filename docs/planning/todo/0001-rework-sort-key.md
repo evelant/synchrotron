@@ -2,17 +2,17 @@
 
 ## Status
 
-Proposed
+Implemented
 
 ## Summary
 
-The system currently relies on `action_records.sortable_clock` (a text key derived from the JSONB `clock`) as the “global replay order” and as the basis for rollback/common-ancestor selection. That key is computed via a heuristic (`compute_sortable_clock`) which:
+The system previously relied on `action_records.sortable_clock` (a lossy, heuristic text key derived from the JSONB `clock`) as the “global replay order” and as the basis for rollback/common-ancestor selection. That approach:
 
 - Is not a faithful encoding of the clock’s causal relationship (it can collide / lose information).
 - Has historically diverged between TypeScript ordering and SQL ordering.
 - Is used in many critical SQL paths (`ORDER BY`, common-ancestor, rollback), so any discrepancy undermines determinism.
 
-This change introduces a **canonical, index-friendly, deterministic total order key** for actions:
+This change introduces a **canonical, index-friendly, deterministic total order key** for actions and removes `sortable_clock` entirely.
 
 `(physical_time_ms, logical_counter, node_id, action_id)`
 
@@ -22,7 +22,7 @@ and rewires all “replay order” logic to use it consistently across TypeScrip
 
 1. Baseline sanity:
    - Run `pnpm -C packages/sync-core test` (record failures before changes).
-   - Run `rg -n "sortable_clock|compute_sortable_clock|compare_hlc" packages docs` to re-locate all touchpoints (update this doc if new ones appear).
+   - Run `rg -n "clock_time_ms|clock_counter|compare_hlc" packages docs` to re-locate all touchpoints (update this doc if new ones appear).
 2. Make the key decision up front (document the chosen values in this doc):
    - Timestamp handling: use raw `clock.timestamp` ms (no bucketing).
    - `logical_counter` source of truth: derived from `clock.vector[client_id]` vs stored explicitly.
@@ -30,15 +30,15 @@ and rewires all “replay order” logic to use it consistently across TypeScrip
    - `HLC.createLocalMutation` increments the local counter monotonically.
    - `HLC.receiveRemoteMutation` ensures the local counter is ≥ observed counters (so ordering doesn’t go “backwards” for a node).
 4. Agree on acceptance criteria:
-   - All SQL `ORDER BY sortable_clock` / `sortable_clock < >` paths are migrated to the new key.
+   - No remaining `sortable_clock` usage/columns/functions.
    - TS sorting and SQL ordering match for the same set of actions.
    - `find_common_ancestor()` and `rollback_to_action()` behave deterministically under concurrency.
 
 ## Why We’re Doing This
 
-### Problems with the current `sortable_clock`
+### Problems with the old `sortable_clock`
 
-- **Heuristic / lossy**: today’s `compute_sortable_clock(clock)` uses a “max counter + key rank + key” approach. Different vectors can map to the same `sortable_clock`, and the induced order is not guaranteed to be a linear extension of causal order.
+- **Heuristic / lossy**: the old `compute_sortable_clock(clock)` used a “max counter + key rank + key” approach. Different vectors could map to the same `sortable_clock`, and the induced order is not guaranteed to be a linear extension of causal order.
 - **Cross-layer consistency risk**: ordering exists in multiple places (TS sorting, SQL `ORDER BY`, SQL functions using `<`/`>` on `sortable_clock`). Any mismatch causes divergent replay order across client/server and makes rollback/common-ancestor selection fragile.
 - **Performance pressure**: we need an ordering key that is *indexable* for fast `ORDER BY` / pagination. Doing “real” comparisons over JSONB vectors inside queries is too slow and hard to index.
 
@@ -115,12 +115,7 @@ Plan:
 - Add a trigger function to populate these on `INSERT/UPDATE` from `NEW.clock` + `NEW.client_id`.
 - Add a composite index for fast ordering:
   - `CREATE INDEX ... ON action_records(clock_time_ms, clock_counter, client_id, id);`
-- Keep `sortable_clock` temporarily for backward compatibility, but stop using it for correctness-critical ordering.
-
-Also update the sync-status sortable fields if they are still needed:
-
-- `client_sync_status` currently maintains `sortable_current_clock` / `sortable_last_synced_clock`.
-- Decide whether we still need sortable representations there, or whether we should store `(bucket,counter,node)` (or a dedicated last-seen action cursor).
+- Remove `sortable_clock` and any related triggers/functions.
 
 ### SQL functions that assume `sortable_clock`
 
@@ -213,14 +208,10 @@ Add targeted tests around:
 
 ## Migration / Rollout Plan
 
-1. **Add new columns + trigger** (non-breaking).
-2. **Backfill** existing rows:
-   - `UPDATE action_records SET clock_bucket = ..., clock_counter = ... WHERE clock_bucket IS NULL ...`
-3. **Switch reads/ordering** in code to the new composite key everywhere.
-4. Keep `sortable_clock` temporarily:
-   - It may still exist for old clients or debugging.
-   - Optionally add a temporary assertion/test that `sortable_clock` order equals composite order (until removed).
-5. Once stable, **deprecate/remove** `sortable_clock` and its trigger/index.
+1. Add `clock_time_ms` / `clock_counter` columns + trigger + index.
+2. Backfill existing rows.
+3. Switch reads/ordering in code to the new composite key everywhere.
+4. Remove `sortable_clock` columns/functions/triggers/indexes.
 
 ## Open Questions / Decisions Needed
 

@@ -5,89 +5,54 @@ CREATE TABLE IF NOT EXISTS action_records (
 	client_id TEXT NOT NULL,
 	transaction_id FLOAT NOT NULL,
 	clock JSONB NOT NULL,
+	-- Canonical, index-friendly ordering fields derived from `clock` + `client_id`.
+	-- See `docs/planning/todo/0001-rework-sort-key.md`.
+	clock_time_ms BIGINT NOT NULL,
+	clock_counter BIGINT NOT NULL,
 	args JSONB NOT NULL,
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-	synced BOOLEAN DEFAULT FALSE,
-	-- Sortable string representation of HLC (legacy heuristic; scheduled for replacement).
-	-- See `docs/planning/todo/0001-rework-sort-key.md`.
-	sortable_clock TEXT
+	synced BOOLEAN DEFAULT FALSE
 );
 
-CREATE OR REPLACE FUNCTION compute_sortable_clock(clock JSONB)
-RETURNS TEXT AS $$
-DECLARE
-	ts TEXT;
-	max_counter INT := 0;
-	max_counter_key TEXT := ''; -- Default key
-	row_num INT := 0; -- Default row number
-	sortable_clock TEXT;
-	vector_is_empty BOOLEAN;
-BEGIN
-	ts := lpad((clock->>'timestamp'), 15, '0');
+-- Backwards-compatible migration for existing databases.
+ALTER TABLE action_records ADD COLUMN IF NOT EXISTS clock_time_ms BIGINT;
+ALTER TABLE action_records ADD COLUMN IF NOT EXISTS clock_counter BIGINT;
 
-	-- Check if vector exists and is not empty
-	-- Correct way to check if the jsonb object is empty or null
-	vector_is_empty := (clock->'vector' IS NULL) OR (clock->'vector' = '{}'::jsonb);
+UPDATE action_records
+SET
+	clock_time_ms = COALESCE((clock->>'timestamp')::BIGINT, 0),
+	clock_counter = COALESCE((clock->'vector'->>client_id)::BIGINT, 0)
+WHERE clock_time_ms IS NULL OR clock_counter IS NULL;
 
-	IF NOT vector_is_empty THEN
-		-- Find the max counter and its alphabetical first key
-		SELECT key, (value::INT) INTO max_counter_key, max_counter
-		FROM jsonb_each_text(clock->'vector')
-		ORDER BY value::INT DESC, key ASC
-		LIMIT 1;
+ALTER TABLE action_records ALTER COLUMN clock_time_ms SET NOT NULL;
+ALTER TABLE action_records ALTER COLUMN clock_counter SET NOT NULL;
 
-		-- Determine row number (alphabetical order) of max_counter_key
-		-- Ensure max_counter_key is not null or empty before using it
-		IF max_counter_key IS NOT NULL AND max_counter_key != '' THEN
-			 SELECT rn INTO row_num FROM (
-				SELECT key, ROW_NUMBER() OVER (ORDER BY key ASC) as rn
-				FROM jsonb_each_text(clock->'vector')
-			) AS sub
-			WHERE key = max_counter_key;
-		ELSE
-			 -- Handle case where vector might exist but query didn't return expected key (shouldn't happen if not empty)
-			 max_counter_key := ''; -- Reset to default if something went wrong
-			 max_counter := 0;
-			 row_num := 0;
-		END IF;
-	END IF; -- Defaults are used if vector_is_empty
+-- Legacy cleanup: sortable_clock is fully removed (no longer used anywhere).
+DROP TRIGGER IF EXISTS action_records_sortable_clock_trigger ON action_records;
+DROP INDEX IF EXISTS action_records_sortable_clock_idx;
+ALTER TABLE action_records DROP COLUMN IF EXISTS sortable_clock;
 
-	-- Build the sortable clock explicitly
-	-- Use COALESCE to handle potential nulls just in case, though defaults should prevent this
-	sortable_clock := ts || '-' ||
-						  lpad(COALESCE(max_counter, 0)::TEXT, 10, '0') || '-' ||
-						  lpad(COALESCE(row_num, 0)::TEXT, 5, '0') || '-' ||
-						  COALESCE(max_counter_key, ''); -- Use empty string if key is null
-
-	RETURN sortable_clock;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION compute_sortable_clock()
+CREATE OR REPLACE FUNCTION compute_action_record_clock_order_columns()
 RETURNS TRIGGER AS $$
-DECLARE
-    ts TEXT;
-    max_counter INT := 0;
-    max_counter_key TEXT := '';
-    row_num INT := 0;
 BEGIN
-	-- Ensure the input clock is not null before calling the computation function
 	IF NEW.clock IS NOT NULL THEN
-		NEW.sortable_clock = compute_sortable_clock(NEW.clock);
+		NEW.clock_time_ms = COALESCE((NEW.clock->>'timestamp')::BIGINT, 0);
+		NEW.clock_counter = COALESCE((NEW.clock->'vector'->>NEW.client_id)::BIGINT, 0);
 	ELSE
-		-- Decide how to handle null input clock, maybe set sortable_clock to NULL or a default?
-		NEW.sortable_clock = NULL; -- Or some default string like '000000000000000-0000000000-00000-'
+		NEW.clock_time_ms = 0;
+		NEW.clock_counter = 0;
 	END IF;
 	RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS action_records_sortable_clock_trigger ON action_records;
-CREATE TRIGGER action_records_sortable_clock_trigger
+DROP TRIGGER IF EXISTS action_records_clock_order_columns_trigger ON action_records;
+CREATE TRIGGER action_records_clock_order_columns_trigger
 BEFORE INSERT OR UPDATE ON action_records
-FOR EACH ROW EXECUTE FUNCTION compute_sortable_clock();
+FOR EACH ROW EXECUTE FUNCTION compute_action_record_clock_order_columns();
 
-CREATE INDEX IF NOT EXISTS action_records_sortable_clock_idx ON action_records(sortable_clock);
+CREATE INDEX IF NOT EXISTS action_records_clock_order_idx
+ON action_records(clock_time_ms, clock_counter, client_id, id);
 
 
 -- Create indexes for action_records
@@ -118,45 +83,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS action_modified_rows_unique_idx ON action_modi
 CREATE TABLE IF NOT EXISTS client_sync_status (
 	client_id TEXT PRIMARY KEY,
 	current_clock JSONB NOT NULL,
-	last_synced_clock JSONB NOT NULL,
-	sortable_current_clock TEXT,
-	sortable_last_synced_clock TEXT
-
+	last_synced_clock JSONB NOT NULL
 );
 
-CREATE OR REPLACE FUNCTION compute_sortable_clocks_on_sync_status()
-RETURNS TRIGGER AS $$
-DECLARE
-    ts TEXT;
-    max_counter INT := 0;
-    max_counter_key TEXT := '';
-    row_num INT := 0;
-BEGIN
-	IF NEW.current_clock IS NOT NULL THEN
-		NEW.sortable_current_clock = compute_sortable_clock(NEW.current_clock);
-	ELSE
-		NEW.sortable_current_clock = NULL;
-	END IF;
-
-	IF NEW.last_synced_clock IS NOT NULL THEN
-		NEW.sortable_last_synced_clock = compute_sortable_clock(NEW.last_synced_clock);
-	ELSE
-		NEW.sortable_last_synced_clock = NULL;
-	END IF;
-
-	RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
+-- Legacy cleanup: sortable clock columns are fully removed (no longer used anywhere).
 DROP TRIGGER IF EXISTS client_sync_status_sortable_clock_trigger ON client_sync_status;
-CREATE TRIGGER client_sync_status_sortable_clock_trigger
-BEFORE INSERT OR UPDATE ON client_sync_status
-FOR EACH ROW EXECUTE FUNCTION compute_sortable_clocks_on_sync_status();
-
-CREATE INDEX IF NOT EXISTS client_sync_status_sortable_clock_idx ON client_sync_status(sortable_current_clock);
-CREATE INDEX IF NOT EXISTS client_sync_status_sortable_last_synced_clock_idx ON client_sync_status(sortable_last_synced_clock);
+DROP INDEX IF EXISTS client_sync_status_sortable_clock_idx;
+DROP INDEX IF EXISTS client_sync_status_sortable_last_synced_clock_idx;
+ALTER TABLE client_sync_status DROP COLUMN IF EXISTS sortable_current_clock;
+ALTER TABLE client_sync_status DROP COLUMN IF EXISTS sortable_last_synced_clock;
 
 -- Create client-local table to track applied actions
 CREATE TABLE IF NOT EXISTS local_applied_action_ids (
 	action_record_id TEXT PRIMARY KEY
 );
+
+-- Drop legacy sortable clock functions (fully removed).
+DROP FUNCTION IF EXISTS compute_sortable_clocks_on_sync_status();
+DROP FUNCTION IF EXISTS compute_sortable_clock();
+DROP FUNCTION IF EXISTS compute_sortable_clock(JSONB);

@@ -4,7 +4,7 @@ This doc captures design/implementation mismatches found while reviewing `README
 
 ## 0) Summary / Workstreams
 
-1. **Canonical ordering**: align TypeScript HLC ordering, SQL `compare_hlc`, and persisted `sortable_clock` (single-source-of-truth).
+1. **Canonical ordering**: align TypeScript action ordering, SQL `compare_hlc`, and persisted ordering columns (`clock_time_ms`, `clock_counter`) as a single source of truth.
 2. **Rollback semantics**: clarify whether rollback actions must be interpreted by *all* clients (and if so, implement client-side handling).
 3. **`rollback_to_action` safety**: ensure rollback can’t “undo” actions that were never applied locally.
 4. **SYNC patch apply correctness**: ensure `_InternalSyncApply` is applied without triggers, and that INSERT patches are supported.
@@ -29,9 +29,8 @@ This doc captures design/implementation mismatches found while reviewing `README
 1. **TypeScript ordering**: `HLC._order` / `orderLogical` (`packages/sync-core/src/HLC.ts:61`).
 2. **SQL comparison**: `compare_hlc(hlc1, hlc2)` (`packages/sync-core/src/db/sql/clock/compare_hlc.sql:1`).
    - Notably returns `2` for concurrency, i.e. not a total order.
-3. **Persisted ordering key**: `sortable_clock = compute_sortable_clock(clock)` (`packages/sync-core/src/db/sql/schema/create_sync_tables.sql:16`).
-   - Uses a heuristic: timestamp + (max counter + its key’s row number) + key string.
-   - This is lossy vs the full vector and can disagree with TS ordering.
+3. **Persisted ordering key**: `(clock_time_ms, clock_counter, client_id, id)` derived from `(clock.timestamp, clock.vector[client_id])` (`packages/sync-core/src/db/sql/schema/create_sync_tables.sql`).
+   - Index-friendly (btree) and deterministic across TS + SQL.
 
 ### Concrete mismatch example (realistic)
 
@@ -44,7 +43,7 @@ Behavior:
 
 - SQL `compare_hlc(A,B)` ⇒ `2` (“concurrent”) (`packages/sync-core/src/db/sql/clock/compare_hlc.sql:1`).
 - TS `HLC._order(A,B)` ⇒ returns `-1|1` (forces an order via `orderLogical`) (`packages/sync-core/src/HLC.ts:61`).
-- SQL `compute_sortable_clock` will pick max counter/key as the dominant ordering signal; depending on key ordering, it can disagree with TS.
+- Historical note: the old `sortable_clock` heuristic could disagree with TS ordering; this is now removed in favor of the composite ordering key.
 
 ### Why this matters
 
@@ -58,17 +57,15 @@ Behavior:
   - If we want a true total order, define a deterministic tie-break for concurrency (e.g. client id, action id).
   - If we want a partial order + “concurrent” result, avoid using it in places that require total ordering.
 - **Choose the canonical artifact**:
-  - Either: make `sortable_clock` the canonical total order and compute it from the *full* vector (not lossy), or compute it in TS and store it.
-  - Or: use TS ordering everywhere and stop persisting a DB-derived `sortable_clock`.
+  - Persist the composite ordering key `(clock_time_ms, clock_counter, client_id, id)` and use it everywhere for total ordering.
 - **Align SQL + TS**:
   - `compare_hlc` should either implement the total order (including tie-break) or be renamed/used only as a partial order (“happens-before / concurrent”).
   - Queries using `compare_hlc > 0` should be audited.
 
 ### Tests to add
 
-- Golden tests for a suite of clocks where:
-  - TS comparator and DB comparator agree on `<, =, >` for total order.
-  - `sortable_clock` ordering matches the chosen canonical order.
+- Golden tests for a suite of actions where:
+  - TS comparator and DB ordering by `(clock_time_ms, clock_counter, client_id, id)` agree for total order.
 - Property test idea: generate random vectors for same timestamp and verify stable ordering (with deterministic tie-break) is consistent across TS and SQL.
 
 ---
@@ -129,7 +126,7 @@ It could be sound if:
 
 ### Current SQL behavior
 
-`rollback_to_action` builds `actions_to_rollback` as **all** `action_records` with `sortable_clock > target_sortable_clock` and then reverses **all** AMRs for those actions:
+`rollback_to_action` builds `actions_to_rollback` as **all** `action_records` with a replay-order key greater than the target `(clock_time_ms, clock_counter, client_id, id)` and then reverses **all** AMRs for those actions:
 
 - `actions_to_rollback` does not filter to locally-applied actions (`packages/sync-core/src/db/sql/action/rollback_to_action.sql:32`).
 - Only the *cleanup* step (`action_ids_to_unapply`) is filtered to `local_applied_action_ids` (`packages/sync-core/src/db/sql/action/rollback_to_action.sql:40`).
@@ -252,4 +249,3 @@ This risks tests unintentionally sharing the same tables between “clients”, 
 
 - Fix schema isolation in tests (true schema switching or per-client table names).
 - Add tests that fail without isolation (to guard against regressions).
-

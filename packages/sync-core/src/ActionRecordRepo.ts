@@ -18,14 +18,14 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 			Request: Schema.Boolean,
 			Result: ActionRecord,
 			execute: (synced) =>
-				sql`SELECT * FROM action_records WHERE synced = ${synced} ORDER BY sortable_clock ASC`
+				sql`SELECT * FROM action_records WHERE synced = ${synced} ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC`
 		})
 
 		const findByTag = SqlSchema.findAll({
 			Request: Schema.String,
 			Result: ActionRecord,
 			execute: (tag) =>
-				sql`SELECT * FROM action_records WHERE _tag = ${tag} ORDER BY sortable_clock ASC`
+				sql`SELECT * FROM action_records WHERE _tag = ${tag} ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC`
 		})
 
 		const findOlderThan = SqlSchema.findAll({
@@ -34,7 +34,7 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 			execute: (days) => sql`
 				SELECT * FROM action_records
 				WHERE created_at < NOW() - INTERVAL '${days} days' 
-				ORDER BY sortable_clock ASC
+				ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC
 			`
 		})
 
@@ -42,13 +42,14 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 			Request: Schema.Void,
 			Result: ActionRecord,
 			execute: () =>
-				sql`SELECT * FROM action_records WHERE synced = true ORDER BY sortable_clock DESC LIMIT 1`
+				sql`SELECT * FROM action_records WHERE synced = true ORDER BY clock_time_ms DESC, clock_counter DESC, client_id DESC, id DESC LIMIT 1`
 		})
 
 		const findLatest = SqlSchema.findOne({
 			Request: Schema.Void,
 			Result: ActionRecord,
-			execute: () => sql`SELECT * FROM action_records ORDER BY sortable_clock DESC LIMIT 1`
+			execute: () =>
+				sql`SELECT * FROM action_records ORDER BY clock_time_ms DESC, clock_counter DESC, client_id DESC, id DESC LIMIT 1`
 		})
 
 		const findByTransactionId = SqlSchema.findOne({
@@ -64,20 +65,21 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 			Request: Schema.Array(Schema.String),
 			Result: ActionRecord,
 			execute: (ids) =>
-				sql`SELECT * FROM action_records WHERE id IN ${sql.in(ids)} ORDER BY sortable_clock ASC`
+				sql`SELECT * FROM action_records WHERE id IN ${sql.in(ids)} ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC`
 		})
 
 		const all = SqlSchema.findAll({
 			Request: Schema.Void,
 			Result: ActionRecord,
-			execute: () => sql`SELECT * FROM action_records ORDER BY sortable_clock ASC`
+			execute: () =>
+				sql`SELECT * FROM action_records ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC`
 		})
 
 		const allUnsynced = SqlSchema.findAll({
 			Request: Schema.Void,
 			Result: ActionRecord,
 			execute: () =>
-				sql`SELECT * FROM action_records WHERE synced = false ORDER BY sortable_clock ASC`
+				sql`SELECT * FROM action_records WHERE synced = false ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC`
 		})
 
 		const markAsSynced = (id: string) =>
@@ -114,7 +116,7 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 				FROM action_records ar
 				LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
 				WHERE la.action_record_id IS NULL
-				ORDER BY ar.sortable_clock ASC
+				ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
 			`
 		})
 
@@ -128,7 +130,7 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 				WHERE la.action_record_id IS NULL
 				AND ar.synced = true
 				AND ar.client_id != (SELECT client_id FROM client_sync_status LIMIT 1)
-				ORDER BY ar.sortable_clock ASC
+				ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
 			`
 		})
 

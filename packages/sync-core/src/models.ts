@@ -43,10 +43,11 @@ export class ActionRecord extends Model.Class<ActionRecord>("action_records")({
 	client_id: Schema.String,
 	transaction_id: Schema.Number,
 	clock: HLC,
+	clock_time_ms: Model.Generated(Schema.Number),
+	clock_counter: Model.Generated(Schema.Number),
 	args: Schema.Struct({ timestamp: Schema.Number }, { key: Schema.String, value: Schema.Unknown }),
 	created_at: Schema.Union(Schema.DateFromString, Schema.DateFromSelf),
-	synced: Schema.Boolean.pipe(Schema.optionalWith({ default: () => false })),
-	sortable_clock: Model.Generated(Schema.String)
+	synced: Schema.Boolean.pipe(Schema.optionalWith({ default: () => false }))
 }) {}
 
 export type ActionRecordJson = typeof ActionRecord.json.Type

@@ -154,7 +154,12 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 
 				const currentState = yield* getClientClockState
 
-				if (HLC._order(latestSyncedClock, currentState.last_synced_clock) <= 0) {
+				if (
+					compareClock(
+						{ clock: latestSyncedClock, clientId, id: undefined },
+						{ clock: currentState.last_synced_clock, clientId, id: undefined }
+					) <= 0
+				) {
 					yield* Effect.logDebug(
 						`Skipping last_synced_clock update: latest sent clock ${JSON.stringify(latestSyncedClock)} is not newer than current last_synced_clock ${JSON.stringify(currentState.last_synced_clock)}`
 					)
@@ -176,13 +181,35 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 
 		/**
 		 * Compare two clocks to determine their ordering
-		 * Uses client ID as a tiebreaker if timestamps and vectors are identical.
+		 * Canonical total order: (time_ms, counter, node_id, action_id)
+		 *
+		 * For non-action comparisons, `id` can be omitted.
 		 */
 		const compareClock = (
-			a: { clock: HLC.HLC; clientId: string },
-			b: { clock: HLC.HLC; clientId: string }
+			a: { clock: HLC.HLC; clientId: string; id?: string | number | undefined },
+			b: { clock: HLC.HLC; clientId: string; id?: string | number | undefined }
 		): number => {
-			return HLC.orderWithClientId(a.clock, b.clock, a.clientId, b.clientId)
+			if (a.clock.timestamp !== b.clock.timestamp) {
+				return a.clock.timestamp < b.clock.timestamp ? -1 : 1
+			}
+
+			const counterA = HLC.valueForNode(a.clock, a.clientId)
+			const counterB = HLC.valueForNode(b.clock, b.clientId)
+			if (counterA !== counterB) {
+				return counterA < counterB ? -1 : 1
+			}
+
+			if (a.clientId !== b.clientId) {
+				return a.clientId < b.clientId ? -1 : 1
+			}
+
+			const idA = a.id === undefined ? "" : String(a.id)
+			const idB = b.id === undefined ? "" : String(b.id)
+			if (idA !== idB) {
+				return idA < idB ? -1 : 1
+			}
+
+			return 0
 		}
 
 		/**

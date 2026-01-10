@@ -106,37 +106,37 @@ describe("Clock Operations", () => {
 				const clockService = yield* ClockService
 
 				// Test different timestamps
-				// Note: compareClock now requires clientId, add dummy ones for these basic tests
-				const dummyClientId = "test-client"
+				// Note: compareClock derives the logical counter from `clock.vector[clientId]`
+				const clientId = "client1"
 				const result1 = clockService.compareClock(
-					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId: dummyClientId },
-					{ clock: { timestamp: 2000, vector: { client1: 1 } }, clientId: dummyClientId }
+					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId },
+					{ clock: { timestamp: 2000, vector: { client1: 1 } }, clientId }
 				)
 				expect(result1).toBeLessThan(0)
 
 				const result2 = clockService.compareClock(
-					{ clock: { timestamp: 2000, vector: { client1: 1 } }, clientId: dummyClientId },
-					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId: dummyClientId }
+					{ clock: { timestamp: 2000, vector: { client1: 1 } }, clientId },
+					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId }
 				)
 				expect(result2).toBeGreaterThan(0)
 
 				// Test different vectors with same timestamp
 				const result3 = clockService.compareClock(
-					{ clock: { timestamp: 1000, vector: { client1: 2 } }, clientId: dummyClientId },
-					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId: dummyClientId }
+					{ clock: { timestamp: 1000, vector: { client1: 2 } }, clientId },
+					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId }
 				)
 				expect(result3).toBeGreaterThan(0)
 
 				const result4 = clockService.compareClock(
-					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId: dummyClientId },
-					{ clock: { timestamp: 1000, vector: { client1: 2 } }, clientId: dummyClientId }
+					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId },
+					{ clock: { timestamp: 1000, vector: { client1: 2 } }, clientId }
 				)
 				expect(result4).toBeLessThan(0)
 
 				// Test identical clocks
 				const result5 = clockService.compareClock(
-					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId: dummyClientId },
-					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId: dummyClientId }
+					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId },
+					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId }
 				)
 				expect(result5).toBe(0)
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer here
@@ -177,10 +177,10 @@ describe("Clock Operations", () => {
 
 				const items = [
 					// Add clientId to match the expected structure for sortClocks
-					{ id: 1, clock: { timestamp: 2000, vector: { client1: 1 } }, clientId: "c1" },
-					{ id: 2, clock: { timestamp: 1000, vector: { client1: 2 } }, clientId: "c1" },
-					{ id: 3, clock: { timestamp: 1000, vector: { client1: 1 } }, clientId: "c1" },
-					{ id: 4, clock: { timestamp: 3000, vector: { client1: 1 } }, clientId: "c1" }
+					{ id: 1, clock: { timestamp: 2000, vector: { client1: 1 } }, clientId: "client1" },
+					{ id: 2, clock: { timestamp: 1000, vector: { client1: 2 } }, clientId: "client1" },
+					{ id: 3, clock: { timestamp: 1000, vector: { client1: 1 } }, clientId: "client1" },
+					{ id: 4, clock: { timestamp: 3000, vector: { client1: 1 } }, clientId: "client1" }
 				]
 
 				const sorted = clockService.sortClocks(items)
@@ -310,12 +310,14 @@ describe("DB Reverse Patch Functions", () => {
 				// Check that all required columns exist
 				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("id")
 				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("_tag")
-				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("client_id")
-				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("transaction_id")
-				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("clock")
-				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("args")
-				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("created_at")
-				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("synced")
+					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("client_id")
+					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("transaction_id")
+					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("clock")
+					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("clock_time_ms")
+					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("clock_counter")
+					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("args")
+					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("created_at")
+					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("synced")
 
 				// Verify that the action_modified_rows table has the correct columns
 				const actionModifiedRowsColumns = yield* sql<{ column_name: string }>`

@@ -30,7 +30,7 @@ export class ActionModifiedRowRepo extends Effect.Service<ActionModifiedRowRepo>
 						FROM action_modified_rows amr
 						JOIN action_records ar ON amr.action_record_id = ar.id
 						WHERE amr.action_record_id IN ${sql.in(ids)} 
-						ORDER BY ar.sortable_clock ASC, amr.sequence ASC
+						ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC, amr.sequence ASC
 					` 
 				}
 			})
@@ -43,7 +43,7 @@ export class ActionModifiedRowRepo extends Effect.Service<ActionModifiedRowRepo>
                     FROM action_modified_rows amr
                     JOIN action_records ar ON amr.action_record_id = ar.id
                     WHERE ar.transaction_id = ${txid} 
-					ORDER BY ar.sortable_clock ASC, amr.sequence ASC -- Order by HLC first, then sequence
+					ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC, amr.sequence ASC -- Order by HLC first, then sequence
                 `
 			})
 

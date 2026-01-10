@@ -7,7 +7,7 @@ Synchrotron’s offline properties depend on database behavior being determinist
 - **Deterministic ID generation** for inserts (no coordination, no conflicts).
 - **Automatic patch capture** for all writes performed inside actions (unrestricted SQL).
 - **Rollback + replay** driven by the patch log (ActionModifiedRows).
-- **Stable ordering** via Hybrid Logical Clocks (HLC) and `sortable_clock`.
+- **Stable ordering** via Hybrid Logical Clocks (HLC) and an index-friendly replay-order key `(clock_time_ms, clock_counter, client_id, id)`.
 
 Today, the local engine relies heavily on PostgreSQL semantics via PGlite:
 
@@ -101,13 +101,14 @@ Requirement:
 
 Today:
 
-- `sortable_clock` is computed via PL/pgSQL on insert/update for `action_records` (`packages/sync-core/src/db/sql/schema/create_sync_tables.sql`).
-- Some server queries rely on `compare_hlc` (`packages/sync-core/src/db/sql/clock/compare_hlc.sql`), but much code already orders by `sortable_clock`.
+- `action_records.clock_time_ms` and `action_records.clock_counter` are computed on insert/update from `clock` + `client_id` (`packages/sync-core/src/db/sql/schema/create_sync_tables.sql`).
+- Server/client ordering uses `ORDER BY clock_time_ms, clock_counter, client_id, id` (btree index-friendly).
+- Some queries still rely on `compare_hlc` (`packages/sync-core/src/db/sql/clock/compare_hlc.sql`) as a causal filter.
 
 Adapter implications:
 
-- Prefer computing `sortable_clock` in TypeScript to guarantee cross-db consistency and remove DB JSON dependencies.
-- Avoid SQL-level HLC compare where possible; use `sortable_clock` comparisons instead.
+- Ensure every backend can derive `clock_time_ms` / `clock_counter` consistently from the same logical clock spec.
+- Avoid JSONB-heavy ordering/comparisons inside queries; rely on stored scalars for ordering and pagination.
 
 ## Design principle: split DB responsibilities
 
@@ -121,7 +122,7 @@ Adapter implications:
 
 - `rollback_to_action`, `find_common_ancestor` (implemented via queries + TS control flow).
 - Applying patches forward/reverse (read AMRs + execute parameterized statements).
-- Sorting/merging clocks (`sortable_clock` computation).
+- Sorting/merging clocks and replay-order key computation.
 - “Trigger context” management (implemented using portable tables rather than Postgres settings when possible).
 
 This reduces stored-procedure surface area and makes SQLite feasible.
@@ -428,11 +429,11 @@ Keep the interface and portable logic in `sync-core`, and backend-specific piece
 
 Goal: shrink backend-specific SQL surface.
 
-- Compute `sortable_clock` in TypeScript and store it on insert/update of action records.
+- Compute the replay-order key in TypeScript and store `clock_time_ms` / `clock_counter` on insert/update of action records.
 - Reimplement `find_common_ancestor` in TS using repository queries.
 - Reimplement `rollback_to_action` in TS:
   - query action_records newer than target
-  - query AMRs for those actions ordered by (sortable_clock DESC, sequence DESC)
+  - query AMRs for those actions ordered by (clock_time_ms DESC, clock_counter DESC, client_id DESC, id DESC, sequence DESC)
   - apply reverse patches via adapter primitive
   - clean up `local_applied_action_ids`
 - Reimplement `apply_forward_amr_batch` / `apply_reverse_amr_batch` in TS (parameterized statements per AMR).

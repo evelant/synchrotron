@@ -117,7 +117,7 @@ describe("Core Sync Functionality", () => {
 				// Verify server state
 				const serverActions = yield* serverSql<ActionRecord>`
 				SELECT * FROM action_records
-				ORDER BY sortable_clock ASC
+				ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC
 			`
 				expect(serverActions.length).toBe(2)
 				// Order depends on HLC comparison, B should be first as it was created later but synced first

@@ -88,7 +88,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							FROM action_records ar
 							JOIN conflicting_rows cr ON ar.id = cr.action_record_id
 							WHERE compare_hlc(ar.clock, ${sql.json(latestIncomingClock)}) > 0 -- Use sql.json
-							ORDER BY sortable_clock ASC
+							ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
 						`.pipe(
 						Effect.mapError(
 							(e) => new ServerInternalError({ message: "Conflict check query failed", cause: e })
@@ -266,7 +266,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				const actions = yield* sql<ActionRecord>`
 						SELECT * FROM action_records
 						${whereClauses.length > 0 ? sql`WHERE ${sql.and(whereClauses)}` : sql``}
-						ORDER BY sortable_clock ASC
+						ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC
           			`.pipe(
 					Effect.mapError(
 						(error) =>
