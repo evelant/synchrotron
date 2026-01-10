@@ -1,6 +1,5 @@
 import { Rpc, RpcGroup } from "@effect/rpc"
 import { Schema } from "effect"
-import { HLC } from "./HLC"
 import { ActionModifiedRow, ActionRecord } from "./models"
 import { NetworkRequestError, RemoteActionFetchError } from "./SyncNetworkService"
 
@@ -14,7 +13,7 @@ export class FetchRemoteActions extends Schema.TaggedRequest<FetchRemoteActions>
 	{
 		payload: {
 			clientId: Schema.String,
-			lastSyncedClock: HLC
+			sinceServerIngestId: Schema.Number
 		},
 		success: FetchResultSchema,
 		failure: RemoteActionFetchError

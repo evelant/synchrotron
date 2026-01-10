@@ -2,7 +2,6 @@ import { PgLiteClient } from "@effect/sql-pglite"
 import type { SqlError } from "@effect/sql/SqlError"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo" // Import Repo
 import { ClockService } from "@synchrotron/sync-core/ClockService"
-import type { HLC } from "@synchrotron/sync-core/HLC"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
 import { ActionModifiedRow } from "@synchrotron/sync-core/models" // Import ActionModifiedRow model
 import {
@@ -85,7 +84,7 @@ export const createTestSyncNetworkServiceLayer = (
 			 * Get all actions AND their modified rows from the server schema
 			 */
 			const getServerData = (
-				lastSyncedClock: HLC
+				sinceServerIngestId: number
 			): Effect.Effect<FetchResult, SqlError> => // Updated return type
 				Effect.gen(function* () {
 					// Log the database path being queried
@@ -93,20 +92,12 @@ export const createTestSyncNetworkServiceLayer = (
 					const dbPath = serverSql.client?.db?.path ?? "unknown"
 					yield* Effect.logDebug(`getServerData: Querying server DB at ${dbPath}`)
 
-					// Check if the lastSyncedClock represents the initial state (empty vector)
-					const isInitialSync = Object.keys(lastSyncedClock.vector).length === 0
-
-					// Query actions from server schema that are newer than last synced clock
-					// Use compare_hlc to filter actions strictly newer than the client's clock
-						const actions = yield* serverSql<ActionRecord>`
+					const actions = yield* serverSql<ActionRecord>`
 							SELECT * FROM action_records
-							${
-								isInitialSync
-									? sql`` // Fetch all if initial sync
-									: sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0` // Otherwise fetch newer
-							}
-							ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC
-	          `
+							WHERE client_id != ${clientId}
+							AND server_ingest_id > ${sinceServerIngestId}
+							ORDER BY server_ingest_id ASC, id ASC
+	          			`
 
 					yield* Effect.logDebug(
 						`getServerData for ${clientId}: Found ${actions.length} actions on server. Raw result: ${JSON.stringify(actions)}`
@@ -272,18 +263,31 @@ export const createTestSyncNetworkServiceLayer = (
 							yield* Effect.logInfo(
 								`Inserting action ${actionRecord.id} into server schema, created_at: ${actionRecord.created_at}`
 							)
-							// Ensure patches are stored as JSONB on the server simulation
-							yield* serverSql`INSERT INTO action_records ${sql.insert({
-								id: actionRecord.id,
-								client_id: actionRecord.client_id,
-								_tag: actionRecord._tag,
-								args: sql.json(actionRecord.args),
-								clock: sql.json(actionRecord.clock),
-								synced: true, // Mark as synced on server
-								transaction_id: actionRecord.transaction_id,
-								created_at: new Date(actionRecord.created_at)
-							})}
-								ON CONFLICT (id) DO NOTHING`
+							yield* serverSql`
+								INSERT INTO action_records (
+									server_ingest_id,
+									id,
+									client_id,
+									_tag,
+									args,
+									clock,
+									synced,
+									transaction_id,
+									created_at
+								)
+								VALUES (
+									nextval('action_records_server_ingest_id_seq'),
+									${actionRecord.id},
+									${actionRecord.client_id},
+									${actionRecord._tag},
+									${sql.json(actionRecord.args)},
+									${sql.json(actionRecord.clock)},
+									true,
+									${actionRecord.transaction_id},
+									${new Date(actionRecord.created_at)}
+								)
+								ON CONFLICT (id) DO NOTHING
+							`
 						}
 
 						// Then insert the corresponding ActionModifiedRows
@@ -368,10 +372,9 @@ export const createTestSyncNetworkServiceLayer = (
 				fetchRemoteActions: () =>
 					// Interface expects only RemoteActionFetchError
 					Effect.gen(function* () {
-						// Use the *last synced* clock state, not the potentially advanced current clock
-						const lastSyncedClock = yield* clockService.getLastSyncedClock // Correct: uses last persisted sync state
+						const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
 						yield* Effect.logInfo(
-							`Fetching remote data since ${JSON.stringify(lastSyncedClock)} for client ${clientId}` // Updated log message
+							`Fetching remote data since server_ingest_id=${sinceServerIngestId} for client ${clientId}`
 						)
 						if (state.shouldFail && !state.fetchResult) {
 							// Only fail if no mock result provided
@@ -390,7 +393,7 @@ export const createTestSyncNetworkServiceLayer = (
 						// Use mocked result if provided, otherwise fetch from server
 						const fetchedData = state.fetchResult
 							? yield* state.fetchResult
-							: yield* getServerData(lastSyncedClock)
+							: yield* getServerData(sinceServerIngestId)
 
 						// Simulate ElectricSQL sync: Insert fetched actions AND modified rows directly into the client's DB
 						// Wrap inserts in an effect to catch SqlError
@@ -406,6 +409,7 @@ export const createTestSyncNetworkServiceLayer = (
 									yield* sql`INSERT INTO action_records ${sql.insert({
 										// Explicitly list fields instead of spreading
 										id: action.id,
+										server_ingest_id: action.server_ingest_id,
 										_tag: action._tag,
 										client_id: action.client_id,
 										transaction_id: action.transaction_id,

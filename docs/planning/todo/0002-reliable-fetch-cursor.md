@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Implemented
 
 ## Summary
 
@@ -10,16 +10,16 @@ Today, “fetch remote actions since last sync” is based on a **client-generat
 
 This issue is independent from the “replay order” key (tracked in `docs/planning/todo/0001-rework-sort-key.md:1`). Even with a perfect replay ordering, we still need a fetch cursor that guarantees we don’t permanently miss actions.
 
-Proposed fix: introduce a **server-generated ingestion cursor** (monotonic) used only for fetching/streaming. Clients fetch by ingestion cursor, then sort/apply by the replay order key.
+Implemented fix: introduce a **server-generated ingestion cursor** (monotonic) used only for fetching/streaming. Clients fetch by ingestion cursor, then sort/apply by the replay order key.
 
 ## Problem Statement
 
-### Current behavior
+### Previous behavior (pre-0002)
 
 Server-side fetch uses the client’s `last_synced_clock` as a watermark:
 
 - `compare_hlc` compares timestamps first (`packages/sync-core/src/db/sql/clock/compare_hlc.sql:11`)
-- server queries use `compare_hlc(clock, lastSyncedClock) > 0` (`packages/sync-server/src/SyncServerService.ts:262`)
+- server queries used `compare_hlc(clock, lastSyncedClock) > 0` (now removed)
 
 This assumes: “anything new-to-this-client must also have a clock greater than the last seen clock”.
 
@@ -73,9 +73,11 @@ Clients:
 
 ### Options for the ingestion cursor
 
-Option A (recommended): `server_ingest_id` identity
+Option A (implemented): `server_ingest_id` assigned on ingest
 
-- Add `server_ingest_id BIGINT GENERATED ALWAYS AS IDENTITY` (or `BIGSERIAL`) to `action_records`.
+- Add `server_ingest_id BIGINT` to `action_records`.
+- Server assigns it on insert using a monotonic sequence (`action_records_server_ingest_id_seq`) and `nextval(...)`.
+- The column is nullable so clients can store local-only actions without a server cursor value.
 - Index it and use it as the cursor.
 
 Option B: `(server_received_at, id)` cursor
@@ -96,9 +98,10 @@ Files:
 
 Proposed additions:
 
-- `action_records.server_ingest_id BIGINT GENERATED ALWAYS AS IDENTITY`
-  - `UNIQUE NOT NULL`
+- `action_records.server_ingest_id BIGINT`
+  - assigned by the server on ingest via `nextval('action_records_server_ingest_id_seq')`
   - `CREATE INDEX ... ON action_records(server_ingest_id)`
+  - `CREATE UNIQUE INDEX ... ON action_records(server_ingest_id) WHERE server_ingest_id IS NOT NULL`
 - Optional: `action_records.server_received_at TIMESTAMPTZ NOT NULL DEFAULT now()` for debugging/analytics.
 
 Client state:
@@ -108,7 +111,7 @@ Client state:
 
 Migration/backfill:
 
-- For existing rows, backfill `server_ingest_id` via sequence order at migration time (alpha-friendly).
+- Not implemented (experimental): reset local/dev DBs if you have pre-0002 data.
 - Important: this is not replay order; it is only “arrival order”.
 
 ## Code Touchpoints
@@ -116,21 +119,21 @@ Migration/backfill:
 Server:
 
 - `packages/sync-server/src/SyncServerService.ts`
-  - `getActionsSince(...)` should accept a `since_ingest_id` (or fetch it from server-side per-client state) and query:
+  - `getActionsSince(...)` should accept a `since_ingest_id` and query:
     - `WHERE server_ingest_id > $since AND client_id != $clientId`
     - `ORDER BY server_ingest_id ASC` (fetch order)
   - The server can still return actions ordered by replay key, but it’s usually cheaper to fetch by ingestion and let the client sort for replay.
 
 Client/core:
 
-- Introduce storage/accessors for `last_seen_server_ingest_id` (ClockService or a dedicated SyncCursorService).
-- Update client network fetch to pass the ingestion cursor.
-- After successful apply, advance the watermark to the max `server_ingest_id` seen.
+- Store `last_seen_server_ingest_id` in `client_sync_status` and expose accessors (implemented in `ClockService`).
+- Update network fetch to pass `sinceServerIngestId` and have the server filter by `server_ingest_id`.
+- After a successful remote apply, advance the watermark to the max `server_ingest_id` seen in that fetch batch.
 
 Tests:
 
-- `packages/sync-core/test/helpers/SyncNetworkServiceTest.ts` (server simulation uses `compare_hlc` watermark today; update it when implementing)
-- Add a regression test for late-arriving actions:
+- `packages/sync-core/test/helpers/SyncNetworkServiceTest.ts` (server simulation now uses `server_ingest_id` watermark)
+- Regression test for late-arriving actions: `packages/sync-core/test/fetch-cursor.test.ts`
   - Insert action A, advance watermark past it
   - Later insert action B with an older `clock.timestamp` but higher `server_ingest_id`
   - Verify client fetch returns B
@@ -147,10 +150,10 @@ Tests:
 
 ## Rollout Plan
 
-1. Add schema + index + backfill.
+1. Add schema + sequence + index.
 2. Update server fetch API (and tests) to use ingestion cursor.
 3. Update client to store and advance ingestion cursor.
-4. Keep the old clock-watermark fetch as a fallback only if needed for backwards compatibility.
+4. Remove the old clock-watermark fetch (no backwards compatibility required).
 
 ## Open Questions
 
@@ -159,4 +162,3 @@ Tests:
   - Server-side per-client state can work too, but adds server storage/identity concerns.
 - ElectricSQL integration:
   - If Electric becomes the only supported transport, we may not need a separate ingestion cursor for steady-state streaming (but still useful for non-Electric fallback and for tests).
-

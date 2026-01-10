@@ -43,11 +43,11 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 		return {
 			fetchRemoteActions: (): Effect.Effect<FetchResult, RemoteActionFetchError | BadArgument> =>
 				Effect.gen(function* () {
-					const lastSyncedClock = yield* clockService.getLastSyncedClock
+					const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
 					// TODO: Implement actual network request to fetch remote actions
 					// This would use fetch or another HTTP client to contact the sync server
 					yield* Effect.logInfo(
-						`Fetching remote actions since ${JSON.stringify(lastSyncedClock)} for client ${clientId}`
+						`Fetching remote actions since server_ingest_id=${sinceServerIngestId} for client ${clientId}`
 					)
 
 					// For now return empty array as placeholder

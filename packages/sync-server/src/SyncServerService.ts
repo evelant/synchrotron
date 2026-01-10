@@ -157,8 +157,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							`Server: Inserting action ${actionRecord.id} (${actionRecord._tag}) from client ${clientId}`
 						)
 						yield* sql`
-								INSERT INTO action_records (id, client_id, _tag, args, clock, synced, transaction_id, created_at)
-								VALUES (${actionRecord.id}, ${actionRecord.client_id}, ${actionRecord._tag}, ${sql.json(actionRecord.args)}, ${sql.json(actionRecord.clock)}, true, ${actionRecord.transaction_id}, ${new Date(actionRecord.created_at).getTime()})
+								INSERT INTO action_records (server_ingest_id, id, client_id, _tag, args, clock, synced, transaction_id, created_at)
+								VALUES (nextval('action_records_server_ingest_id_seq'), ${actionRecord.id}, ${actionRecord.client_id}, ${actionRecord._tag}, ${sql.json(actionRecord.args)}, ${sql.json(actionRecord.clock)}, true, ${actionRecord.transaction_id}, ${new Date(actionRecord.created_at).getTime()})
 								ON CONFLICT (id) DO NOTHING
               				`
 					}
@@ -247,26 +247,23 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				Effect.annotateLogs({ serverOperation: "receiveActions", requestingClientId: clientId })
 			)
 
-		const getActionsSince = (clientId: string, lastSyncedClock: HLC) =>
+		const getActionsSince = (clientId: string, sinceServerIngestId: number) =>
 			Effect.gen(function* () {
 				const sql = yield* PgClient.PgClient
 				yield* Effect.logDebug(
-					`Server: getActionsSince called by ${clientId} with clock ${JSON.stringify(lastSyncedClock)}`
+					`Server: getActionsSince called by ${clientId} since server_ingest_id ${sinceServerIngestId}`
 				)
-				const isInitialSync = Object.keys(lastSyncedClock.vector).length === 0
-				//${isInitialSync ? sql`` : sql`WHERE compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0`}
-
-				// Build WHERE clauses dynamically
-				const whereClauses = [sql`client_id != ${clientId}`] // Always exclude actions from the requesting client
-				if (!isInitialSync) {
-					// Only include actions newer than the client's last sync clock if not initial sync
-					whereClauses.push(sql`compare_hlc(clock, ${sql.json(lastSyncedClock)}) > 0`)
-				}
+				// Always exclude actions from the requesting client, and only include actions
+				// ingested after the client's last seen server ingestion cursor.
+				const whereClauses = [
+					sql`client_id != ${clientId}`,
+					sql`server_ingest_id > ${sinceServerIngestId}`
+				]
 
 				const actions = yield* sql<ActionRecord>`
 						SELECT * FROM action_records
 						${whereClauses.length > 0 ? sql`WHERE ${sql.and(whereClauses)}` : sql``}
-						ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC
+						ORDER BY server_ingest_id ASC, id ASC
           			`.pipe(
 					Effect.mapError(
 						(error) =>
@@ -278,7 +275,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				)
 
 				yield* Effect.logDebug(
-					`Server: Found ${actions.length} actions newer than client ${clientId}'s clock.`
+					`Server: Found ${actions.length} actions newer than client ${clientId}'s server_ingest_id cursor.`
 				)
 
 				let modifiedRows: readonly ActionModifiedRow[] = []

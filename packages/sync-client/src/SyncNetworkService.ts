@@ -59,9 +59,11 @@ export const SyncNetworkServiceLive = Layer.scoped(
 		const fetchRemoteActions = () =>
 			Effect.gen(function* () {
 				yield* Effect.logInfo(`Client: Fetching remote actions for client ${clientId}`)
-				const lastSyncedClock = yield* clockService.getLastSyncedClock
-				yield* Effect.logInfo(`got lastSyncedClock fetching from remote`, lastSyncedClock)
-				const actions = yield* client.FetchRemoteActions({ clientId, lastSyncedClock })
+				const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
+				yield* Effect.logInfo(`Client: fetching remote actions since server_ingest_id`, {
+					sinceServerIngestId
+				})
+				const actions = yield* client.FetchRemoteActions({ clientId, sinceServerIngestId })
 				yield* Effect.logInfo(
 					`fetched remote actions ${actions.actions.length} actions and ${actions.modifiedRows.length} AMRs`
 				)

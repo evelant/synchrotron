@@ -171,6 +171,11 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				yield* Effect.logInfo(
 					`Fetched ${remoteActions.length} remote actions for client ${clientId}: [${remoteActions.map((a) => `${a.id} (${a._tag})`).join(", ")}]`
 				)
+				const latestSeenServerIngestId = remoteActions.reduce((max, action) => {
+					const ingestId = action.server_ingest_id
+					if (ingestId === null || ingestId === undefined) return max
+					return ingestId > max ? ingestId : max
+				}, 0)
 
 				const hasPending = pendingActions.length > 0
 				const hasRemote = remoteActions.length > 0
@@ -183,7 +188,9 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						`Case 1: No pending actions, applying ${remoteActions.length} remote actions and checking divergence.`
 					)
 					// applyActionRecords handles clock updates for received actions
-					return yield* applyActionRecords(remoteActions)
+					const applied = yield* applyActionRecords(remoteActions)
+					yield* clockService.advanceLastSeenServerIngestId(latestSeenServerIngestId)
+					return applied
 				}
 				if (hasPending && !hasRemote) {
 					yield* Effect.logInfo(
@@ -229,6 +236,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 
 							// 1. Apply remote actions
 							const appliedRemotes = yield* applyActionRecords(remoteActions)
+							yield* clockService.advanceLastSeenServerIngestId(latestSeenServerIngestId)
 							// 2. Send pending actions
 							yield* sendLocalActions()
 							// For now, returning applied remotes as they were processed first in this flow.
@@ -239,6 +247,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							)
 							const allLocalActions = yield* actionRecordRepo.all()
 								yield* reconcile(pendingActions, remoteActions, allLocalActions)
+								yield* clockService.advanceLastSeenServerIngestId(latestSeenServerIngestId)
 								return yield* sendLocalActions()
 							}
 						} else {

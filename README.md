@@ -56,6 +56,7 @@ Synchrotron moves the merge boundary up a level:
 - `executeAction` runs an action in a transaction and records `{ _tag, args, client_id, clock }`
 - Triggers capture per-row forward/reverse patches into `action_modified_rows`
 - `action_records` and `action_modified_rows` replicate via Electric SQL (filtered by RLS)
+- Remote actions are fetched/streamed incrementally by a server-generated ingestion cursor (`server_ingest_id`) so clients don't miss late-arriving actions; replay order remains clock-based
 - Applying remote actions re-runs the action code; if produced patches don't match (usually due to private rows / conditionals), the client emits a SYNC action containing only the delta needed to converge
 - If remote history interleaves with local unsynced actions, the client rolls back to the common ancestor and replays everything in HLC order
 

@@ -22,7 +22,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 				const clientId = payload.clientId
 
 				yield* Effect.logInfo(`FetchRemoteActionsHandler: ${clientId}`)
-				const result = yield* serverService.getActionsSince(clientId, payload.lastSyncedClock)
+				const result = yield* serverService.getActionsSince(clientId, payload.sinceServerIngestId)
 
 				yield* Effect.logInfo(
 					`Fetched ${result.actions.length} remote actions for client ${clientId} and ${result.modifiedRows.length} AMRs\n ${JSON.stringify(result.actions[0], null, 2)}`

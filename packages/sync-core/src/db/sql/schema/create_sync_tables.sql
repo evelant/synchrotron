@@ -1,6 +1,9 @@
 -- Create action_records table
 CREATE TABLE IF NOT EXISTS action_records (
 	id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+	-- Server-side monotonic ingestion cursor (used only for incremental fetch/streaming).
+	-- This is intentionally nullable so clients can store local-only actions without a server cursor.
+	server_ingest_id BIGINT,
 	_tag TEXT NOT NULL,
 	client_id TEXT NOT NULL,
 	transaction_id FLOAT NOT NULL,
@@ -14,23 +17,7 @@ CREATE TABLE IF NOT EXISTS action_records (
 	synced BOOLEAN DEFAULT FALSE
 );
 
--- Backwards-compatible migration for existing databases.
-ALTER TABLE action_records ADD COLUMN IF NOT EXISTS clock_time_ms BIGINT;
-ALTER TABLE action_records ADD COLUMN IF NOT EXISTS clock_counter BIGINT;
-
-UPDATE action_records
-SET
-	clock_time_ms = COALESCE((clock->>'timestamp')::BIGINT, 0),
-	clock_counter = COALESCE((clock->'vector'->>client_id)::BIGINT, 0)
-WHERE clock_time_ms IS NULL OR clock_counter IS NULL;
-
-ALTER TABLE action_records ALTER COLUMN clock_time_ms SET NOT NULL;
-ALTER TABLE action_records ALTER COLUMN clock_counter SET NOT NULL;
-
--- Legacy cleanup: sortable_clock is fully removed (no longer used anywhere).
-DROP TRIGGER IF EXISTS action_records_sortable_clock_trigger ON action_records;
-DROP INDEX IF EXISTS action_records_sortable_clock_idx;
-ALTER TABLE action_records DROP COLUMN IF EXISTS sortable_clock;
+CREATE SEQUENCE IF NOT EXISTS action_records_server_ingest_id_seq;
 
 CREATE OR REPLACE FUNCTION compute_action_record_clock_order_columns()
 RETURNS TRIGGER AS $$
@@ -53,6 +40,13 @@ FOR EACH ROW EXECUTE FUNCTION compute_action_record_clock_order_columns();
 
 CREATE INDEX IF NOT EXISTS action_records_clock_order_idx
 ON action_records(clock_time_ms, clock_counter, client_id, id);
+
+CREATE INDEX IF NOT EXISTS action_records_server_ingest_id_idx
+ON action_records(server_ingest_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS action_records_server_ingest_id_unique_idx
+ON action_records(server_ingest_id)
+WHERE server_ingest_id IS NOT NULL;
 
 
 -- Create indexes for action_records
@@ -83,22 +77,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS action_modified_rows_unique_idx ON action_modi
 CREATE TABLE IF NOT EXISTS client_sync_status (
 	client_id TEXT PRIMARY KEY,
 	current_clock JSONB NOT NULL,
-	last_synced_clock JSONB NOT NULL
+	last_synced_clock JSONB NOT NULL,
+	-- Server ingestion watermark used for incremental remote fetch.
+	last_seen_server_ingest_id BIGINT NOT NULL DEFAULT 0
 );
-
--- Legacy cleanup: sortable clock columns are fully removed (no longer used anywhere).
-DROP TRIGGER IF EXISTS client_sync_status_sortable_clock_trigger ON client_sync_status;
-DROP INDEX IF EXISTS client_sync_status_sortable_clock_idx;
-DROP INDEX IF EXISTS client_sync_status_sortable_last_synced_clock_idx;
-ALTER TABLE client_sync_status DROP COLUMN IF EXISTS sortable_current_clock;
-ALTER TABLE client_sync_status DROP COLUMN IF EXISTS sortable_last_synced_clock;
 
 -- Create client-local table to track applied actions
 CREATE TABLE IF NOT EXISTS local_applied_action_ids (
 	action_record_id TEXT PRIMARY KEY
 );
-
--- Drop legacy sortable clock functions (fully removed).
-DROP FUNCTION IF EXISTS compute_sortable_clocks_on_sync_status();
-DROP FUNCTION IF EXISTS compute_sortable_clock();
-DROP FUNCTION IF EXISTS compute_sortable_clock(JSONB);

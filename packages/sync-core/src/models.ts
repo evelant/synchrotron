@@ -39,6 +39,7 @@ export interface Patches extends Schema.Schema.Type<typeof PatchesSchema> {}
  */
 export class ActionRecord extends Model.Class<ActionRecord>("action_records")({
 	id: Model.Generated(Schema.String),
+	server_ingest_id: Model.Generated(Schema.NullOr(Schema.Number)),
 	_tag: Schema.String,
 	client_id: Schema.String,
 	transaction_id: Schema.Number,
@@ -60,7 +61,8 @@ export class ClientSyncStatusModel extends Model.Class<ClientSyncStatusModel>("c
 	{
 		client_id: ClientId,
 		current_clock: HLC,
-		last_synced_clock: HLC
+		last_synced_clock: HLC,
+		last_seen_server_ingest_id: Schema.Number
 	}
 ) {}
 

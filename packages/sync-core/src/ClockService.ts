@@ -80,14 +80,16 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			const initialStatus = ClientSyncStatusModel.make({
 				client_id: clientId,
 				current_clock: initialClock,
-				last_synced_clock: initialClock
+				last_synced_clock: initialClock,
+				last_seen_server_ingest_id: 0
 			})
 
 			yield* sql`
 				INSERT INTO client_sync_status ${sql.insert({
 					client_id: initialStatus.client_id,
 					current_clock: initialStatus.current_clock as any,
-					last_synced_clock: initialStatus.last_synced_clock as any
+					last_synced_clock: initialStatus.last_synced_clock as any,
+					last_seen_server_ingest_id: initialStatus.last_seen_server_ingest_id
 				})}
 				ON CONFLICT (client_id)
 				DO NOTHING
@@ -119,7 +121,8 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 				ClientSyncStatusModel.update.make({
 					client_id: clientId,
 					current_clock: newClock,
-					last_synced_clock: currentState.last_synced_clock
+					last_synced_clock: currentState.last_synced_clock,
+					last_seen_server_ingest_id: currentState.last_seen_server_ingest_id
 				})
 			)
 
@@ -174,7 +177,8 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 					ClientSyncStatusModel.update.make({
 						client_id: clientId,
 						current_clock: currentState.current_clock,
-						last_synced_clock: latestSyncedClock
+						last_synced_clock: latestSyncedClock,
+						last_seen_server_ingest_id: currentState.last_seen_server_ingest_id
 					})
 				)
 			}).pipe(Effect.annotateLogs("clientId", clientId))
@@ -289,11 +293,43 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			(state) => state.last_synced_clock
 		).pipe(Effect.annotateLogs("clientId", clientId))
 
+		const getLastSeenServerIngestId = Effect.map(
+			getClientClockState,
+			(state) => state.last_seen_server_ingest_id
+		).pipe(Effect.annotateLogs("clientId", clientId))
+
+		const advanceLastSeenServerIngestId = (latestSeen: number) =>
+			Effect.gen(function* () {
+				const currentState = yield* getClientClockState
+
+				if (latestSeen <= currentState.last_seen_server_ingest_id) {
+					yield* Effect.logDebug(
+						`Skipping last_seen_server_ingest_id update: latest seen ${latestSeen} is not newer than current ${currentState.last_seen_server_ingest_id}`
+					)
+					return
+				}
+
+				yield* Effect.logInfo(
+					`Updating last_seen_server_ingest_id for client ${clientId} to ${latestSeen}`
+				)
+
+				yield* clientSyncStatusRepo.update(
+					ClientSyncStatusModel.update.make({
+						client_id: clientId,
+						current_clock: currentState.current_clock,
+						last_synced_clock: currentState.last_synced_clock,
+						last_seen_server_ingest_id: latestSeen
+					})
+				)
+			}).pipe(Effect.annotateLogs("clientId", clientId))
+
 		return {
 			getNodeId,
 			getClientClock,
 			incrementClock,
 			getLastSyncedClock,
+			getLastSeenServerIngestId,
+			advanceLastSeenServerIngestId,
 			getEarliestClock,
 			getLatestClock,
 			updateLastSyncedClock,

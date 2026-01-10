@@ -40,6 +40,7 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
 `action_records` (append-only):
 
 - `id` (text UUID)
+- `server_ingest_id` (BIGINT, server-assigned; monotonic fetch cursor)
 - `_tag`, `client_id`, `transaction_id`, `created_at`, `synced`
 - `clock` (HLC JSONB) plus derived ordering columns: `clock_time_ms`, `clock_counter`
 - `args` (JSONB; includes `timestamp`)
@@ -55,7 +56,7 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
 
 Client-side:
 
-- `client_sync_status`: `current_clock`, `last_synced_clock`
+- `client_sync_status`: `current_clock`, `last_synced_clock`, `last_seen_server_ingest_id`
 - `local_applied_action_ids`: action ids already applied locally
 
 Backend state:
@@ -71,7 +72,7 @@ Backend state:
   - deterministic ID trigger (BEFORE INSERT)
   - patch generation triggers (AFTER INSERT/UPDATE/DELETE) that write `action_modified_rows`
 - HLC service: generates/merges clocks and provides a total order for action replay using `(clock_time_ms, clock_counter, client_id, id)` (btree index-friendly).
-- Electric SQL integration: streams `action_records` and `action_modified_rows` (using up-to-date signals so a transaction's full set of patches arrives before applying).
+- Electric SQL integration: streams `action_records` and `action_modified_rows` using a reliable receipt cursor (`server_ingest_id`) and up-to-date signals so a transaction's full set of patches arrives before applying.
 
 ## Deterministic row IDs
 
@@ -108,7 +109,7 @@ Result: replaying the same action record on different clients produces the same 
 1. `action_records` and `action_modified_rows` replicate via Electric SQL (filtered by RLS).
 2. Client applies incoming actions in HLC order.
 3. A placeholder SYNC action can be used to compare "expected" incoming patches with the patches produced locally during replay.
-4. If the patches match, nothing new is emitted; mark incoming actions as applied and advance `last_synced_clock`.
+4. If the patches match, nothing new is emitted; mark incoming actions as applied and advance `last_seen_server_ingest_id`.
 
 ### SYNC actions (private data / conditional logic)
 
@@ -157,13 +158,13 @@ Analogy: this is a bit like Git. Find the merge base (common ancestor), rewind t
 
 ## Live sync and bootstrap
 
-- Use Electric SQL to stream `action_records` and `action_modified_rows` newer than `last_synced_clock`.
+- Fetch/stream remote actions by `action_records.server_ingest_id > client_sync_status.last_seen_server_ingest_id` (receipt cursor), then sort/apply by replay order key (`clock_time_ms`, `clock_counter`, `client_id`, `id`).
 - Use up-to-date signals to ensure the complete set of `action_modified_rows` for a transaction has arrived before applying.
 - This may use Electric's experimental `multishapestream` / `transactionmultishapestream` APIs, depending on how you stream the shapes.
 - Bootstrap without historical actions:
-  1. Fetch current server clock.
+  1. Fetch current server ingestion cursor (max `server_ingest_id`).
   2. Sync base tables.
-  3. Set `last_synced_clock` to the server clock.
+  3. Set `last_seen_server_ingest_id` to that cursor value.
 
 ## Security and privacy
 
