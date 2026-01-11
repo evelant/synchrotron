@@ -98,16 +98,18 @@ const createActionAndModifyNote = (
 		}
 		const clock = { timestamp: timestamp, vector: { server: timestamp } } // Simple clock for testing
 
-		const actionResult = yield* sql<{ id: string }>`
-			INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-			VALUES (${actionTag}, 'server', ${currentTxId}, ${sql.json(clock)}, '{}'::jsonb, false) /* Convert txid string to BigInt */
-			RETURNING id
-		`
+			const actionResult = yield* sql<{ id: string }>`
+				INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+				VALUES (${actionTag}, 'server', ${currentTxId}, ${sql.json(clock)}, '{}'::jsonb, 0) /* Convert txid string to BigInt */
+				RETURNING id
+			`
 		// Ensure actionResult is not empty
 		const actionId = actionResult[0]?.id
 		if (!actionId) {
 			return yield* Effect.dieMessage("Failed to get action ID after insert")
 		}
+
+		yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 		// Update the note to generate patches
 		yield* sql`
@@ -255,13 +257,14 @@ describe("Sync Database Functions", () => {
 					const currentTxId = txResult[0]!.txid
 
 					// Create an action record with the current transaction ID
-					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
-				INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-				VALUES ('test_insert', 'server', ${currentTxId}, '{"timestamp": 1, "counter": 1}'::jsonb, '{}'::jsonb, false)
-				RETURNING id, transaction_id
-			`
+						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('test_insert', 'server', ${currentTxId}, '{"timestamp": 1, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
+					RETURNING id, transaction_id
+				`
 
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					const noteRow = {
 						title: "Test Note",
@@ -330,13 +333,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_update', 'server', ${currentTxId}, '{"timestamp": 2, "counter": 1}'::jsonb, '{}'::jsonb, false)
-					RETURNING id, transaction_id
-				`
+						// Create action record for this transaction
+						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+						VALUES ('test_update', 'server', ${currentTxId}, '{"timestamp": 2, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
+						RETURNING id, transaction_id
+					`
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					const noteRow = {
 						title: "Original Title",
@@ -437,13 +441,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					const actionResult = yield* sql<{ id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_insert_for_delete', 'server', ${currentTxId}, '{"timestamp": 8, "counter": 1}'::jsonb, '{}'::jsonb, false)
+						// Create action record for this transaction
+						const actionResult = yield* sql<{ id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('test_insert_for_delete', 'server', ${currentTxId}, '{"timestamp": 8, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id
-				`
+					`
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					const noteRow = {
 						title: "Note to Delete",
@@ -466,13 +471,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_delete', 'server', ${currentTxId}, '{"timestamp": 9, "counter": 1}'::jsonb, '{}'::jsonb, false)
-					RETURNING id, transaction_id
-				`
+						// Create action record for this transaction
+						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+						VALUES ('test_delete', 'server', ${currentTxId}, '{"timestamp": 9, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
+						RETURNING id, transaction_id
+					`
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					// Delete the note in the same transaction
 					yield* sql`
@@ -535,13 +541,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					const actionResult = yield* sql<{ id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_insert_for_forward', 'server', ${currentTxId}, '{"timestamp": 10, "counter": 1}'::jsonb, '{}'::jsonb, false)
+						// Create action record for this transaction
+						const actionResult = yield* sql<{ id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('test_insert_for_forward', 'server', ${currentTxId}, '{"timestamp": 10, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id
-				`
+					`
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					const noteRow = {
 						title: "Original Title",
@@ -564,13 +571,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_apply_forward', 'server', ${currentTxId}, '{"timestamp": 11, "counter": 1}'::jsonb, '{}'::jsonb, false)
+						// Create action record for this transaction
+						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('test_apply_forward', 'server', ${currentTxId}, '{"timestamp": 11, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
-				`
+					`
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					// Update the note to generate patches
 					yield* sql`
@@ -594,11 +602,13 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction (for the reset operation)
-					yield* sql`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_reset', 'server', ${currentTxId}, '{"timestamp": 12, "counter": 1}'::jsonb, '{}'::jsonb, false)
-				`
+						// Create action record for this transaction (for the reset operation)
+						yield* sql`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+						VALUES ('test_reset', 'server', ${currentTxId}, '{"timestamp": 12, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
+					`
+
+					yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 
 					// Reset the note to original state
 					yield* sql`
@@ -614,13 +624,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					yield* sql`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_apply_forward_patch', 'server', ${currentTxId}, '{"timestamp": 13, "counter": 1}'::jsonb, '{}'::jsonb, false)
-				`
+						// Create action record for this transaction
+						yield* sql`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+						VALUES ('test_apply_forward_patch', 'server', ${currentTxId}, '{"timestamp": 13, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
+					`
 
 					// Apply forward patches
+					yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 					yield* sql`SELECT apply_forward_amr(${amrId})`
 				}).pipe(sql.withTransaction)
 
@@ -784,8 +795,6 @@ describe("Sync Database Functions", () => {
 					return "Success"
 				}).pipe(
 					Effect.catchAll((error) => {
-						// Log the full error to understand its structure
-						console.log("ID Error Structure:", error)
 						// Check if it's an SqlError and extract the cause message if possible
 						if (
 							error &&
@@ -840,13 +849,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					const actionResult = yield* sql<{ id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_initial_for_update_delete', 'server', ${currentTxId}, '{"timestamp": 20, "counter": 1}'::jsonb, '{}'::jsonb, false)
+						// Create action record for this transaction
+						const actionResult = yield* sql<{ id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('test_initial_for_update_delete', 'server', ${currentTxId}, '{"timestamp": 20, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id
-				`
+					`
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					// Create a note that will be updated and then deleted
 					const noteRow = {
@@ -871,13 +881,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_update_delete', 'server', ${currentTxId}, '{"timestamp": 21, "counter": 1}'::jsonb, '{}'::jsonb, false)
+						// Create action record for this transaction
+						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('test_update_delete', 'server', ${currentTxId}, '{"timestamp": 21, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
-				`
+					`
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					// First update the note
 					yield* sql`
@@ -987,13 +998,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_insert_update', 'server', ${currentTxId}, '{"timestamp": 22, "counter": 1}'::jsonb, '{}'::jsonb, false)
+						// Create action record for this transaction
+						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('test_insert_update', 'server', ${currentTxId}, '{"timestamp": 22, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
-				`
+					`
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					// First insert a new note
 					const noteRow = {
@@ -1097,13 +1109,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					const actionResult = yield* sql<{ id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_initial_for_multiple_updates', 'server', ${currentTxId}, '{"timestamp": 23, "counter": 1}'::jsonb, '{}'::jsonb, false)
+						// Create action record for this transaction
+						const actionResult = yield* sql<{ id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('test_initial_for_multiple_updates', 'server', ${currentTxId}, '{"timestamp": 23, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id
-				`
+					`
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					// Create a note that will be updated multiple times
 					const noteRow = {
@@ -1127,13 +1140,14 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-					// Create action record for this transaction
-					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('test_multiple_updates', 'server', ${currentTxId}, '{"timestamp": 24, "counter": 1}'::jsonb, '{}'::jsonb, false)
+						// Create action record for this transaction
+						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+					VALUES ('test_multiple_updates', 'server', ${currentTxId}, '{"timestamp": 24, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
-				`
+					`
 					const actionId = actionResult[0]!.id
+					yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 					// First update
 					yield* sql`
@@ -1236,11 +1250,12 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				// No need for dummy action record if we disable trigger
 				// Create notes with deterministic IDs by using action records
 				// First create an action record for setup
-				const setupActionId = (yield* sql<{ id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('_setup_batch_fwd', 'server', ${setupTxId}, ${sql.json({ timestamp: 10, vector: {} })}, '{}'::jsonb, true)
-					RETURNING id
-				`)[0]!.id
+					const setupActionId = (yield* sql<{ id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+						VALUES ('_setup_batch_fwd', 'server', ${setupTxId}, ${sql.json({ timestamp: 10, vector: {} })}, '{}'::jsonb, 1)
+						RETURNING id
+					`)[0]!.id
+					yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 
 				const note1Row = { title: "Orig 1", content: "Cont 1", user_id: "u1" } as const
 				const note1 = yield* deterministicId.withActionContext(
@@ -1313,12 +1328,13 @@ describe("Sync DB Batch and Rollback Functions", () => {
 					return yield* Effect.dieMessage("Failed to get txid for batch forward call")
 				}
 				// Insert dummy action record for this specific transaction
-				const dummyActionId = (yield* sql<{
-					id: string
-				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_fwd', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, true) RETURNING id`)[0]!
-					.id
+					const dummyActionId = (yield* sql<{
+						id: string
+					}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_fwd', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, 1) RETURNING id`)[0]!
+						.id
 
 				// Call the batch function (trigger will fire but find the dummy record)
+				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 				yield* sql`SELECT apply_forward_amr_batch(${sql.array([amrId1, amrId2])})`
 			}).pipe(sql.withTransaction)
 
@@ -1343,8 +1359,9 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				if (!emptyBatchTxId) {
 					return yield* Effect.dieMessage("Failed to get txid for empty batch forward call")
 				}
-				yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_empty_batch_fwd', 'server', ${emptyBatchTxId}, ${sql.json({ timestamp: 500, vector: {} })}, '{}'::jsonb, true)`
+					yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_empty_batch_fwd', 'server', ${emptyBatchTxId}, ${sql.json({ timestamp: 500, vector: {} })}, '{}'::jsonb, 1)`
 
+				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 				yield* sql`SELECT apply_forward_amr_batch(ARRAY[]::TEXT[])`
 			}).pipe(sql.withTransaction)
 		}).pipe(Effect.provide(makeTestLayers("server")))
@@ -1366,11 +1383,12 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				// No need for dummy action record if we disable trigger
 				// Create notes with deterministic IDs by using action records
 				// First create an action record for setup
-				const setupActionId = (yield* sql<{ id: string }>`
-					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-					VALUES ('_setup_batch_rev', 'server', ${setupTxId}, ${sql.json({ timestamp: 20, vector: {} })}, '{}'::jsonb, true)
-					RETURNING id
-				`)[0]!.id
+					const setupActionId = (yield* sql<{ id: string }>`
+						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+						VALUES ('_setup_batch_rev', 'server', ${setupTxId}, ${sql.json({ timestamp: 20, vector: {} })}, '{}'::jsonb, 1)
+						RETURNING id
+					`)[0]!.id
+					yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 
 				const note1Row = { title: "Orig 1", content: "Cont 1", user_id: "u1" } as const
 				const note1 = yield* deterministicId.withActionContext(
@@ -1437,12 +1455,13 @@ describe("Sync DB Batch and Rollback Functions", () => {
 					return yield* Effect.dieMessage("Failed to get txid for batch reverse call")
 				}
 				// Insert dummy action record for this specific transaction
-				const dummyActionId = (yield* sql<{
-					id: string
-				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_rev', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, true) RETURNING id`)[0]!
-					.id
+					const dummyActionId = (yield* sql<{
+						id: string
+					}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_rev', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, 1) RETURNING id`)[0]!
+						.id
 
 				// Call the batch function
+				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 				yield* sql`SELECT apply_reverse_amr_batch(${sql.array([amrId1, amrId2])})`
 			}).pipe(sql.withTransaction)
 
@@ -1467,8 +1486,9 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				if (!emptyBatchTxId) {
 					return yield* Effect.dieMessage("Failed to get txid for empty batch reverse call")
 				}
-				yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_empty_batch_rev', 'server', ${emptyBatchTxId}, ${sql.json({ timestamp: 500, vector: {} })}, '{}'::jsonb, true)`
+					yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_empty_batch_rev', 'server', ${emptyBatchTxId}, ${sql.json({ timestamp: 500, vector: {} })}, '{}'::jsonb, 1)`
 
+				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 				yield* sql`SELECT apply_reverse_amr_batch(ARRAY[]::TEXT[])`
 			}).pipe(sql.withTransaction)
 		}).pipe(Effect.provide(makeTestLayers("server")))
@@ -1487,10 +1507,11 @@ it.scoped("should rollback to a specific action", () =>
 			if (!setupTxId) {
 				return yield* Effect.dieMessage("Failed to get setup txid")
 			}
-			const actionResult = yield* sql<{
-				id: string
-			}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_setup_rollback_test', 'server', ${setupTxId}, ${sql.json({ timestamp: 50, vector: {} })}, '{}'::jsonb, true) RETURNING id`
+				const actionResult = yield* sql<{
+					id: string
+				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_setup_rollback_test', 'server', ${setupTxId}, ${sql.json({ timestamp: 50, vector: {} })}, '{}'::jsonb, 1) RETURNING id`
 			const actionId = actionResult[0]!.id
+			yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
 			const noteRow = { title: "Orig", content: "Cont", user_id: "u1" } as const
 			const noteId = yield* deterministicId.withActionContext(

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS action_records (
 	clock_counter BIGINT NOT NULL,
 	args JSONB NOT NULL,
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-	synced BOOLEAN DEFAULT FALSE
+	synced INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE SEQUENCE IF NOT EXISTS action_records_server_ingest_id_seq;

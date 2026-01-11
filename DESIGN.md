@@ -21,8 +21,8 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
   - `_tag`: action identifier (treat as versioned API)
   - `args`: serialized arguments (captures non-determinism)
   - `client_id`: origin
-  - `clock`: HLC for ordering (JSONB)
-  - `transaction_id`: txid of the DB transaction
+  - `clock`: HLC for ordering (JSON; JSONB on Postgres/PGlite, JSON strings on SQLite)
+  - `transaction_id`: app-provided execution identifier (number), not a DB-specific txid
 - Action modified row (`action_modified_rows`): per-row patch records captured by triggers during the action transaction.
 - Execute vs apply:
   - Execute: run an action and create a new action record + patches.
@@ -42,8 +42,13 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
 - `id` (text UUID)
 - `server_ingest_id` (BIGINT, server-assigned; monotonic fetch cursor)
 - `_tag`, `client_id`, `transaction_id`, `created_at`, `synced`
-- `clock` (HLC JSONB) plus derived ordering columns: `clock_time_ms`, `clock_counter`
-- `args` (JSONB; includes `timestamp`)
+- `clock` (HLC JSON) plus derived ordering columns: `clock_time_ms`, `clock_counter`
+- `args` (JSON; includes `timestamp`)
+
+Notes on portability:
+
+- JSON values are encoded as JSON strings on insert/update and decoded from either JSONB objects (Postgres/PGlite) or strings (SQLite).
+- `synced` is stored as an integer `0 | 1` in the database (decoded as a boolean in TypeScript).
 
 `action_modified_rows`:
 
@@ -51,7 +56,7 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
 - `action_record_id` (FK)
 - `table_name`, `row_id`
 - `operation`: `INSERT` | `UPDATE` | `DELETE`
-- `forward_patches`, `reverse_patches` (JSONB)
+- `forward_patches`, `reverse_patches` (JSON)
 - `sequence`: monotonic per action record (preserves intra-transaction order)
 
 Client-side:
@@ -61,15 +66,21 @@ Client-side:
 
 Backend state:
 
-- The server materializes state by applying forward patches in HLC order.
-- The server never needs to execute application actions, but it does apply rollbacks so that patch application order matches clients.
+- Clients reconcile by computing a common ancestor, rolling back, and replaying actions; patch-apply and rollback are implemented in TypeScript so the client DB can be swapped (e.g. SQLite).
+- The server materializes state by applying forward patches in HLC order (Postgres SQL functions) and applies rollbacks so that patch application order matches clients.
 
 ## Components
 
 - Action registry: maps `_tag` -> action implementation (today: `ActionRegistry.defineAction(tag, argsSchema, fn)` validates/decodes args via Effect Schema and injects a `timestamp` for recording + replay).
 - Database access layer: built on `@effect/sql` models/repositories.
+- Client DB adapter (`ClientDbAdapter`): encapsulates client-side DB dialect concerns needed by `sync-core` (schema init, trigger context, patch tracking toggles, and trigger installation). Implementations include `PostgresClientDbAdapter` and `SqliteClientDbAdapter`.
+- Sync transport (`SyncNetworkService`): fetches remote actions (and their patches) and sends local unsynced actions to the server. Implementations can be Electric-backed streaming ingestion or a plain HTTP RPC client, depending on environment constraints.
 - Trigger system:
   - patch generation triggers (AFTER INSERT/UPDATE/DELETE) that write `action_modified_rows`
+  - triggers associate patches with the currently executing action via a per-transaction capture context (`action_record_id`) (Postgres/PGlite: `set_config/current_setting`, SQLite: `TEMP sync_context`)
+  - if capture context is missing, triggers raise an error (prevents untracked writes to synced tables)
+  - SQLite triggers are generated from the current table schema; call `ClientDbAdapter.installPatchCapture` after schema migrations that change tracked table columns
+  - patch capture can be disabled transaction-locally (`sync.disable_trigger`) during rollback / patch-apply phases
 - HLC service: generates/merges clocks and provides a total order for action replay using `(clock_time_ms, clock_counter, client_id, id)` (btree index-friendly).
 - Electric SQL integration: streams `action_records` and `action_modified_rows` using a reliable receipt cursor (`server_ingest_id`) and up-to-date signals so a transaction's full set of patches arrives before applying.
 
@@ -97,9 +108,9 @@ Result: replaying the same action record on different clients produces the same 
 ## Executing an action
 
 1. Begin a DB transaction.
-2. Insert an `action_records` row (recording `txid_current()` as `transaction_id`).
+2. Insert an `action_records` row (recording an app-provided `transaction_id`).
 3. Run the action function (with `DeterministicId` scoped to the action record id).
-4. AFTER triggers append `action_modified_rows` for every insert/update/delete (with increasing `sequence`) and associate them to the action via the transaction id.
+4. AFTER triggers append `action_modified_rows` for every insert/update/delete (with increasing `sequence`) and associate them to the action via the capture context (`action_record_id`).
 5. Commit (or roll back on error).
 
 ## Sync and convergence
@@ -108,8 +119,9 @@ Result: replaying the same action record on different clients produces the same 
 
 1. `action_records` and `action_modified_rows` replicate via Electric SQL (filtered by RLS).
 2. Client applies incoming actions in HLC order.
-3. A placeholder SYNC action can be used to compare "expected" incoming patches with the patches produced locally during replay.
-4. If the patches match, nothing new is emitted; mark incoming actions as applied and advance `last_seen_server_ingest_id`.
+3. A placeholder SYNC action captures the patches produced by local replay of the incoming batch.
+4. The client computes a SYNC delta: `P_replay(batch) − P_known(batch)` where `P_known` includes the received base patches plus any received SYNC patches.
+5. If the delta is empty, the placeholder is deleted (no outgoing SYNC). If non-empty, the placeholder is kept as a new local SYNC action to be uploaded.
 
 ### SYNC actions (private data / conditional logic)
 
@@ -228,6 +240,7 @@ Setup:
 - Effect layers to provide separate services per client
 - A mock network service for synchronization during tests
 - Effect `TestClock` to control time and create concurrency
+- Note: `@effect/sql` transactions are fiber-local via a shared `SqlClient.TransactionConnection`. When tests use multiple `SqlClient`s (e.g. SQLite clients + a PGlite server), avoid running server statements inside client transactions and explicitly provide the client `SqlClient` to patch-apply effects.
 
 Important test cases:
 

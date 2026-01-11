@@ -134,6 +134,40 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 				})
 		)
 
+		const conditionalUpdateWithClientCExtraAction = actionRegistry.defineAction(
+			"test-conditional-update-clientc-extra",
+			Schema.Struct({
+				id: Schema.String,
+				baseContent: Schema.String,
+				conditionalSuffix: Schema.optional(Schema.String),
+				clientCTags: Schema.Array(Schema.String),
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const clientId = yield* clockService.getNodeId
+					const noteOpt = yield* noteRepo.findById(args.id)
+					if (Option.isSome(noteOpt)) {
+						const note = noteOpt.value
+						const newContent =
+							clientId === "clientA"
+								? args.baseContent + (args.conditionalSuffix ?? "")
+								: args.baseContent
+						const nextTags =
+							clientId === "clientC"
+								? Array.from(args.clientCTags)
+								: Array.from(note.tags ?? [])
+
+						yield* noteRepo.updateVoid({
+							...note,
+							content: newContent,
+							tags: nextTags,
+							updated_at: new Date(args.timestamp)
+						})
+					}
+				})
+		)
+
 		const deleteContentAction = actionRegistry.defineAction(
 			"test-delete-content",
 			Schema.Struct({ id: Schema.String, user_id: Schema.String, timestamp: Schema.Number }),
@@ -149,6 +183,7 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 			updateContentAction,
 			updateTitleAction,
 			conditionalUpdateAction,
+			conditionalUpdateWithClientCExtraAction,
 			deleteContentAction,
 			noteRepo
 		}

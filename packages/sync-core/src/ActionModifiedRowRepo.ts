@@ -51,7 +51,7 @@ export class ActionModifiedRowRepo extends Effect.Service<ActionModifiedRowRepo>
 				Request: Schema.Void,
 				Result: ActionModifiedRow,
 				execute: () =>
-					sql`SELECT amr.* FROM action_modified_rows amr join action_records ar on amr.action_record_id = ar.id WHERE ar.synced = false ORDER BY amr.sequence ASC`
+					sql`SELECT amr.* FROM action_modified_rows amr join action_records ar on amr.action_record_id = ar.id WHERE ar.synced = 0 ORDER BY amr.sequence ASC`
 			})
 
 

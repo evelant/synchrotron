@@ -1,4 +1,5 @@
 import { PgLiteClient } from "@effect/sql-pglite"
+import { SqlClient } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo" // Import Repo
 import { ClockService } from "@synchrotron/sync-core/ClockService"
@@ -28,12 +29,14 @@ export interface TestNetworkState {
 	fetchResult?: Effect.Effect<FetchResult, RemoteActionFetchError>
 }
 
+export interface SyncNetworkServiceTestHelpersService {
+	readonly setNetworkDelay: (delay: number) => Effect.Effect<void, never, never>
+	readonly setShouldFail: (fail: boolean) => Effect.Effect<void, never, never>
+}
+
 export class SyncNetworkServiceTestHelpers extends Context.Tag("SyncNetworkServiceTestHelpers")<
 	SyncNetworkServiceTestHelpers,
-	{
-		setNetworkDelay: (delay: number) => Effect.Effect<void, never, never>
-		setShouldFail: (fail: boolean) => Effect.Effect<void, never, never>
-	}
+	SyncNetworkServiceTestHelpersService
 >() {}
 /**
  * Test implementation for controlled testing environment
@@ -51,11 +54,18 @@ export const createTestSyncNetworkServiceLayer = (
 	Layer.unwrapEffect(
 		Effect.gen(function* () {
 			// Removed explicit return type annotation
-			const sql = yield* PgLiteClient.PgLiteClient // This is the CLIENT's SQL instance from the layer
+			const sql = yield* SqlClient.SqlClient // This is the CLIENT's SQL instance from the layer
 			const clockService = yield* ClockService // Keep clockService dependency
 			// Need the repo to fetch/insert ActionModifiedRow for conflict check
 			const actionModifiedRowRepo = yield* ActionModifiedRowRepo
-			const serverSql = _serverSql ?? sql
+			const serverSql = _serverSql ?? (yield* PgLiteClient.PgLiteClient)
+
+			const clientJson = (value: unknown) =>
+				typeof (sql as any).json === "function"
+					? (sql as any).json(value)
+					: typeof value === "string"
+						? value
+						: JSON.stringify(value)
 
 			// Initialize test state using the updated interface
 			let state: TestNetworkState = {
@@ -104,14 +114,14 @@ export const createTestSyncNetworkServiceLayer = (
 					)
 
 					let modifiedRows: readonly ActionModifiedRow[] = []
-					if (actions.length > 0) {
-						const actionIds = actions.map((a) => a.id)
-						// Fetch corresponding modified rows from server schema
-						modifiedRows = yield* serverSql<ActionModifiedRow>`
+						if (actions.length > 0) {
+							const actionIds = actions.map((a) => a.id)
+							// Fetch corresponding modified rows from server schema
+							modifiedRows = yield* serverSql<ActionModifiedRow>`
               SELECT * FROM action_modified_rows
-              WHERE action_record_id IN ${sql.in(actionIds)}
+              WHERE action_record_id IN ${serverSql.in(actionIds)}
             `
-					}
+						}
 
 					return { actions, modifiedRows } // Return both
 				}).pipe(Effect.annotateLogs("clientId", `${clientId} (server simulation)`))
@@ -190,9 +200,9 @@ export const createTestSyncNetworkServiceLayer = (
 								)
 								yield* serverSql`SELECT rollback_to_action(${null})`
 							} else if (targetActionIds.length > 0) {
-								// Fetch the target actions to compare their clocks
-								const targetActions = yield* serverSql<ActionRecord>`
-									SELECT * FROM action_records WHERE id IN ${sql.in(targetActionIds)}
+									// Fetch the target actions to compare their clocks
+									const targetActions = yield* serverSql<ActionRecord>`
+									SELECT * FROM action_records WHERE id IN ${serverSql.in(targetActionIds)}
 								`
 
 								if (targetActions.length > 0) {
@@ -235,16 +245,16 @@ export const createTestSyncNetworkServiceLayer = (
 							)} affecting rows: ${JSON.stringify(affectedRowKeys)}`
 						)
 
-						const conflictingServerActions = yield* serverSql<ActionRecord>`
+							const conflictingServerActions = yield* serverSql<ActionRecord>`
 							WITH conflicting_rows AS (
 							SELECT DISTINCT amr.action_record_id
 								FROM action_modified_rows amr
-								WHERE ${sql.or(rowConditions)}
+								WHERE ${serverSql.or(rowConditions)}
 							)
 								SELECT ar.*
 								FROM action_records ar
 								JOIN conflicting_rows cr ON ar.id = cr.action_record_id
-								WHERE compare_hlc(ar.clock, ${sql.json(
+								WHERE compare_hlc(ar.clock, ${serverSql.json(
 									latestIncomingClock // Compare against latest clock
 								)}) > 0
 								ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
@@ -286,35 +296,35 @@ export const createTestSyncNetworkServiceLayer = (
 									transaction_id,
 									created_at
 								)
-								VALUES (
-									nextval('action_records_server_ingest_id_seq'),
-									${actionRecord.id},
-									${actionRecord.client_id},
-									${actionRecord._tag},
-									${sql.json(actionRecord.args)},
-									${sql.json(actionRecord.clock)},
-									true,
-									${actionRecord.transaction_id},
-									${new Date(actionRecord.created_at)}
-								)
-								ON CONFLICT (id) DO NOTHING
-							`
+									VALUES (
+										nextval('action_records_server_ingest_id_seq'),
+										${actionRecord.id},
+										${actionRecord.client_id},
+										${actionRecord._tag},
+											${serverSql.json(actionRecord.args)},
+											${serverSql.json(actionRecord.clock)},
+											1,
+											${actionRecord.transaction_id},
+											${new Date(actionRecord.created_at).toISOString()}
+										)
+										ON CONFLICT (id) DO NOTHING
+								`
 						}
 
 						// Then insert the corresponding ActionModifiedRows
-						for (const modifiedRow of amrs) {
-							yield* Effect.logDebug(
-								`Inserting AMR ${modifiedRow.id} for action ${modifiedRow.action_record_id} into server schema.`
-							)
-							yield* serverSql`INSERT INTO action_modified_rows ${sql.insert({
-								...modifiedRow,
-								// Ensure patches are JSON
-								forward_patches: sql.json(modifiedRow.forward_patches),
-								reverse_patches: sql.json(modifiedRow.reverse_patches)
-							})}
-								ON CONFLICT (id) DO NOTHING
-								-- Or potentially ON CONFLICT (table_name, row_id, action_record_id) DO NOTHING depending on unique constraints`
-						}
+							for (const modifiedRow of amrs) {
+								yield* Effect.logDebug(
+									`Inserting AMR ${modifiedRow.id} for action ${modifiedRow.action_record_id} into server schema.`
+								)
+								yield* serverSql`INSERT INTO action_modified_rows ${serverSql.insert({
+									...modifiedRow,
+									// Ensure patches are JSON
+									forward_patches: serverSql.json(modifiedRow.forward_patches),
+									reverse_patches: serverSql.json(modifiedRow.reverse_patches)
+								})}
+									ON CONFLICT (id) DO NOTHING
+									-- Or potentially ON CONFLICT (table_name, row_id, action_record_id) DO NOTHING depending on unique constraints`
+							}
 
 						// Apply forward patches on the server simulation
 						if (amrs.length > 0) {
@@ -364,7 +374,7 @@ export const createTestSyncNetworkServiceLayer = (
 							// Disable trigger for this session using set_config
 							yield* serverSql`SELECT set_config('sync.disable_trigger', 'true', false)`
 							try {
-								yield* serverSql`SELECT apply_forward_amr_batch(${sql.json(sortedAmrIdsToApply)})`
+								yield* serverSql`SELECT apply_forward_amr_batch(${serverSql.json(sortedAmrIdsToApply)})`
 							} finally {
 								// Ensure trigger is re-enabled even if batch fails
 								yield* serverSql`SELECT set_config('sync.disable_trigger', 'false', false)`
@@ -424,11 +434,11 @@ export const createTestSyncNetworkServiceLayer = (
 										_tag: action._tag,
 										client_id: action.client_id,
 											transaction_id: action.transaction_id,
-											clock: sql.json(action.clock), // Ensure clock is JSON
-											args: sql.json(action.args), // Ensure args are JSON
-											created_at: new Date(action.created_at),
-											synced: true // Mark as synced locally
-										})} ON CONFLICT (id) DO UPDATE SET synced = true` // Update status on conflict
+											clock: clientJson(action.clock),
+											args: clientJson(action.args),
+												created_at: new Date(action.created_at).toISOString(),
+												synced: 1 // Mark as synced locally
+											})} ON CONFLICT (id) DO UPDATE SET synced = 1` // Update status on conflict
 									}
 
 								// Insert Modified Rows
@@ -436,8 +446,8 @@ export const createTestSyncNetworkServiceLayer = (
 									// Use client's sql instance
 									yield* sql`INSERT INTO action_modified_rows ${sql.insert({
 										...row,
-										forward_patches: sql.json(row.forward_patches), // Ensure patches are JSON
-										reverse_patches: sql.json(row.reverse_patches) // Ensure patches are JSON
+										forward_patches: clientJson(row.forward_patches),
+										reverse_patches: clientJson(row.reverse_patches)
 									})} ON CONFLICT (id) DO NOTHING` // Ignore duplicates
 								}
 							}

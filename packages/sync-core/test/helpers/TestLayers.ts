@@ -8,6 +8,7 @@ import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowR
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { ClientIdOverride } from "@synchrotron/sync-core/ClientIdOverride"
+import { PostgresClientDbAdapter } from "@synchrotron/sync-core/PostgresClientDbAdapter"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
 
@@ -15,16 +16,21 @@ import {
 	SynchrotronClientConfig,
 	type SynchrotronClientConfigData
 } from "@synchrotron/sync-core/config"
-import { applySyncTriggers, initializeDatabaseSchema } from "@synchrotron/sync-core/db" // Import applySyncTriggers
+import {
+	applySyncTriggers,
+	initializeClientDatabaseSchema,
+	initializeDatabaseSchema
+} from "@synchrotron/sync-core/db" // Import applySyncTriggers
 import {
 	SyncNetworkService,
 	type TestNetworkState
 } from "@synchrotron/sync-core/SyncNetworkService"
 import { SyncService } from "@synchrotron/sync-core/SyncService"
-import { Effect, Layer, Logger, LogLevel, Schema, type Context } from "effect"
+import { Effect, Layer, Logger, LogLevel, Schema } from "effect"
 import {
 	createTestSyncNetworkServiceLayer,
-	SyncNetworkServiceTestHelpers
+	SyncNetworkServiceTestHelpers,
+	type SyncNetworkServiceTestHelpersService
 } from "./SyncNetworkServiceTest"
 import { TestHelpers } from "./TestHelpers"
 
@@ -66,7 +72,7 @@ export const makeDbInitLayer = (schema: string) =>
 	`
 
 			// Initialize schema
-			yield* initializeDatabaseSchema
+			yield* (schema === "server" ? initializeDatabaseSchema : initializeClientDatabaseSchema)
 
 			// Apply sync patch-capture triggers to the notes table
 			yield* applySyncTriggers(["notes"])
@@ -99,6 +105,7 @@ export const makeDbInitLayer = (schema: string) =>
 	)
 export const testConfig: SynchrotronClientConfigData = {
 	electricSyncUrl: "http://localhost:5133",
+	syncRpcUrl: "http://localhost:3010/rpc",
 	pglite: {
 		debug: 0,
 		dataDir: "memory://",
@@ -119,7 +126,6 @@ export const PgLiteClientLive = PgLiteClient.layer({
 })
 
 const logger = Logger.prettyLogger({ mode: "tty", colors: true })
-const pgLiteLayer = Layer.provideMerge(PgLiteClientLive)
 
 export const makeTestLayers = (
 	clientId: string,
@@ -129,26 +135,30 @@ export const makeTestLayers = (
 		simulateDelay?: boolean
 	}
 ) => {
-	return SyncService.DefaultWithoutDependencies.pipe(
-		Layer.provideMerge(createTestSyncNetworkServiceLayer(clientId, serverSql, config)),
-
-		Layer.provideMerge(makeDbInitLayer(clientId)), // Initialize DB first
-
-		Layer.provideMerge(TestHelpers.Default),
-		Layer.provideMerge(ActionRegistry.Default),
-		Layer.provideMerge(DeterministicId.Default),
-		Layer.provideMerge(ClockService.Default),
-		Layer.provideMerge(ActionRecordRepo.Default),
-		Layer.provideMerge(ActionModifiedRowRepo.Default),
-		Layer.provideMerge(KeyValueStore.layerMemory),
-
-		Layer.provideMerge(Layer.succeed(ClientIdOverride, clientId)),
-		pgLiteLayer,
-		Layer.provideMerge(Logger.replace(Logger.defaultLogger, logger)),
-		Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Trace)),
-		Layer.annotateLogs("clientId", clientId),
-		Layer.provideMerge(Layer.succeed(SynchrotronClientConfig, testConfig))
+	const baseLayer = Layer.mergeAll(
+		PgLiteClientLive,
+		KeyValueStore.layerMemory,
+		Layer.succeed(ClientIdOverride, clientId),
+		Logger.replace(Logger.defaultLogger, logger),
+		Logger.minimumLogLevel(LogLevel.Trace),
+		Layer.succeed(SynchrotronClientConfig, testConfig)
 	)
+
+	const baseWithDbInit = makeDbInitLayer(clientId).pipe(Layer.provideMerge(baseLayer))
+
+	const layer = SyncService.DefaultWithoutDependencies.pipe(
+		Layer.provideMerge(TestHelpers.Default),
+		Layer.provideMerge(createTestSyncNetworkServiceLayer(clientId, serverSql, config)),
+		Layer.provideMerge(ClockService.Default),
+		Layer.provideMerge(ActionModifiedRowRepo.Default),
+		Layer.provideMerge(ActionRecordRepo.Default),
+		Layer.provideMerge(DeterministicId.Default),
+		Layer.provideMerge(ActionRegistry.Default),
+		Layer.provideMerge(PostgresClientDbAdapter),
+		Layer.provideMerge(baseWithDbInit)
+	)
+
+	return Layer.annotateLogs(layer, "clientId", clientId)
 }
 
 /**
@@ -200,7 +210,7 @@ export interface TestClient {
 	actionRecordRepo: ActionRecordRepo
 	actionRegistry: ActionRegistry
 	syncNetworkService: SyncNetworkService
-	syncNetworkServiceTestHelpers: Context.Tag.Service<SyncNetworkServiceTestHelpers>
+	syncNetworkServiceTestHelpers: SyncNetworkServiceTestHelpersService
 	testHelpers: TestHelpers
 	noteRepo: NoteRepo
 	clientId: string

@@ -1,7 +1,8 @@
 import { FetchHttpClient } from "@effect/platform"
 import { RpcClient, RpcSerialization } from "@effect/rpc"
-import { PgLiteClient } from "@effect/sql-pglite"
+import { SqlClient } from "@effect/sql"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
 import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
 import {
 	NetworkRequestError,
@@ -12,15 +13,18 @@ import { ActionRecord, type ActionModifiedRow } from "@synchrotron/sync-core/mod
 import { Cause, Chunk, Effect, Layer } from "effect"
 
 // Choose which protocol to use
-const ProtocolLive = RpcClient.layerProtocolHttp({
-	url: "http://localhost:3010/rpc"
-}).pipe(
-	Layer.provide([
-		// use fetch for http requests
-		FetchHttpClient.layer,
-		// use ndjson for serialization
-		RpcSerialization.layerJson
-	])
+const ProtocolLive = Layer.unwrapEffect(
+	Effect.gen(function* () {
+		const config = yield* SynchrotronClientConfig
+		return RpcClient.layerProtocolHttp({ url: config.syncRpcUrl }).pipe(
+			Layer.provide([
+				// use fetch for http requests
+				FetchHttpClient.layer,
+				// use ndjson for serialization
+				RpcSerialization.layerJson
+			])
+		)
+	})
 )
 
 export const SyncNetworkServiceLive = Layer.scoped(
@@ -30,7 +34,9 @@ export const SyncNetworkServiceLive = Layer.scoped(
 		const clientId = yield* clockService.getNodeId
 		// Get the RPC client instance using the schema
 		const client = yield* RpcClient.make(SyncNetworkRpcGroup)
-		const sql = yield* PgLiteClient.PgLiteClient
+		const sql = yield* SqlClient.SqlClient
+
+		const json = (value: unknown) => JSON.stringify(value)
 
 		const sendLocalActions = (
 			actions: ReadonlyArray<ActionRecord>,
@@ -77,10 +83,10 @@ export const SyncNetworkServiceLive = Layer.scoped(
 									_tag: a._tag,
 									client_id: a.client_id,
 									transaction_id: a.transaction_id,
-									clock: sql.json(a.clock),
-									args: sql.json(a.args),
-									created_at: new Date(a.created_at),
-									synced: true
+									clock: json(a.clock),
+									args: json(a.args),
+									created_at: new Date(a.created_at).toISOString(),
+									synced: 1
 								})}
 								ON CONFLICT (id) DO NOTHING
 							`
@@ -96,8 +102,8 @@ export const SyncNetworkServiceLive = Layer.scoped(
 									row_id: a.row_id,
 									action_record_id: a.action_record_id,
 									operation: a.operation,
-									forward_patches: sql.json(a.forward_patches),
-									reverse_patches: sql.json(a.reverse_patches),
+									forward_patches: json(a.forward_patches),
+									reverse_patches: json(a.reverse_patches),
 									sequence: a.sequence
 								})}
 								ON CONFLICT (id) DO NOTHING

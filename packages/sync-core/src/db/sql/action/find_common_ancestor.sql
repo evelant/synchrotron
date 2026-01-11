@@ -23,12 +23,12 @@ BEGIN
         SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
         FROM action_records ar
         LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
-        WHERE ar.synced = TRUE AND la.action_record_id IS NULL -- Synced but not locally applied
+        WHERE ar.synced = 1 AND la.action_record_id IS NULL -- Synced but not locally applied
     ),
     -- CTE combining local pending actions (synced = FALSE) and unapplied remote actions.
     -- These represent actions that occurred *after* the potential common ancestor.
     non_ancestor_actions AS (
-        SELECT id, clock_time_ms, clock_counter, client_id from action_records WHERE synced = FALSE -- Local pending
+        SELECT id, clock_time_ms, clock_counter, client_id from action_records WHERE synced = 0 -- Local pending
         UNION ALL
         SELECT id, clock_time_ms, clock_counter, client_id FROM remote_actions_unapplied -- Synced but not locally applied
     )
@@ -42,7 +42,7 @@ BEGIN
         SELECT a.*
         FROM action_records a
         JOIN local_applied_action_ids la ON a.id = la.action_record_id -- Must be locally applied
-        WHERE a.synced = TRUE -- Must be synced
+        WHERE a.synced = 1 -- Must be synced
         ORDER BY a.clock_time_ms DESC, a.clock_counter DESC, a.client_id DESC, a.id DESC
         LIMIT 1;
     ELSE
@@ -55,9 +55,9 @@ BEGIN
             SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
             FROM action_records ar
             LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
-            WHERE ar.synced = TRUE AND la.action_record_id IS NULL
+            WHERE ar.synced = 1 AND la.action_record_id IS NULL
         ), non_ancestor_actions AS (
-            SELECT id, clock_time_ms, clock_counter, client_id from action_records WHERE synced = FALSE
+            SELECT id, clock_time_ms, clock_counter, client_id from action_records WHERE synced = 0
             UNION ALL
             SELECT id, clock_time_ms, clock_counter, client_id FROM remote_actions_unapplied
         ),
@@ -73,7 +73,7 @@ BEGIN
         JOIN local_applied_action_ids la ON a.id = la.action_record_id -- Must be locally applied
         CROSS JOIN earliest_non_ancestor ena -- Cross join is acceptable as ena has at most 1 row
         WHERE
-            a.synced = TRUE -- Ancestor must be synced
+            a.synced = 1 -- Ancestor must be synced
             -- Canonical replay-order comparison. Find actions strictly earlier than the first non-ancestor.
             AND (a.clock_time_ms, a.clock_counter, a.client_id, a.id) < (ena.clock_time_ms, ena.clock_counter, ena.client_id, ena.id)
         -- Order by canonical replay order descending to get the latest among potential ancestors.

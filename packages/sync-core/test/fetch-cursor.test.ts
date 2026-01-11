@@ -78,5 +78,7 @@ describe("Reliable fetch cursor (server_ingest_id)", () => {
 				const lastSeenAfterB = yield* clientA.clockService.getLastSeenServerIngestId
 				expect(lastSeenAfterB).toBeGreaterThan(lastSeenAfterC)
 			}).pipe(Effect.provide(makeTestLayers("server")))
+		,
+		20_000
 	)
 })

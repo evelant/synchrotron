@@ -12,14 +12,8 @@
 		"emitDecoratorMetadata": true,
 		"experimentalDecorators": true,
 		"moduleResolution": "bundler",
-		"lib": [
-			"ES2022",
-			"DOM",
-			"DOM.Iterable"
-		],
-		"types": [
-			"vite/client"
-		],
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"types": ["vite/client"],
 		"isolatedModules": true,
 		"sourceMap": true,
 		"declarationMap": true,
@@ -49,43 +43,17 @@
 		"jsx": "preserve",
 		"jsxImportSource": "react",
 		"paths": {
-			"@synchrotron/sync-core": [
-				"packages/sync-core/src/index"
-			],
-			"@synchrotron/sync-core/*": [
-				"packages/sync-core/src/*"
-			],
-			"@synchrotron/sync-client": [
-				"packages/sync-client/src/index"
-			],
-			"@synchrotron/sync-client/*": [
-				"packages/sync-client/src/*"
-			],
-			"@effect/sql-pglite": [
-				"packages/sql-pglite/src/index"
-			],
-			"@effect/sql-pglite/*": [
-				"packages/sql-pglite/src/*"
-			],
-			"@synchrotron/sync-server": [
-				"packages/sync-server/src/index"
-			],
-			"@synchrotron/sync-server/*": [
-				"packages/sync-server/src/*"
-			],
-			"@synchrotron/todo-app": [
-				"examples/todo-app/src/index"
-			],
-			"@synchrotron/todo-app/*": [
-				"examples/todo-app/src/*"
-			]
+			"@synchrotron/sync-core": ["packages/sync-core/src/index"],
+			"@synchrotron/sync-core/*": ["packages/sync-core/src/*"],
+			"@synchrotron/sync-client": ["packages/sync-client/src/index"],
+			"@synchrotron/sync-client/*": ["packages/sync-client/src/*"],
+			"@effect/sql-pglite": ["packages/sql-pglite/src/index"],
+			"@effect/sql-pglite/*": ["packages/sql-pglite/src/*"],
+			"@synchrotron/sync-server": ["packages/sync-server/src/index"],
+			"@synchrotron/sync-server/*": ["packages/sync-server/src/*"],
+			"@synchrotron/todo-app": ["examples/todo-app/src/index"],
+			"@synchrotron/todo-app/*": ["examples/todo-app/src/*"]
 		}
 	},
-	"exclude": [
-		"**/node_modules",
-		"**/build",
-		"**/dist",
-		"**/docs",
-		"**/.vinxi",
-	]
+	"exclude": ["**/node_modules", "**/build", "**/dist", "**/docs", "**/.vinxi"]
 }

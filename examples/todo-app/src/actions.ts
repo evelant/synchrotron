@@ -106,5 +106,5 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
       clearCompletedTodosAction,
     } as const
   }),
-  dependencies: [ActionRegistry.Default, TodoRepo.Default],
+  dependencies: [ActionRegistry.Default, TodoRepo.Default, DeterministicId.Default],
 }) {}

@@ -5,9 +5,9 @@ import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
 import { PgClientLive } from "@synchrotron/sync-server/db/connection"
 import { SyncNetworkRpcHandlersLive } from "@synchrotron/sync-server/rpcRouter"
 import { Cause, Effect, flow, Layer, Logger, LogLevel, Schema } from "effect"
-import { setupDatabase } from "./db/setup"
+import { setupServerDatabase } from "./db/setup"
 
-const SetupDbLive = Layer.scopedDiscard(setupDatabase)
+const SetupDbLive = Layer.scopedDiscard(setupServerDatabase)
 
 // Define a schema for errors returned by the logger middleware
 class LoggerError extends Schema.TaggedError<LoggerError>()("LoggerError", {}) {}

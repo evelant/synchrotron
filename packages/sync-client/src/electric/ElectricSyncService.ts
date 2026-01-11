@@ -1,4 +1,4 @@
-import { PgLiteClient } from "@effect/sql-pglite"
+import { SqlClient } from "@effect/sql"
 import type { Row } from "@electric-sql/client"
 
 import { isChangeMessage, isControlMessage } from "@electric-sql/client"
@@ -24,7 +24,7 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 			const clockService = yield* ClockService
 			const syncService = yield* SyncService
 			const config = yield* SynchrotronClientConfig
-			const sql = yield* PgLiteClient.PgLiteClient
+			const sql = yield* SqlClient.SqlClient
 			const fullySyncedRef = yield* Ref.make(false)
 			const electricUrl = config.electricSyncUrl
 			yield* Effect.logInfo(`Creating TransactionalMultiShapeStream`)
@@ -137,11 +137,37 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 								})
 							}
 
-							const requireBoolean = (row: Row, key: string): boolean => {
+							const json = (value: unknown): string => {
+								if (typeof value === "string") return value
+								return JSON.stringify(value, (_, v) => (typeof v === "bigint" ? v.toString() : v))
+							}
+
+							const requireDbBoolean = (row: Row, key: string): 0 | 1 => {
 								const value = row[key]
-								if (typeof value === "boolean") return value
+								if (typeof value === "boolean") return value ? 1 : 0
+								if (value === 0 || value === 1) return value
+								if (typeof value === "number" && (value === 0 || value === 1)) {
+									return value
+								}
+								if (typeof value === "string") {
+									if (value === "0") return 0
+									if (value === "1") return 1
+									if (value.toLowerCase() === "true" || value.toLowerCase() === "t") return 1
+									if (value.toLowerCase() === "false" || value.toLowerCase() === "f") return 0
+								}
 								throw new ElectricSyncError({
-									message: `Expected "${key}" to be a boolean, got: ${typeof value}`,
+									message: `Expected "${key}" to be a boolean-ish value (boolean, 0|1, or string), got: ${typeof value}`,
+									cause: value
+								})
+							}
+
+							const requireDateTimeString = (row: Row, key: string): string => {
+								const value = row[key]
+								if (typeof value === "string") return value
+								if (value instanceof Date) return value.toISOString()
+								if (typeof value === "number") return new Date(value).toISOString()
+								throw new ElectricSyncError({
+									message: `Expected "${key}" to be a datetime string, Date, or epoch ms number`,
 									cause: value
 								})
 							}
@@ -169,8 +195,8 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 										const clientId = requireString(row, "client_id")
 										const transactionId = requireNumberFromValue(row, "transaction_id")
 										const serverIngestId = optionalNumberFromValue(row, "server_ingest_id")
-										const createdAt = new Date(String(row["created_at"]))
-										const synced = requireBoolean(row, "synced")
+										const createdAt = requireDateTimeString(row, "created_at")
+										const synced = requireDbBoolean(row, "synced")
 										yield* sql`
 											INSERT INTO action_records ${sql.insert({
 												server_ingest_id: serverIngestId,
@@ -178,8 +204,8 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 												_tag: tag,
 												client_id: clientId,
 												transaction_id: transactionId,
-												clock: sql.json(row["clock"]),
-												args: sql.json(row["args"]),
+												clock: json(row["clock"]),
+												args: json(row["args"]),
 												created_at: createdAt,
 												synced
 											})}
@@ -206,8 +232,8 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 												row_id: rowId,
 												action_record_id: actionRecordId,
 												operation,
-												forward_patches: sql.json(row["forward_patches"]),
-												reverse_patches: sql.json(row["reverse_patches"]),
+												forward_patches: json(row["forward_patches"]),
+												reverse_patches: json(row["reverse_patches"]),
 												sequence
 											})}
 											ON CONFLICT (id) DO NOTHING

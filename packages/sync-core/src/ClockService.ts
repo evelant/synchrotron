@@ -92,8 +92,8 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 					last_seen_server_ingest_id
 				) VALUES (
 					${initialStatus.client_id},
-					${JSON.stringify(initialStatus.current_clock)}::jsonb,
-					${JSON.stringify(initialStatus.last_synced_clock)}::jsonb,
+					${JSON.stringify(initialStatus.current_clock)},
+					${JSON.stringify(initialStatus.last_synced_clock)},
 					${initialStatus.last_seen_server_ingest_id}
 				)
 				ON CONFLICT (client_id)

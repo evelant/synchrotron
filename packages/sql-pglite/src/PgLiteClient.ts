@@ -2,7 +2,7 @@
  * @since 1.0.0
  */
 import * as Reactivity from "@effect/experimental/Reactivity"
-import * as Client from "@effect/sql/SqlClient"
+import { SqlClient as Client } from "@effect/sql"
 import type { Connection } from "@effect/sql/SqlConnection"
 import { SqlError } from "@effect/sql/SqlError"
 import type { Custom, Fragment, Primitive } from "@effect/sql/Statement"
@@ -146,6 +146,7 @@ export const make = <Extensions extends Record<string, any> = object>(
 	options: Omit<PgLiteClientConfig, "extensions"> & { extensions?: Extensions }
 ): Effect.Effect<PgLiteClient<Extensions>, SqlError, Scope.Scope | Reactivity.Reactivity> =>
 	Effect.gen(function* () {
+		const logQueries = options.debug !== undefined && options.debug !== 0
 		const compiler = makeCompiler(options.transformQueryNames, options.transformJson)
 		const transformRows = options.transformResultNames
 			? Statement.defaultTransforms(options.transformResultNames, options.transformJson).array
@@ -219,7 +220,7 @@ export const make = <Extensions extends Record<string, any> = object>(
 				transformRows?: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined,
 				unprepared?: boolean
 			) {
-				console.log("Executing query:", sql.substring(0, 100), params)
+				if (logQueries) console.log("Executing query:", sql.substring(0, 100), params)
 				return transformRows
 					? Effect.map(
 							this.run(
@@ -232,16 +233,16 @@ export const make = <Extensions extends Record<string, any> = object>(
 						: this.run(this.pg.query(sql, params as any))
 			}
 			executeRaw(sql: string, params: ReadonlyArray<Primitive>) {
-				console.log("Executing raw query:", sql.substring(0, 100), params)
+				if (logQueries) console.log("Executing raw query:", sql.substring(0, 100), params)
 
 				return this.run(this.pg.exec(sql, params as any))
 			}
 			executeWithoutTransform(sql: string, params: ReadonlyArray<Primitive>) {
-				console.log("Executing query without transform:", sql.substring(0, 100), params)
+				if (logQueries) console.log("Executing query without transform:", sql.substring(0, 100), params)
 				return this.run(this.pg.query(sql, params as any))
 			}
 			executeValues(sql: string, params: ReadonlyArray<Primitive>) {
-				console.log("Executing values query:", sql.substring(0, 100), params)
+				if (logQueries) console.log("Executing values query:", sql.substring(0, 100), params)
 				// PGlite doesn't have a values() method like postgres.js
 				// We'll just return the regular query results
 				return this.run(this.pg.query(sql, params as any))
@@ -251,7 +252,7 @@ export const make = <Extensions extends Record<string, any> = object>(
 				params: ReadonlyArray<Primitive>,
 				transformRows: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined
 			) {
-				console.log("Executing unprepared query:", sql.substring(0, 100), params)
+				if (logQueries) console.log("Executing unprepared query:", sql.substring(0, 100), params)
 				return this.execute(sql, params, transformRows, true)
 			}
 			executeStream(
@@ -259,7 +260,7 @@ export const make = <Extensions extends Record<string, any> = object>(
 				params: ReadonlyArray<Primitive>,
 				transformRows: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined
 			) {
-				console.log("Executing stream query:", sql.substring(0, 100), params)
+				if (logQueries) console.log("Executing stream query:", sql.substring(0, 100), params)
 				// PGlite doesn't have a cursor method like postgres.js
 				// We'll fetch all results at once and convert to a stream
 				return Stream.fromEffect(

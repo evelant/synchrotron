@@ -2,7 +2,7 @@
 
 ## Status
 
-In Progress (Milestone 1 complete)
+In Progress (Milestone 5 complete)
 
 ## Summary
 
@@ -20,7 +20,7 @@ Backend remains Postgres-only.
 - Support SQLite as a client database (browser/desktop/RN via appropriate drivers).
 - Preserve “arbitrary SQL writes inside actions” by capturing patches at the DB layer (triggers).
 - Make deterministic IDs portable by generating them in TypeScript (action-scoped), not in DB triggers.
-- Keep the door open for additional client DBs by formalizing a minimal `ClientDb` interface as an Effect service.
+- Keep the door open for additional client DBs by formalizing a minimal `ClientDbAdapter` interface as an Effect service.
 
 ## Non-goals (for this milestone)
 
@@ -43,7 +43,7 @@ Backend remains Postgres-only.
 
 ## Proposed Architecture
 
-### New Effect service: `ClientDb`
+### New Effect service: `ClientDbAdapter`
 
 A DB-agnostic interface that encapsulates the client-side DB “dialect” concerns needed by sync-core.
 
@@ -61,10 +61,10 @@ Proposed surface (exact names TBD):
 - `setPatchTrackingEnabled(enabled: boolean): Effect<void>`  
   Used to disable triggers during rollback/patch-apply phases that must not generate new patches.
 
-- `sqlDialect: "pglite" | "sqlite" | string` and/or `capabilities`  
+- `dialect: "postgres" | "sqlite" | "unknown"` and/or `capabilities`  
   Used for small SQL differences (e.g. insert-ignore syntax) if needed by a TS patch applier.
 
-`SqlClient.SqlClient` remains the general query interface; `ClientDb` is strictly the “sync runtime dialect adapter”.
+`SqlClient.SqlClient` remains the general query interface; `ClientDbAdapter` is strictly the “sync runtime dialect adapter”.
 
 ### Action-scoped context: `DeterministicId` (implemented)
 
@@ -96,9 +96,12 @@ Create a TEMP table in `initializeSyncSchema()`:
   - `sequence INTEGER NOT NULL`
   - `disable_tracking INTEGER NOT NULL` (0/1)
 
-`ClientDb.setCaptureContext(id)` sets `capture_action_record_id` and resets `sequence = 0`.
+`ClientDbAdapter.setCaptureContext(id)` sets `capture_action_record_id` and resets `sequence = 0`.
 
-`ClientDb.setPatchTrackingEnabled(false)` sets `disable_tracking = 1` and triggers include a `WHEN disable_tracking = 0` guard.
+`ClientDbAdapter.setPatchTrackingEnabled(false)` sets `disable_tracking = 1` and triggers include a `WHEN disable_tracking = 0` guard.
+
+> Note: SQLite’s `RAISE(FAIL, ...)` does **not** roll back the statement’s changes.  
+> The SQLite triggers use `RAISE(ABORT, ...)` so direct writes outside an action fail *and* the statement is rolled back.
 
 ### Trigger generation per table
 
@@ -142,7 +145,7 @@ TS implementations (DB-agnostic, use `SqlClient`):
 - `rollbackToAction(targetActionId | null)` (compute actions to reverse; apply reverse AMRs in correct order; update `local_applied_action_ids`)
 - `applyForwardAmrBatch(amrIds)` / `applyReverseAmrBatch(amrIds)` (apply patches using generated SQL)
 
-Small dialect differences (if needed) are handled through `ClientDb.capabilities` (e.g. “insert ignore” syntax).
+Small dialect differences (if needed) are handled through `ClientDbAdapter.capabilities` (e.g. “insert ignore” syntax).
 
 ## Concrete Implementation Plan (Milestones)
 
@@ -154,25 +157,25 @@ Small dialect differences (if needed) are handled through `ClientDb.capabilities
 - [x] Update tests that relied on trigger-generated IDs.
 - [x] Update docs (`README.md`, `DESIGN.md`) to reflect app-provided IDs + TS generation.
 
-### Milestone 2 — Introduce `ClientDb` Effect service + refactor sync-core to depend on it
+### Milestone 2 — Introduce `ClientDbAdapter` Effect service + refactor sync-core to depend on it
 
-1. Define `ClientDb` interface in `packages/sync-core` (no PGlite types).
+1. Define `ClientDbAdapter` interface in `packages/sync-core` (no PGlite types).
 2. Refactor `packages/sync-core/src/SyncService.ts` to:
    - depend on `SqlClient.SqlClient` (not `PgLiteClient`)
-   - call `ClientDb.setCaptureContext(...)` instead of Postgres `set_config(...)`
-   - use `ClientDb.setPatchTrackingEnabled(false)` during rollback paths
-3. Update `packages/sync-client/src/db/connection.ts` to provide `ClientDb` for PGlite.
+   - call `ClientDbAdapter.setCaptureContext(...)` instead of Postgres `set_config(...)`
+   - use `ClientDbAdapter.setPatchTrackingEnabled(false)` during rollback paths
+3. Provide the correct `ClientDbAdapter` implementation in the client layer (`PostgresClientDbAdapter` for PGlite/Postgres, `SqliteClientDbAdapter` for SQLite).
 
 ### Milestone 3 — Replace PL/pgSQL runtime functions with TypeScript implementations
 
 1. Implement TS patch applier (forward/reverse) with minimal dialect hooks.
 2. Implement TS `rollbackToAction` and TS `findCommonAncestor`.
-3. Stop creating/depending on PL/pgSQL runtime functions in client initialization (`initializeDatabaseSchema` path).
+3. Stop creating/depending on server-only PL/pgSQL runtime functions in client initialization (use `initializeClientDatabaseSchema` / `ClientDbAdapter.initializeSyncSchema`).
 4. Keep Postgres server-side behavior unchanged (server can still apply patches in SQL).
 
 ### Milestone 4 — SQLite dialect: schema + patch capture triggers
 
-1. Add a SQLite `ClientDb` implementation:
+1. Add a SQLite `ClientDbAdapter` implementation (`SqliteClientDbAdapter`):
    - create sync tables with SQLite types (JSON stored as TEXT)
    - create `TEMP sync_context` and implement capture/tracking toggles
    - generate per-table patch capture triggers
@@ -184,11 +187,27 @@ Small dialect differences (if needed) are handled through `ClientDb.capabilities
    - rollback correctness using TS runtime
    - deterministic ID stability across replay
 
+Milestone 4 notes (implemented):
+
+- SQLite tests run via `@effect/sql-sqlite-node` (better-sqlite3) in `packages/sync-core/test/sqlite-clientdb.test.ts`.
+  - `@effect/sql-sqlite-wasm` is still the intended browser runtime, but isn’t reliable to execute under Node-based tests in this repo.
+- SQLite drivers cannot bind `Date` / `boolean` values directly. To keep client DBs portable:
+  - `action_records.created_at` is stored as an ISO string.
+  - `action_records.synced` is stored as `INTEGER` (`0 | 1`) in both Postgres and SQLite (decoded to boolean in the model).
+  - Patch application coerces booleans to `0 | 1` when running on SQLite.
+- `action_records.id` is generated by the app/runtime (not DB defaults) so it works on SQLite.
+
 ### Milestone 5 — Make ingestion/network DB-agnostic (where needed)
 
 1. Ensure `ElectricSyncService` only depends on `SqlClient` (remove `PgLiteClient` dependency) so it can insert streamed rows into any client DB.
 2. Validate that JSON encoding/decoding of `clock` and `args` works across dialects.
 3. (Optional) Provide a non-Electric `SyncNetworkService` implementation for environments where Electric is unavailable.
+
+Milestone 5 notes (implemented):
+
+- `packages/sync-client/src/electric/ElectricSyncService.ts` now depends on `SqlClient` (not `PgLiteClient`) and inserts JSON fields as strings so it can target SQLite-backed clients too.
+- Replicated `action_records.synced` is treated as `0 | 1` (and `created_at` is inserted as an ISO string), matching the portability rules introduced in Milestone 4.
+- `packages/sync-client/src/SyncNetworkService.ts` is configurable via `SynchrotronClientConfig.syncRpcUrl` / `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
 
 ## Acceptance Criteria
 
@@ -204,5 +223,5 @@ Small dialect differences (if needed) are handled through `ClientDb.capabilities
 
 - JSON handling in SQLite: store as TEXT; ensure consistent encode/decode in repositories/models.
 - Column-type portability: Postgres arrays (e.g. `tags text[]`) are not portable; prefer JSON columns for cross-client schemas.
-- Trigger maintenance: SQLite trigger SQL must be generated from table schema; decide how to enumerate columns (explicit list passed in vs introspection via `PRAGMA table_info`).
+- Trigger maintenance: implemented via `PRAGMA table_info` introspection; schema migrations that change tracked table columns should re-run `installPatchCapture` to drop/recreate triggers.
 - Performance: JSON patch generation in SQLite triggers may be slower than Postgres; measure and optimize later (potentially via native extension).

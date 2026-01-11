@@ -78,7 +78,7 @@ export const createNote = Effect.gen(function* () {
 					id,
 					title,
 					content,
-					tags: db.array(tags),
+					tags: JSON.stringify(tags),
 					created_at: now,
 					updated_at: now
 				})}`

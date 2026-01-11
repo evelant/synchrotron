@@ -1,12 +1,9 @@
 import { SqlClient } from "@effect/sql"
-import { applySyncTriggers, initializeDatabaseSchema } from "@synchrotron/sync-core/db" // Import applySyncTriggers
+import { ClientDbAdapter } from "@synchrotron/sync-core"
+import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
 import { Effect } from "effect"
 
-export const setupDatabase = Effect.gen(function* () {
-	yield* Effect.logInfo("Initializing core database schema...")
-	yield* initializeDatabaseSchema
-	yield* Effect.logInfo("Core database schema initialized.")
-
+const createTodoTables = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient
 
 	yield* Effect.logInfo("Creating todos table...")
@@ -19,11 +16,29 @@ export const setupDatabase = Effect.gen(function* () {
       );
     `.raw
 	yield* Effect.logInfo("Todos table created.")
+})
 
-	yield* Effect.logInfo("Attaching patches trigger to todos table...")
-	// Apply sync patch-capture triggers
-	yield* applySyncTriggers(["todos"])
-	yield* Effect.logInfo("Patches trigger attached to todos table.")
+export const setupClientDatabase = Effect.gen(function* () {
+	yield* Effect.logInfo("Initializing client sync schema...")
+	const clientDbAdapter = yield* ClientDbAdapter
+	yield* clientDbAdapter.initializeSyncSchema
+	yield* Effect.logInfo("Client sync schema initialized.")
 
-	yield* Effect.logInfo("Database setup complete.")
+	yield* createTodoTables
+
+	yield* Effect.logInfo("Installing patch capture triggers for todos...")
+	yield* clientDbAdapter.installPatchCapture(["todos"])
+	yield* Effect.logInfo("Patch capture triggers installed for todos.")
+
+	yield* Effect.logInfo("Client database setup complete.")
+})
+
+export const setupServerDatabase = Effect.gen(function* () {
+	yield* Effect.logInfo("Initializing server database schema...")
+	yield* initializeDatabaseSchema
+	yield* Effect.logInfo("Server database schema initialized.")
+
+	yield* createTodoTables
+
+	yield* Effect.logInfo("Server database setup complete.")
 })

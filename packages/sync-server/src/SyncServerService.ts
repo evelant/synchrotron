@@ -158,7 +158,17 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						)
 						yield* sql`
 								INSERT INTO action_records (server_ingest_id, id, client_id, _tag, args, clock, synced, transaction_id, created_at)
-								VALUES (nextval('action_records_server_ingest_id_seq'), ${actionRecord.id}, ${actionRecord.client_id}, ${actionRecord._tag}, ${sql.json(actionRecord.args)}, ${sql.json(actionRecord.clock)}, true, ${actionRecord.transaction_id}, ${new Date(actionRecord.created_at).getTime()})
+								VALUES (
+									nextval('action_records_server_ingest_id_seq'),
+									${actionRecord.id},
+									${actionRecord.client_id},
+									${actionRecord._tag},
+									${sql.json(actionRecord.args)},
+									${sql.json(actionRecord.clock)},
+									1,
+									${actionRecord.transaction_id},
+									${new Date(actionRecord.created_at).toISOString()}
+								)
 								ON CONFLICT (id) DO NOTHING
               				`
 					}

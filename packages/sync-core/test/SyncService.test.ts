@@ -241,9 +241,9 @@ describe("SyncService", () => {
 					)
 				).toBe(true) // Added type check
 
-				// Mark it as synced
-				const sql = yield* SqlClient.SqlClient
-				yield* sql`UPDATE action_records SET synced = true WHERE id = ${actionRecord.id}`
+					// Mark it as synced
+					const sql = yield* SqlClient.SqlClient
+					yield* sql`UPDATE action_records SET synced = 1 WHERE id = ${actionRecord.id}`
 
 				// Run cleanup with a very short retention (0 days)
 				yield* syncService.cleanupOldActionRecords(0)
@@ -324,7 +324,7 @@ describe("Sync Algorithm Integration", () => {
 				const serverAction =
 					yield* serverSql<ActionRecord>`SELECT * FROM action_records WHERE id = ${remoteActionRecord.id}`
 				expect(serverAction.length).toBe(1)
-				expect(serverAction[0]?.synced).toBe(true) // Should be marked synced on server
+				expect(serverAction[0]?.synced).toBe(1) // Should be marked synced on server
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Keep user's preferred style
 	)
 
@@ -379,18 +379,6 @@ describe("Sync Algorithm Integration", () => {
 							content: "Updated content from Client 2"
 							// Title remains initial from C2's perspective
 						})
-					)
-
-				// Get all action records to verify order (using client 1's perspective)
-				const allActionsC1Initial = yield* client1.actionRecordRepo.all()
-				console.log(
-					"Client 1 Actions Before Sync:",
-					allActionsC1Initial.map((a) => ({ id: a.id, tag: a._tag, clock: a.clock }))
-				)
-				const allActionsC2Initial = yield* client2.actionRecordRepo.all()
-				console.log(
-					"Client 2 Actions Before Sync:",
-					allActionsC2Initial.map((a) => ({ id: a.id, tag: a._tag, clock: a.clock }))
 				)
 
 				// Verify initial states are different

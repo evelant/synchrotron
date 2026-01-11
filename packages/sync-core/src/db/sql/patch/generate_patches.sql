@@ -2,7 +2,6 @@ CREATE OR REPLACE FUNCTION generate_patches() RETURNS TRIGGER AS $$
 DECLARE
 	patches_data RECORD;
 	v_action_record_id TEXT;
-	current_transaction_id BIGINT;
 	amr_record RECORD;
 	v_sequence_number INT; -- Added sequence number variable
 	target_row_id TEXT;
@@ -55,18 +54,12 @@ BEGIN
 	END IF;
 
 	-- Get the current transaction ID
-	current_transaction_id := txid_current();
-
-	-- Find the most recent action_record for this transaction
-	SELECT id INTO v_action_record_id FROM action_records
-	WHERE transaction_id = current_transaction_id
-	ORDER BY created_at DESC
-	LIMIT 1;
+	v_action_record_id := NULLIF(current_setting('sync.capture_action_record_id', true), '');
 
 	-- If no action record exists for this transaction, we have a problem
 	IF v_action_record_id IS NULL THEN
-		RAISE WARNING '[generate_patches] No action_record found for transaction_id %', current_transaction_id;
-		RAISE EXCEPTION 'No action_record found for transaction_id %', current_transaction_id;
+		RAISE WARNING '[generate_patches] sync.capture_action_record_id not set for OP: %, Table: %', TG_OP, TG_TABLE_NAME;
+		RAISE EXCEPTION 'sync.capture_action_record_id not set';
 	END IF;
 
 	-- Calculate the next sequence number for this action record

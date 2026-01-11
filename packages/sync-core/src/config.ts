@@ -6,6 +6,12 @@ export interface SynchrotronClientConfigData {
 	 */
 	electricSyncUrl: string
 	/**
+	 * HTTP URL for Synchrotron's RPC sync endpoint (used by `SyncNetworkServiceLive`).
+	 *
+	 * Example: `http://localhost:3010/rpc`
+	 */
+	syncRpcUrl: string
+	/**
 	 * Configuration for PGlite database
 	 */
 	pglite: {
@@ -34,6 +40,7 @@ export class SynchrotronClientConfig extends Context.Tag("SynchrotronClientConfi
  */
 export const defaultConfig: SynchrotronClientConfigData = {
 	electricSyncUrl: "http://localhost:5133",
+	syncRpcUrl: "http://localhost:3010/rpc",
 	pglite: {
 		debug: 1,
 		dataDir: "idb://synchrotron",
@@ -48,6 +55,7 @@ export const synchrotronClientConfig = {
 	electricSyncUrl: Config.string("ELECTRIC_SYNC_URL").pipe(
 		Config.withDefault(defaultConfig.electricSyncUrl)
 	),
+	syncRpcUrl: Config.string("SYNC_RPC_URL").pipe(Config.withDefault(defaultConfig.syncRpcUrl)),
 	pglite: {
 		debug: Config.number("PGLITE_DEBUG").pipe(Config.withDefault(defaultConfig.pglite.debug)),
 		dataDir: Config.string("PGLITE_DATA_DIR").pipe(
@@ -66,12 +74,14 @@ export const SynchrotronConfigLive = Layer.effect(
 	SynchrotronClientConfig,
 	Effect.gen(function* () {
 		const electricSyncUrl = yield* synchrotronClientConfig.electricSyncUrl
+		const syncRpcUrl = yield* synchrotronClientConfig.syncRpcUrl
 		const debug = yield* synchrotronClientConfig.pglite.debug
 		const dataDir = yield* synchrotronClientConfig.pglite.dataDir
 		const relaxedDurability = yield* synchrotronClientConfig.pglite.relaxedDurability
 
 		return {
 			electricSyncUrl,
+			syncRpcUrl,
 			pglite: {
 				debug,
 				dataDir,

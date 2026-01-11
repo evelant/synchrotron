@@ -18,7 +18,7 @@ import { Effect, Layer, Logger, LogLevel, ManagedRuntime, type Context } from "e
 import Root from "./routes/root"
 import "./style.css"
 
-import { setupDatabase } from "examples/todo-app/src/db/setup"
+import { setupClientDatabase } from "examples/todo-app/src/db/setup"
 import { TodoActions } from "./actions"
 import { TodoRepo } from "./db/repositories" // Import app-specific layers
 import Index from "./routes/index"
@@ -38,13 +38,14 @@ const syncConfig = {
 // Start with TodoRepo and other app services that require Synchrotron
 const AppLive = TodoRepo.Default.pipe(
 	Layer.provideMerge(TodoActions.Default),
-	Layer.provideMerge(Layer.effectDiscard(setupDatabase)),
+	Layer.provideMerge(Layer.effectDiscard(setupClientDatabase)),
 	Layer.provideMerge(makeSynchrotronClientLayer(syncConfig)),
 	Layer.provideMerge(Layer.effectDiscard(Effect.logInfo(`creating layers`))),
 	Layer.provideMerge(
 		Logger.replace(Logger.defaultLogger, Logger.prettyLoggerDefault.pipe(Logger.withLeveledConsole))
 	),
-	Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Trace))
+	Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Trace)),
+	Layer.provideMerge(Layer.scope)
 )
 
 const runtime = ManagedRuntime.make(AppLive)
