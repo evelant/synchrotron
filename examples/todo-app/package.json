@@ -77,7 +77,7 @@
 		"backend:up": "pnpm backend:down && docker compose -f ./docker-compose.yml up -d && pnpm db:migrate",
 		"backend:down": "docker compose -f ./docker-compose.yml down --volumes",
 		"build": "vite build",
-		"db:migrate": "pnpm exec pg-migrations apply --directory ./db/migrations",
+		"db:migrate": "dotenv -e .env -- pnpx bun --bun src/db/migrate.ts",
 		"dev:frontend": "vite --force",
 		"dev:backend": "pnpx bun --bun --watch src/server.ts",
 		"dev": "pnpm run --parallel \"/dev:(frontend|backend)/\"",

@@ -1,6 +1,6 @@
-import { type LiveQueryResults } from "@electric-sql/pglite/live"
-import { PgLiteSyncTag } from "@synchrotron/sync-client/index"
-import { useRuntime, useService } from "examples/todo-app/src/main"
+import { type LiveQuery, type LiveQueryResults } from "@electric-sql/pglite/live"
+import { PgLiteSyncTag } from "@synchrotron/sync-client"
+import { useService } from "examples/todo-app/src/main"
 import { useEffect, useState } from "react"
 import { Todo } from "./schema"
 
@@ -8,42 +8,46 @@ export function useReactiveTodos() {
 	const [todos, setTodos] = useState<readonly Todo[]>([])
 	const [isLoading, setIsLoading] = useState(true)
 	const db = useService(PgLiteSyncTag)
-	const runtime = useRuntime()
+
 	useEffect(() => {
-		try {
-			if (db) {
-				const loadTodos = () => {
-					console.log(`loadTodos starting live query`)
-					db.extensions.live.query<Todo>("select * from todos order by text").then((todos) => {
-						try {
-							setTodos(todos.initialResults.rows)
-							const callback = (newTodos: LiveQueryResults<Todo>) => {
-								console.log(`live query todos got new rows`, newTodos.rows)
-								setTodos(newTodos.rows)
-							}
-							todos.subscribe(callback)
-							return () => todos.unsubscribe(callback)
-						} catch (e) {
-							console.error(`Error setting up live query for todos`, e)
-						}
-					})
+		if (!db) return
+
+		let cancelled = false
+		let liveQuery: LiveQuery<Todo> | undefined
+
+		setIsLoading(true)
+
+		db.extensions.live
+			.query<Todo>("select * from todos order by text")
+			.then((query) => {
+				liveQuery = query
+				if (cancelled) {
+					void query.unsubscribe()
+					return
 				}
 
-				// Initial load
-				const unsub = loadTodos()
+				const handleResults = (results: LiveQueryResults<Todo>) => {
+					if (cancelled) return
+					setTodos(results.rows)
+					setIsLoading(false)
+				}
 
-				return unsub
-			} else {
-				console.warn("Electric SQL not available")
+				handleResults(query.initialResults)
+				query.subscribe(handleResults)
+			})
+			.catch((error) => {
+				if (cancelled) return
+				console.error("Error setting up live query for todos", error)
 				setIsLoading(false)
-			}
-		} catch (e) {
-			console.error("Error setting up Electric SQL subscription:", e)
-			setIsLoading(false)
-		}
+			})
 
-		return undefined
-	}, [db, runtime])
+		return () => {
+			cancelled = true
+			if (liveQuery) {
+				void liveQuery.unsubscribe()
+			}
+		}
+	}, [db])
 
 	return {
 		todos,

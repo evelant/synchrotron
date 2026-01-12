@@ -2,7 +2,7 @@
 
 ## Status
 
-In Progress (Milestone 5 complete)
+Implemented (client DB abstraction complete; examples remain PGlite-first for now)
 
 ## Summary
 
@@ -216,7 +216,7 @@ Milestone 5 notes (implemented):
   - patch capture triggers produce the expected `action_modified_rows`
   - TS rollback + replay produces the same final state
   - deterministic IDs are stable across clients/replay
-- Example todo app can run with PGlite and with SQLite (at least in one environment initially, e.g. Node/Web).
+- Example todo app runs with PGlite; a SQLite-backed example is deferred to a follow-up.
 - `README.md` + `DESIGN.md` reflect the new ID rule and the DB abstraction boundary once Milestone 1 lands.
 
 ## Open Questions / Risks

@@ -1,11 +1,12 @@
 import { KeyValueStore } from "@effect/platform"
+import { SqlSchema } from "@effect/sql"
 import { PgClient } from "@effect/sql-pg"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { HLC } from "@synchrotron/sync-core/HLC"
-import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
-import { Data, Effect } from "effect"
+import { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
+import { Data, Effect, Schema } from "effect"
 
 export class ServerConflictError extends Data.TaggedError("ServerConflictError")<{
 	readonly message: string
@@ -30,6 +31,36 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 		const actionRecordRepo = yield* ActionRecordRepo
 		const actionModifiedRowRepo = yield* ActionModifiedRowRepo
 		const keyValueStore = yield* KeyValueStore.KeyValueStore
+
+		const findActionsSince = SqlSchema.findAll({
+			Request: Schema.Struct({
+				clientId: Schema.String,
+				sinceServerIngestId: Schema.Number
+			}),
+			Result: ActionRecord,
+			execute: ({ clientId, sinceServerIngestId }) => {
+				const whereClauses = [
+					sql`client_id != ${clientId}`,
+					sql`server_ingest_id > ${sinceServerIngestId}`
+				]
+
+				return sql`
+						SELECT * FROM action_records
+						${whereClauses.length > 0 ? sql`WHERE ${sql.and(whereClauses)}` : sql``}
+						ORDER BY server_ingest_id ASC, id ASC
+					`
+			}
+		})
+
+		const findModifiedRowsForActions = SqlSchema.findAll({
+			Request: Schema.Array(Schema.String),
+			Result: ActionModifiedRow,
+			execute: (actionIds) => sql`
+				SELECT * FROM action_modified_rows
+				WHERE action_record_id IN ${sql.in(actionIds)}
+				ORDER BY action_record_id, sequence ASC
+			`
+		})
 
 		/**
 		 * Receives actions from a client, performs conflict checks, handles rollbacks,
@@ -263,18 +294,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				yield* Effect.logDebug(
 					`Server: getActionsSince called by ${clientId} since server_ingest_id ${sinceServerIngestId}`
 				)
-				// Always exclude actions from the requesting client, and only include actions
-				// ingested after the client's last seen server ingestion cursor.
-				const whereClauses = [
-					sql`client_id != ${clientId}`,
-					sql`server_ingest_id > ${sinceServerIngestId}`
-				]
-
-				const actions = yield* sql<ActionRecord>`
-						SELECT * FROM action_records
-						${whereClauses.length > 0 ? sql`WHERE ${sql.and(whereClauses)}` : sql``}
-						ORDER BY server_ingest_id ASC, id ASC
-          			`.pipe(
+				const actions = yield* findActionsSince({ clientId, sinceServerIngestId }).pipe(
 					Effect.mapError(
 						(error) =>
 							new ServerInternalError({
@@ -291,11 +311,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				let modifiedRows: readonly ActionModifiedRow[] = []
 				if (actions.length > 0) {
 					const actionIds = actions.map((a: ActionRecord) => a.id)
-					modifiedRows = yield* sql<ActionModifiedRow>`
-              				SELECT * FROM action_modified_rows
-              				WHERE action_record_id IN ${sql.in(actionIds)}
-							ORDER BY action_record_id, sequence ASC
-            			`.pipe(
+					modifiedRows = yield* findModifiedRowsForActions(actionIds).pipe(
 						Effect.mapError(
 							(error) =>
 								new ServerInternalError({

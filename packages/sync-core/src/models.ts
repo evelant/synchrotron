@@ -80,17 +80,25 @@ const DbDateTime = Model.Field({
 })
 
 /**
+ * Postgres drivers commonly return BIGINT / INT8 columns as strings.
+ *
+ * We store these values in the database as integers for indexing / ordering, but decode from either
+ * a number (SQLite / PGlite) or a stringified number (Postgres) into a JS number.
+ */
+const DbInt64AsNumber = Schema.Union(Schema.Number, Schema.NumberFromString)
+
+/**
  * Effect-SQL model for ActionRecord
  */
 export class ActionRecord extends Model.Class<ActionRecord>("action_records")({
 	id: Model.GeneratedByApp(Schema.UUID),
-	server_ingest_id: Model.Generated(Schema.NullOr(Schema.Number)),
+	server_ingest_id: Model.Generated(Schema.NullOr(DbInt64AsNumber)),
 	_tag: Schema.String,
 	client_id: Schema.String,
 	transaction_id: Schema.Number,
 	clock: JsonColumn(HLC),
-	clock_time_ms: Model.Generated(Schema.Number),
-	clock_counter: Model.Generated(Schema.Number),
+	clock_time_ms: Model.Generated(DbInt64AsNumber),
+	clock_counter: Model.Generated(DbInt64AsNumber),
 	args: JsonColumn(
 		Schema.Struct({ timestamp: Schema.Number }, { key: Schema.String, value: Schema.Unknown })
 	),
@@ -109,7 +117,7 @@ export class ClientSyncStatusModel extends Model.Class<ClientSyncStatusModel>("c
 		client_id: ClientId,
 		current_clock: JsonColumn(HLC),
 		last_synced_clock: JsonColumn(HLC),
-		last_seen_server_ingest_id: Schema.Number
+		last_seen_server_ingest_id: DbInt64AsNumber
 	}
 ) {}
 

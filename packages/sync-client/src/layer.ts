@@ -1,4 +1,3 @@
-import { KeyValueStore } from "@effect/platform"
 import { BrowserKeyValueStore } from "@effect/platform-browser"
 import {
 	ActionModifiedRowRepo,
@@ -17,7 +16,6 @@ import {
 import { Effect, Layer } from "effect"
 import { PgLiteClientLive } from "./db/connection"
 import { SqliteWasmClientMemoryLive } from "./db/sqlite-wasm"
-import { makeSqliteReactNativeClientLayer } from "./db/sqlite-react-native"
 import { ElectricSyncService } from "./electric/ElectricSyncService"
 import { SyncNetworkServiceLive } from "./SyncNetworkService"
 
@@ -93,31 +91,6 @@ export const makeSynchrotronSqliteWasmClientLayer = (
 		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
 		Layer.provideMerge(SqliteClientDbAdapter),
 		Layer.provideMerge(SqliteWasmClientMemoryLive),
-		Layer.provideMerge(configLayer)
-	)
-}
-
-/**
- * SQLite (React Native) client layer (no Electric integration).
- *
- * The caller supplies the database config for `@effect/sql-sqlite-react-native`.
- */
-export const makeSynchrotronSqliteReactNativeClientLayer = (
-	sqliteConfig: Parameters<typeof makeSqliteReactNativeClientLayer>[0],
-	config: Partial<SynchrotronClientConfigData> = {}
-) => {
-	const configLayer = createSynchrotronConfig(config)
-
-	return SyncService.Default.pipe(
-		Layer.provideMerge(SyncNetworkServiceLive),
-		Layer.provideMerge(ActionRegistry.Default),
-		Layer.provideMerge(ClockService.Default),
-		Layer.provideMerge(ActionRecordRepo.Default),
-		Layer.provideMerge(ActionModifiedRowRepo.Default),
-		// TODO: replace with a persistent RN key-value store layer (AsyncStorage, etc)
-		Layer.provideMerge(KeyValueStore.layerMemory),
-		Layer.provideMerge(SqliteClientDbAdapter),
-		Layer.provideMerge(makeSqliteReactNativeClientLayer(sqliteConfig)),
 		Layer.provideMerge(configLayer)
 	)
 }

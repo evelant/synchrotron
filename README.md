@@ -83,7 +83,7 @@ The client DB is selected by which `@effect/sql` driver layer you provide:
 
 - **PGlite** (browser): `makeSynchrotronClientLayer(...)` from `@synchrotron/sync-client`
 - **SQLite (WASM)**: `makeSynchrotronSqliteWasmClientLayer()` from `@synchrotron/sync-client`
-- **SQLite (React Native)**: `makeSynchrotronSqliteReactNativeClientLayer(sqliteConfig, config?)` from `@synchrotron/sync-client`
+- **SQLite (React Native)**: `makeSynchrotronSqliteReactNativeClientLayer(sqliteConfig, config?)` from `@synchrotron/sync-client/react-native`
 
 ## Networking
 

@@ -1,39 +1,31 @@
 # Todo example
 
-This is a classic TodoMVC example app, developed using ElectricSQL.
+TodoMVC-style demo app for Synchrotron (ElectricSQL + Effect + PGlite).
 
 ## Setup
 
-This example is part of the [ElectricSQL monorepo](../..) and is designed to be built and run as part of the [pnpm workspace](https://pnpm.io/workspaces) defined in [`../../pnpm-workspace.yaml`](../../pnpm-workspace.yaml).
-
-Navigate to the root directory of the monorepo, e.g.:
-
-```shell
-cd ../../
-```
-
-Install and build all of the workspace packages and examples:
+From the repo root:
 
 ```shell
 pnpm install
 pnpm run -r build
 ```
 
-Navigate back to this directory:
+Then:
 
 ```shell
 cd examples/todo-app
 ```
 
-Start the example backend services using [Docker Compose](https://docs.docker.com/compose/):
+Start the Docker services (Postgres + Electric) and initialize the database schema:
 
 ```shell
 pnpm backend:up
 ```
 
-> Note that this always stops and deletes the volumes mounted by any other example backend containers that are running or have been run before. This ensures that the example always starts with a clean database and clean disk.
+This runs `pnpm db:migrate`, which uses `src/db/migrate.ts` to run Synchrotron's server-side schema initialization (`action_records`, `action_modified_rows`, and the app's `todos` table).
 
-Now start the dev server:
+Now start the frontend + Bun backend:
 
 ```shell
 pnpm dev
