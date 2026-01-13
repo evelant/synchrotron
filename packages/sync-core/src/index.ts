@@ -13,5 +13,6 @@ export * from "./ClientDbAdapter"
 export * from "./PostgresClientDbAdapter"
 export * from "./SqliteClientDbAdapter"
 
+export { initializeClientDatabaseSchema, initializeDatabaseSchema } from "./db"
 export * from "./db/schema"
 export * from "./utils"

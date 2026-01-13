@@ -1,7 +1,7 @@
 import { KeyValueStore } from "@effect/platform"
 import { Model, SqlClient } from "@effect/sql"
 import * as SqlStatement from "@effect/sql/Statement"
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp"
 import {
@@ -231,7 +231,7 @@ export class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("Sqli
 	})
 }) {}
 
-export const makeSqliteTestLayers = (clientId: string, serverSql: PgLiteClient.PgLiteClient) => {
+export const makeSqliteTestLayers = (clientId: string, serverSql: PgliteClient.PgliteClient) => {
 	const baseLayer = Layer.mergeAll(
 		SqliteClient.layer({ filename: ":memory:" }),
 		KeyValueStore.layerMemory,
@@ -282,7 +282,9 @@ export const makeSqliteTestLayers = (clientId: string, serverSql: PgLiteClient.P
 	).pipe(Layer.provideMerge(layer4))
 
 	const layer6 = ClockService.Default.pipe(Layer.provideMerge(layer5))
-	const layer7 = createTestSyncNetworkServiceLayer(clientId, serverSql).pipe(Layer.provideMerge(layer6))
+	const layer7 = createTestSyncNetworkServiceLayer(clientId, serverSql).pipe(
+		Layer.provideMerge(layer6)
+	)
 	const layer8 = SqliteTestHelpers.Default.pipe(Layer.provideMerge(layer7))
 
 	return SyncService.DefaultWithoutDependencies.pipe(Layer.provideMerge(layer8))
@@ -304,7 +306,7 @@ export interface SqliteTestClient {
 
 export const withSqliteTestClient = <A, E, R = never>(
 	clientId: string,
-	serverSql: PgLiteClient.PgLiteClient,
+	serverSql: PgliteClient.PgliteClient,
 	f: (client: SqliteTestClient) => Effect.Effect<A, E, R>
 ) =>
 	Effect.gen(function* () {
@@ -334,11 +336,14 @@ export const withSqliteTestClient = <A, E, R = never>(
 		} as const satisfies SqliteTestClient
 
 		return yield* f(client)
-	}).pipe(Effect.provide(makeSqliteTestLayers(clientId, serverSql)), Effect.annotateLogs("clientId", clientId))
+	}).pipe(
+		Effect.provide(makeSqliteTestLayers(clientId, serverSql)),
+		Effect.annotateLogs("clientId", clientId)
+	)
 
 export const withSqliteTestClients = <A, E, R = never>(
 	clientIds: ReadonlyArray<string>,
-	serverSql: PgLiteClient.PgLiteClient,
+	serverSql: PgliteClient.PgliteClient,
 	f: (clients: ReadonlyArray<SqliteTestClient>) => Effect.Effect<A, E, R>
 ): Effect.Effect<A, unknown, Scope.Scope | R> => {
 	const loop = (
@@ -363,7 +368,7 @@ export const withSqliteTestClients = <A, E, R = never>(
 export const makeSqliteTestServerLayer = (
 	dataDir: string = `memory://sqlite-semantics-server-${crypto.randomUUID()}`
 ) => {
-	const baseLayer = PgLiteClient.layer({
+	const baseLayer = PgliteClient.layer({
 		dataDir,
 		relaxedDurability: true,
 		extensions: {

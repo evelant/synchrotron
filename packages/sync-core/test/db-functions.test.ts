@@ -1,4 +1,4 @@
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import { describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { expect } from "vitest"
@@ -19,11 +19,11 @@ it.scoped("should support multiple independent PgLite instances", () =>
 		const uniqueId2 = `memory://db2-${Date.now()}-2`
 
 		// Create completely separate layers
-		const PgLiteLayer1 = PgLiteClient.layer({ dataDir: uniqueId1 })
-		const PgLiteLayer2 = PgLiteClient.layer({ dataDir: uniqueId2 }).pipe(Layer.fresh)
+		const PgLiteLayer1 = PgliteClient.layer({ dataDir: uniqueId1 })
+		const PgLiteLayer2 = PgliteClient.layer({ dataDir: uniqueId2 }).pipe(Layer.fresh)
 
-		const client1 = yield* Effect.provide(PgLiteClient.PgLiteClient, PgLiteLayer1)
-		const client2 = yield* Effect.provide(PgLiteClient.PgLiteClient, PgLiteLayer2)
+		const client1 = yield* Effect.provide(PgliteClient.PgliteClient, PgLiteLayer1)
+		const client2 = yield* Effect.provide(PgliteClient.PgliteClient, PgLiteLayer2)
 
 		// Initialize the first database
 		yield* client1`CREATE TABLE IF NOT EXISTS test_table (id TEXT PRIMARY KEY, value TEXT)`
@@ -82,7 +82,7 @@ it.scoped("should support multiple independent PgLite instances", () =>
 
 // Helper to create an action record and modify a note
 const createActionAndModifyNote = (
-	sql: PgLiteClient.PgLiteClient,
+	sql: PgliteClient.PgliteClient,
 	actionTag: string,
 	noteId: string,
 	newTitle: string,
@@ -98,7 +98,7 @@ const createActionAndModifyNote = (
 		}
 		const clock = { timestamp: timestamp, vector: { server: timestamp } } // Simple clock for testing
 
-			const actionResult = yield* sql<{ id: string }>`
+		const actionResult = yield* sql<{ id: string }>`
 				INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 				VALUES (${actionTag}, 'server', ${currentTxId}, ${sql.json(clock)}, '{}'::jsonb, 0) /* Convert txid string to BigInt */
 				RETURNING id
@@ -134,7 +134,7 @@ describe("Sync Database Functions", () => {
 		"should correctly create tables and initialize triggers",
 		() =>
 			Effect.gen(function* () {
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 
 				// Verify that the sync tables exist
 				const tables = yield* sql<{ table_name: string }>`
@@ -246,7 +246,7 @@ describe("Sync Database Functions", () => {
 		"should generate patches for INSERT operations",
 		() =>
 			Effect.gen(function* () {
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 				const deterministicId = yield* DeterministicId
 
 				yield* Effect.gen(function* () {
@@ -257,7 +257,7 @@ describe("Sync Database Functions", () => {
 					const currentTxId = txResult[0]!.txid
 
 					// Create an action record with the current transaction ID
-						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
 					INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_insert', 'server', ${currentTxId}, '{"timestamp": 1, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
@@ -323,7 +323,7 @@ describe("Sync Database Functions", () => {
 		"should generate patches for UPDATE operations",
 		() =>
 			Effect.gen(function* () {
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 				const deterministicId = yield* DeterministicId
 				let noteId: string // Declare noteId in the outer scope
 
@@ -333,8 +333,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('test_update', 'server', ${currentTxId}, '{"timestamp": 2, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 						RETURNING id, transaction_id
@@ -431,7 +431,7 @@ describe("Sync Database Functions", () => {
 		"should generate patches for DELETE operations",
 		() =>
 			Effect.gen(function* () {
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 				const deterministicId = yield* DeterministicId
 				let noteIdToDelete: string // Declare in outer scope
 
@@ -441,8 +441,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_insert_for_delete', 'server', ${currentTxId}, '{"timestamp": 8, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id
@@ -471,8 +471,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('test_delete', 'server', ${currentTxId}, '{"timestamp": 9, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 						RETURNING id, transaction_id
@@ -530,7 +530,7 @@ describe("Sync Database Functions", () => {
 		"should apply forward patches correctly",
 		() =>
 			Effect.gen(function* () {
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 				const deterministicId = yield* DeterministicId
 				let noteIdToUpdate: string // Declare in outer scope
 				let amrId: string // Declare amrId in outer scope
@@ -541,8 +541,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_insert_for_forward', 'server', ${currentTxId}, '{"timestamp": 10, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id
@@ -571,8 +571,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_apply_forward', 'server', ${currentTxId}, '{"timestamp": 11, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
@@ -602,8 +602,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction (for the reset operation)
-						yield* sql`
+					// Create action record for this transaction (for the reset operation)
+					yield* sql`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('test_reset', 'server', ${currentTxId}, '{"timestamp": 12, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					`
@@ -624,8 +624,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						yield* sql`
+					// Create action record for this transaction
+					yield* sql`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('test_apply_forward_patch', 'server', ${currentTxId}, '{"timestamp": 13, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					`
@@ -660,7 +660,7 @@ describe("Sync Database Functions", () => {
 					value: number
 					data: Record<string, unknown>
 				}
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 
 				// Create a test table
 				yield* sql`
@@ -779,7 +779,7 @@ describe("Sync Database Functions", () => {
 		"should require id column for tables", // Removed deleted_at requirement
 		() =>
 			Effect.gen(function* () {
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 
 				// Create a table without id column
 				yield* sql`
@@ -839,7 +839,7 @@ describe("Sync Database Functions", () => {
 		"should handle UPDATE followed by DELETE in same transaction",
 		() =>
 			Effect.gen(function* () {
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 				const deterministicId = yield* DeterministicId
 				let uniqueRowId: string // Declare in outer scope
 
@@ -849,8 +849,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_initial_for_update_delete', 'server', ${currentTxId}, '{"timestamp": 20, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id
@@ -881,8 +881,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_update_delete', 'server', ${currentTxId}, '{"timestamp": 21, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
@@ -988,7 +988,7 @@ describe("Sync Database Functions", () => {
 		"should handle INSERT followed by UPDATE in same transaction",
 		() =>
 			Effect.gen(function* () {
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 				const deterministicId = yield* DeterministicId
 				let noteId: string // Declare noteId in the outer scope
 
@@ -998,8 +998,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_insert_update', 'server', ${currentTxId}, '{"timestamp": 22, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
@@ -1099,7 +1099,7 @@ describe("Sync Database Functions", () => {
 		"should handle multiple UPDATEs on the same row in one transaction",
 		() =>
 			Effect.gen(function* () {
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 				const deterministicId = yield* DeterministicId
 				let noteId: string // Declare noteId in the outer scope
 
@@ -1109,8 +1109,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_initial_for_multiple_updates', 'server', ${currentTxId}, '{"timestamp": 23, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id
@@ -1140,8 +1140,8 @@ describe("Sync Database Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_multiple_updates', 'server', ${currentTxId}, '{"timestamp": 24, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
@@ -1236,7 +1236,7 @@ describe("Sync Database Functions", () => {
 describe("Sync DB Batch and Rollback Functions", () => {
 	it.scoped("should apply forward patches in batch", () =>
 		Effect.gen(function* () {
-			const sql = yield* PgLiteClient.PgLiteClient
+			const sql = yield* PgliteClient.PgliteClient
 			const deterministicId = yield* DeterministicId
 			// Setup: Create initial notes within a transaction that includes a dummy action record
 			yield* Effect.gen(function* () {
@@ -1250,12 +1250,12 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				// No need for dummy action record if we disable trigger
 				// Create notes with deterministic IDs by using action records
 				// First create an action record for setup
-					const setupActionId = (yield* sql<{ id: string }>`
+				const setupActionId = (yield* sql<{ id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('_setup_batch_fwd', 'server', ${setupTxId}, ${sql.json({ timestamp: 10, vector: {} })}, '{}'::jsonb, 1)
 						RETURNING id
 					`)[0]!.id
-					yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
+				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 
 				const note1Row = { title: "Orig 1", content: "Cont 1", user_id: "u1" } as const
 				const note1 = yield* deterministicId.withActionContext(
@@ -1328,10 +1328,10 @@ describe("Sync DB Batch and Rollback Functions", () => {
 					return yield* Effect.dieMessage("Failed to get txid for batch forward call")
 				}
 				// Insert dummy action record for this specific transaction
-					const dummyActionId = (yield* sql<{
-						id: string
-					}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_fwd', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, 1) RETURNING id`)[0]!
-						.id
+				const dummyActionId = (yield* sql<{
+					id: string
+				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_fwd', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, 1) RETURNING id`)[0]!
+					.id
 
 				// Call the batch function (trigger will fire but find the dummy record)
 				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
@@ -1359,7 +1359,7 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				if (!emptyBatchTxId) {
 					return yield* Effect.dieMessage("Failed to get txid for empty batch forward call")
 				}
-					yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_empty_batch_fwd', 'server', ${emptyBatchTxId}, ${sql.json({ timestamp: 500, vector: {} })}, '{}'::jsonb, 1)`
+				yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_empty_batch_fwd', 'server', ${emptyBatchTxId}, ${sql.json({ timestamp: 500, vector: {} })}, '{}'::jsonb, 1)`
 
 				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 				yield* sql`SELECT apply_forward_amr_batch(ARRAY[]::TEXT[])`
@@ -1369,7 +1369,7 @@ describe("Sync DB Batch and Rollback Functions", () => {
 
 	it.scoped("should apply reverse patches in batch (in reverse order)", () =>
 		Effect.gen(function* () {
-			const sql = yield* PgLiteClient.PgLiteClient
+			const sql = yield* PgliteClient.PgliteClient
 			const deterministicId = yield* DeterministicId
 			// Setup: Create initial notes within a transaction that includes a dummy action record
 			yield* Effect.gen(function* () {
@@ -1383,12 +1383,12 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				// No need for dummy action record if we disable trigger
 				// Create notes with deterministic IDs by using action records
 				// First create an action record for setup
-					const setupActionId = (yield* sql<{ id: string }>`
+				const setupActionId = (yield* sql<{ id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('_setup_batch_rev', 'server', ${setupTxId}, ${sql.json({ timestamp: 20, vector: {} })}, '{}'::jsonb, 1)
 						RETURNING id
 					`)[0]!.id
-					yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
+				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 
 				const note1Row = { title: "Orig 1", content: "Cont 1", user_id: "u1" } as const
 				const note1 = yield* deterministicId.withActionContext(
@@ -1455,10 +1455,10 @@ describe("Sync DB Batch and Rollback Functions", () => {
 					return yield* Effect.dieMessage("Failed to get txid for batch reverse call")
 				}
 				// Insert dummy action record for this specific transaction
-					const dummyActionId = (yield* sql<{
-						id: string
-					}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_rev', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, 1) RETURNING id`)[0]!
-						.id
+				const dummyActionId = (yield* sql<{
+					id: string
+				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_rev', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, 1) RETURNING id`)[0]!
+					.id
 
 				// Call the batch function
 				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
@@ -1486,7 +1486,7 @@ describe("Sync DB Batch and Rollback Functions", () => {
 				if (!emptyBatchTxId) {
 					return yield* Effect.dieMessage("Failed to get txid for empty batch reverse call")
 				}
-					yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_empty_batch_rev', 'server', ${emptyBatchTxId}, ${sql.json({ timestamp: 500, vector: {} })}, '{}'::jsonb, 1)`
+				yield* sql`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_empty_batch_rev', 'server', ${emptyBatchTxId}, ${sql.json({ timestamp: 500, vector: {} })}, '{}'::jsonb, 1)`
 
 				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 				yield* sql`SELECT apply_reverse_amr_batch(ARRAY[]::TEXT[])`
@@ -1497,7 +1497,7 @@ describe("Sync DB Batch and Rollback Functions", () => {
 
 it.scoped("should rollback to a specific action", () =>
 	Effect.gen(function* () {
-		const sql = yield* PgLiteClient.PgLiteClient
+		const sql = yield* PgliteClient.PgliteClient
 		const deterministicId = yield* DeterministicId
 
 		// Setup: Create note within a transaction with a dummy action record
@@ -1507,9 +1507,9 @@ it.scoped("should rollback to a specific action", () =>
 			if (!setupTxId) {
 				return yield* Effect.dieMessage("Failed to get setup txid")
 			}
-				const actionResult = yield* sql<{
-					id: string
-				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_setup_rollback_test', 'server', ${setupTxId}, ${sql.json({ timestamp: 50, vector: {} })}, '{}'::jsonb, 1) RETURNING id`
+			const actionResult = yield* sql<{
+				id: string
+			}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_setup_rollback_test', 'server', ${setupTxId}, ${sql.json({ timestamp: 50, vector: {} })}, '{}'::jsonb, 1) RETURNING id`
 			const actionId = actionResult[0]!.id
 			yield* sql`SELECT set_config('sync.capture_action_record_id', ${actionId}, true)`
 
@@ -1584,7 +1584,7 @@ it.scoped("should rollback to a specific action", () =>
 describe("Sync DB Comparison Functions", () => {
 	it.scoped("should compare vector clocks using SQL function", () =>
 		Effect.gen(function* () {
-			const sql = yield* PgLiteClient.PgLiteClient
+			const sql = yield* PgliteClient.PgliteClient
 			const v1 = { a: 1, b: 2 }
 			const v2 = { a: 1, b: 3 }
 			const v3 = { a: 1, b: 2 }
@@ -1614,7 +1614,7 @@ describe("Sync DB Comparison Functions", () => {
 
 	it.scoped("should compare HLCs using SQL function", () =>
 		Effect.gen(function* () {
-			const sql = yield* PgLiteClient.PgLiteClient
+			const sql = yield* PgliteClient.PgliteClient
 			const hlc1 = { timestamp: 100, vector: { a: 1 } }
 			const hlc2 = { timestamp: 200, vector: { a: 1 } } // Later timestamp
 			const hlc3 = { timestamp: 100, vector: { a: 2 } } // Same timestamp, later vector

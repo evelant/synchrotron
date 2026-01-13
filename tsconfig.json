@@ -16,7 +16,10 @@
 		}
 		,
 		{
-			"path": "examples/todo-app/tsconfig.json"
+			"path": "examples/backend/tsconfig.json"
+		},
+		{
+			"path": "examples/todo-app-web-pglite/tsconfig.json"
 		}
 	]
 }

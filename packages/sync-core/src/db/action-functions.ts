@@ -1,11 +1,8 @@
 import { SqlClient } from "@effect/sql"
 import { Effect } from "effect" // Import ReadonlyArray from 'effect'
 
-// Import SQL files
-// @ts-ignore - Vite raw imports
-import rollbackToActionSQL from "./sql/action/rollback_to_action.sql?raw" with { type: "text" }
-// @ts-ignore - Vite raw imports
-import findCommonAncestorSQL from "./sql/action/find_common_ancestor.sql?raw" with { type: "text" }
+import rollbackToActionSQL from "./sql/action/rollback_to_action"
+import findCommonAncestorSQL from "./sql/action/find_common_ancestor"
 
 /**
  * Effect that creates action record related functions

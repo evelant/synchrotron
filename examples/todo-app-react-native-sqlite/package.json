@@ -1,0 +1,42 @@
+{
+	"name": "todo-app-react-native-sqlite",
+	"version": "1.0.0",
+	"main": "index.ts",
+	"scripts": {
+		"dev:backend": "pnpm -C ../backend run up",
+		"dev:server": "pnpm -C ../backend run dev",
+		"dev:app": "pnpm start",
+		"android:reverse": "node scripts/adb-reverse.mjs",
+		"dev": "pnpm android:reverse && pnpm run --parallel --filter . \"/dev:(backend|server|app)/\"",
+		"start": "expo start",
+		"android": "expo run:android",
+		"ios": "expo run:ios",
+		"web": "expo start --web",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@effect/sql": "catalog:",
+		"@expo/metro-runtime": "~6.1.2",
+		"@op-engineering/op-sqlite": "15.2.2",
+		"@synchrotron/sync-client": "workspace:*",
+		"@synchrotron/sync-core": "workspace:*",
+		"effect": "catalog:",
+		"expo": "~54.0.31",
+		"expo-build-properties": "~1.0.10",
+		"expo-crypto": "~15.0.8",
+		"expo-status-bar": "~3.0.9",
+		"react": "19.1.0",
+		"react-dom": "19.1.0",
+		"react-native": "0.81.5",
+		"react-native-get-random-values": "~1.11.0",
+		"react-native-safe-area-context": "~5.6.0",
+		"react-native-web": "~0.21.2",
+		"uuid": "catalog:"
+	},
+	"devDependencies": {
+		"@types/react": "~19.1.0",
+		"tsx": "^4.19.3",
+		"typescript": "~5.9.2"
+	},
+	"private": true
+}

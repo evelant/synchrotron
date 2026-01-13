@@ -1,11 +1,8 @@
 import { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 
-// Import SQL files
-// @ts-ignore - Vite raw imports
-import applyForwardAmrSQL from "./sql/amr/apply_forward_amr.sql?raw" with { type: "text" }
-// @ts-ignore - Vite raw imports
-import applyReverseAmrSQL from "./sql/amr/apply_reverse_amr.sql?raw" with { type: "text" }
+import applyForwardAmrSQL from "./sql/amr/apply_forward_amr"
+import applyReverseAmrSQL from "./sql/amr/apply_reverse_amr"
 
 /**
  * Effect that creates action modified rows related functions

@@ -15,15 +15,15 @@
 	},
 	"exports": {
 		"./package.json": "./package.json",
-		"./PgLiteClient": {
-			"types": "./dist/dist/dts/PgLiteClient.d.ts",
-			"import": "./dist/dist/esm/PgLiteClient.js",
-			"default": "./dist/dist/cjs/PgLiteClient.js"
+		"./PgliteClient": {
+			"types": "./dist/dist/dts/PgliteClient.d.ts",
+			"import": "./dist/dist/esm/PgliteClient.js",
+			"default": "./dist/dist/cjs/PgliteClient.js"
 		},
-		"./PgLiteClient.d": {
-			"types": "./dist/dist/dts/PgLiteClient.d.d.ts",
-			"import": "./dist/dist/esm/PgLiteClient.d.js",
-			"default": "./dist/dist/cjs/PgLiteClient.d.js"
+		"./PgliteClient.d": {
+			"types": "./dist/dist/dts/PgliteClient.d.d.ts",
+			"import": "./dist/dist/esm/PgliteClient.d.js",
+			"default": "./dist/dist/cjs/PgliteClient.d.js"
 		},
 		"./PgLiteMigrator": {
 			"types": "./dist/dist/dts/PgLiteMigrator.d.ts",
@@ -43,11 +43,11 @@
 	},
 	"typesVersions": {
 		"*": {
-			"PgLiteClient": [
-				"./dist/dist/dts/PgLiteClient.d.ts"
+			"PgliteClient": [
+				"./dist/dist/dts/PgliteClient.d.ts"
 			],
-			"PgLiteClient.d": [
-				"./dist/dist/dts/PgLiteClient.d.d.ts"
+			"PgliteClient.d": [
+				"./dist/dist/dts/PgliteClient.d.d.ts"
 			],
 			"PgLiteMigrator": [
 				"./dist/dist/dts/PgLiteMigrator.d.ts"
@@ -79,7 +79,7 @@
 		"@effect/platform": "catalog:",
 		"@effect/sql": "catalog:",
 		"@electric-sql/pglite": "catalog:",
-		"@electric-sql/pglite-tools": "^0.2.4",
+		"@electric-sql/pglite-tools": "^0.2.19",
 		"effect": "catalog:"
 	},
 	"devDependencies": {

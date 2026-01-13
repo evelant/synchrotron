@@ -1,0 +1,83 @@
+{
+	"name": "@synchrotron-examples/todo-app-web-pglite",
+	"description": "Synchrotron Todo app (Web + PGlite)",
+	"version": "1.0.1",
+	"type": "module",
+	"author": "Kyle Mathews <mathews.kyle@gmail.com>",
+	"private": true,
+	"bugs": {
+		"url": "https://github.com/electric-sql/electric/issues"
+	},
+	"dependencies": {
+		"@effect/platform": "catalog:",
+		"@effect/platform-bun": "catalog:",
+		"@effect/platform-node": "catalog:",
+		"@effect/rpc": "catalog:",
+		"@effect/sql": "catalog:",
+		"@effect/sql-pglite": "workspace:*",
+		"@electric-sql/experimental": "catalog:",
+		"@electric-sql/pglite": "catalog:",
+		"@electric-sql/react": "~1.0.26",
+		"@fontsource/alegreya-sans": "~5.2.8",
+		"@radix-ui/themes": "~3.2.1",
+		"@synchrotron/sync-client": "workspace:*",
+		"@synchrotron/sync-core": "workspace:*",
+		"body-parser": "~2.2.2",
+		"cors": "~2.8.5",
+		"effect": "catalog:",
+		"express": "~5.2.1",
+		"react": "catalog:",
+		"react-dom": "catalog:",
+		"react-router": "~7.12.0",
+		"sst": "~3.17.25",
+		"uuid": "catalog:"
+	},
+	"devDependencies": {
+		"@databases/pg-migrations": "~5.0.3",
+		"@electric-sql/pglite-repl": "~0.2.0",
+		"@types/node": "catalog:",
+		"@types/react": "~19.1.0",
+		"@types/react-dom": "~19.1.1",
+		"@types/uuid": "~10.0.0",
+		"@typescript-eslint/eslint-plugin": "~8.53.0",
+		"@typescript-eslint/parser": "~8.53.0",
+		"bun": "~1.3.5",
+		"concurrently": "~9.2.1",
+		"dotenv-cli": "~11.0.0",
+		"eslint": "~9.39.2",
+		"eslint-config-prettier": "~10.1.8",
+		"eslint-plugin-prettier": "~5.5.4",
+		"eslint-plugin-react-hooks": "~7.0.1",
+		"pg": "~8.16.3",
+		"typescript": "catalog:"
+	},
+	"homepage": "https://github.com/KyleAMathews/vite-react-router-electric-sql-starter#readme",
+	"keywords": [
+		"electric-sql",
+		"javascript",
+		"react",
+		"react-router",
+		"starter",
+		"typescript",
+		"bun"
+	],
+	"license": "MIT",
+	"main": "index.js",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/KyleAMathews/vite-react-router-electric-sql-starter.git"
+	},
+	"scripts": {
+		"clean": "rm -rf .tsbuildinfo build dist",
+		"clean:node_modules": "rm -rf node_modules",
+		"build": "rm -rf dist && bun build ./index.html --outdir dist --minify && cp favicon.ico robots.txt ../../node_modules/@electric-sql/pglite/dist/pglite.wasm ../../node_modules/@electric-sql/pglite/dist/pglite.data ../../node_modules/@electric-sql/pglite/dist/uuid-ossp.tar.gz dist/",
+		"dev:backend": "pnpm -C ../backend run up",
+		"dev:server": "pnpm -C ../backend run dev",
+		"dev:build": "bun build ./index.html --outdir dist --watch",
+		"dev:serve": "bun --hot server.ts",
+		"dev:frontend": "concurrently -k -n build,serve \"pnpm dev:build\" \"pnpm dev:serve\"",
+		"dev:app": "pnpm dev:frontend",
+		"dev": "pnpm run --parallel --filter . \"/dev:(backend|server|app)/\"",
+		"typecheck": "tsc --noEmit"
+	}
+}

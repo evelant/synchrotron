@@ -18,7 +18,7 @@ Implemented fix: introduce a **server-generated ingestion cursor** (monotonic) u
 
 Server-side fetch uses the client’s `last_synced_clock` as a watermark:
 
-- `compare_hlc` compares timestamps first (`packages/sync-core/src/db/sql/clock/compare_hlc.sql:11`)
+- `compare_hlc` compares timestamps first (`packages/sync-core/src/db/sql/clock/compare_hlc.ts:11`)
 - server queries used `compare_hlc(clock, lastSyncedClock) > 0` (now removed)
 
 This assumes: “anything new-to-this-client must also have a clock greater than the last seen clock”.
@@ -94,7 +94,7 @@ Option C: ElectricSQL/WAL cursor (if Electric is always present)
 
 Files:
 
-- `packages/sync-core/src/db/sql/schema/create_sync_tables.sql`
+- `packages/sync-core/src/db/sql/schema/create_sync_tables.ts`
 
 Proposed additions:
 

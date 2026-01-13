@@ -1,5 +1,5 @@
 import { SqlClient } from "@effect/sql" // Import Model
-import { PgLiteClient } from "@effect/sql-pglite/PgLiteClient"
+import { PgliteClient } from "@effect/sql-pglite/PgliteClient"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry" // Corrected Import
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
@@ -14,7 +14,7 @@ import { createNoteRepo } from "./TestLayers"
  */
 export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 	effect: Effect.gen(function* () {
-		const sql = yield* PgLiteClient
+		const sql = yield* PgliteClient
 		const actionRegistry = yield* ActionRegistry
 		const clockService = yield* ClockService
 		const deterministicId = yield* DeterministicId
@@ -60,7 +60,11 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 
 		const updateTagsAction = actionRegistry.defineAction(
 			"test-update-tags",
-			Schema.Struct({ id: Schema.String, tags: Schema.Array(Schema.String), timestamp: Schema.Number }),
+			Schema.Struct({
+				id: Schema.String,
+				tags: Schema.Array(Schema.String),
+				timestamp: Schema.Number
+			}),
 			(args) =>
 				Effect.gen(function* () {
 					const note = yield* noteRepo.findById(args.id)
@@ -154,9 +158,7 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 								? args.baseContent + (args.conditionalSuffix ?? "")
 								: args.baseContent
 						const nextTags =
-							clientId === "clientC"
-								? Array.from(args.clientCTags)
-								: Array.from(note.tags ?? [])
+							clientId === "clientC" ? Array.from(args.clientCTags) : Array.from(note.tags ?? [])
 
 						yield* noteRepo.updateVoid({
 							...note,

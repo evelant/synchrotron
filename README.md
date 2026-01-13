@@ -28,12 +28,15 @@ Synchrotron moves the merge boundary up a level:
 - This is an experimental project and is not ready for production use
 - There are comprehensive tests in `packages/sync-core` illustrating that the idea works
 - API is split into packages: `sync-client`, `sync-core`, and `sync-server`
-- There is an example app demonstrating basic functionality in `examples/todo-app`. It works online/offline and correctly syncs state between clients after coming back online. It does not yet handle multiple tabs in the same window (workers).
-  - Run the example with:
-    - `cd examples/todo-app`
-    - `pnpm backend:up` (requires Docker)
-    - `pnpm dev`
-    - Open http://localhost:5173 in your browser
+- There are example apps demonstrating basic functionality:
+  - **Shared backend**: `examples/backend` (Postgres + Electric + Bun RPC server).
+    - `pnpm -C examples/backend run up` (requires Docker)
+    - `pnpm -C examples/backend run dev`
+	  - **Web + PGlite**: `examples/todo-app-web-pglite` (Bun build --watch + Bun static server; works online/offline; does not yet handle multiple tabs in the same window).
+	    - `pnpm -C examples/todo-app-web-pglite dev`
+	    - Open http://localhost:5173 in your browser
+	  - **React Native + SQLite**: `examples/todo-app-react-native-sqlite` (uses `@op-engineering/op-sqlite` via a small `@effect/sql` adapter; requires `expo prebuild`, not Expo Go).
+	    - `pnpm -C examples/todo-app-react-native-sqlite dev`
 
 ## Capabilities
 
@@ -83,7 +86,7 @@ The client DB is selected by which `@effect/sql` driver layer you provide:
 
 - **PGlite** (browser): `makeSynchrotronClientLayer(...)` from `@synchrotron/sync-client`
 - **SQLite (WASM)**: `makeSynchrotronSqliteWasmClientLayer()` from `@synchrotron/sync-client`
-- **SQLite (React Native)**: `makeSynchrotronSqliteReactNativeClientLayer(sqliteConfig, config?)` from `@synchrotron/sync-client/react-native`
+- **SQLite (React Native)**: `makeSynchrotronSqliteReactNativeClientLayer(sqliteConfig, config?)` from `@synchrotron/sync-client/react-native` (backed by `@op-engineering/op-sqlite`)
 
 ## Networking
 
@@ -94,6 +97,7 @@ The client DB is selected by which `@effect/sql` driver layer you provide:
 ## Usage
 
 Synchrotron only works if you follow these rules. They're simple, but they're hard requirements:
+
 1.  **Initialize the Sync Schema:** On clients, call `ClientDbAdapter.initializeSyncSchema` (provided by either `PostgresClientDbAdapter` or `SqliteClientDbAdapter`). On the Postgres backend, run `initializeDatabaseSchema` to also install server-only SQL functions used for patch-apply / rollback.
 2.  **Install Patch Capture:** Call `ClientDbAdapter.installPatchCapture([...])` during your database initialization for _all_ tables whose changes should be tracked and synchronized by the system. This installs patch-capture triggers (AFTER INSERT/UPDATE/DELETE) that write to `action_modified_rows` (dialect-specific implementation).
     - On SQLite, `installPatchCapture` should be called after any schema migrations that add/remove columns on tracked tables (it drops/recreates triggers from the current table schema).
@@ -101,8 +105,8 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
     // Example during setup:
     import { ClientDbAdapter } from "@synchrotron/sync-core"
     // ... after creating tables ...
-    const clientDbAdapter = yield* ClientDbAdapter
-    yield* clientDbAdapter.installPatchCapture(["notes", "todos", "other_synced_table"])
+    const clientDbAdapter = yield * ClientDbAdapter
+    yield * clientDbAdapter.installPatchCapture(["notes", "todos", "other_synced_table"])
     ```
 3.  **Action Determinism:** Actions must be deterministic aside from database operations. Capture any non-deterministic inputs (like current time, random values, user context not in the database, network call results, etc.) as arguments passed into the action. The `timestamp` argument (`Date.now()`) is automatically provided. You have full access to the database in actions, no restrictions on reads or writes.
     - Actions are defined via `ActionRegistry.defineAction(tag, argsSchema, fn)`.

@@ -1,4 +1,4 @@
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Option } from "effect"
 import { makeSqliteTestServerLayer, withSqliteTestClients } from "./helpers/SqliteTestLayers"
@@ -8,7 +8,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 		"should create SYNC action when local apply diverges from remote patches",
 		() =>
 			Effect.gen(function* () {
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 
 				yield* withSqliteTestClients(["clientA", "clientB"], serverSql, (clients) =>
 					Effect.gen(function* () {
@@ -39,9 +39,9 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 						)
 
 						const noteA_afterAction = yield* clientA.noteRepo.findById(noteId)
-						expect(noteA_afterAction.pipe(Option.map((n) => n.content)).pipe(Option.getOrThrow)).toBe(
-							baseContent + suffixA
-						)
+						expect(
+							noteA_afterAction.pipe(Option.map((n) => n.content)).pipe(Option.getOrThrow)
+						).toBe(baseContent + suffixA)
 
 						yield* clientA.syncService.performSync()
 
@@ -54,7 +54,8 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 							expect(noteB_final.value.content).toBe(baseContent)
 						}
 
-						const syncApplyActionsB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
+						const syncApplyActionsB =
+							yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
 						expect(syncApplyActionsB.length).toBe(1)
 						const syncApplyAction = syncApplyActionsB[0]
 						expect(syncApplyAction).toBeDefined()
@@ -77,7 +78,9 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 							expect(syncApplyAmr.reverse_patches).toHaveProperty("content", initialContent)
 						}
 
-						const isOriginalActionAppliedB = yield* clientB.actionRecordRepo.isLocallyApplied(actionA.id)
+						const isOriginalActionAppliedB = yield* clientB.actionRecordRepo.isLocallyApplied(
+							actionA.id
+						)
 						expect(isOriginalActionAppliedB).toBe(true)
 
 						const originalActionB = yield* clientB.actionRecordRepo.findById(actionA.id)
@@ -95,7 +98,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 		"should apply received SYNC action directly",
 		() =>
 			Effect.gen(function* () {
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 
 				yield* withSqliteTestClients(["clientA", "clientB", "clientC"], serverSql, (clients) =>
 					Effect.gen(function* () {
@@ -129,7 +132,8 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 						yield* clientA.syncService.performSync()
 
 						yield* clientB.syncService.performSync()
-						const syncApplyActionsB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
+						const syncApplyActionsB =
+							yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
 						expect(syncApplyActionsB.length).toBe(1)
 						const syncActionBRecord = syncApplyActionsB[0]
 						expect(syncActionBRecord).toBeDefined()
@@ -147,13 +151,16 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 							expect(noteC_final.value.content).toBe(baseContent)
 						}
 
-						const syncApplyActionsC = yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
+						const syncApplyActionsC =
+							yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
 						expect(syncApplyActionsC.length).toBe(1)
 						const syncActionOnC = syncApplyActionsC[0]
 						expect(syncActionOnC).toBeDefined()
 						if (syncActionOnC) {
 							expect(syncActionOnC.id).toBe(syncActionBRecord.id)
-							const isSyncAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(syncActionOnC.id)
+							const isSyncAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+								syncActionOnC.id
+							)
 							expect(isSyncAppliedC).toBe(true)
 							expect(syncActionOnC.synced).toBe(true)
 						}
@@ -161,7 +168,9 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 						const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
 						expect(isOriginalAppliedC).toBe(true)
 
-						const isSyncBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(syncActionBRecord.id)
+						const isSyncBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+							syncActionBRecord.id
+						)
 						expect(isSyncBAppliedC).toBe(true)
 
 						const syncActionCOnC = yield* clientC.actionRecordRepo.findById(syncActionBRecord.id)
@@ -179,7 +188,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 		"should keep placeholder SYNC when received SYNC does not cover local divergence",
 		() =>
 			Effect.gen(function* () {
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 
 				yield* withSqliteTestClients(["clientA", "clientB", "clientC"], serverSql, (clients) =>
 					Effect.gen(function* () {
@@ -216,7 +225,8 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 						yield* clientA.syncService.performSync()
 
 						yield* clientB.syncService.performSync()
-						const syncApplyActionsB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
+						const syncApplyActionsB =
+							yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
 						expect(syncApplyActionsB.length).toBe(1)
 						const syncActionBRecord = syncApplyActionsB[0]
 						expect(syncActionBRecord).toBeDefined()
@@ -235,7 +245,8 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 							expect(noteC_final.value.tags).toEqual(clientCTags)
 						}
 
-						const syncApplyActionsC = yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
+						const syncApplyActionsC =
+							yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
 						expect(syncApplyActionsC.length).toBe(2)
 
 						const receivedSyncOnC = syncApplyActionsC.find((a) => a.id === syncActionBRecord.id)
@@ -259,7 +270,9 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 						const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
 						expect(isOriginalAppliedC).toBe(true)
 
-						const isSyncBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(syncActionBRecord.id)
+						const isSyncBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+							syncActionBRecord.id
+						)
 						expect(isSyncBAppliedC).toBe(true)
 					})
 				)
@@ -271,7 +284,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 		"should reconcile locally when pending action conflicts with newer remote action",
 		() =>
 			Effect.gen(function* () {
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 
 				yield* withSqliteTestClients(["clientA", "clientB"], serverSql, (clients) =>
 					Effect.gen(function* () {

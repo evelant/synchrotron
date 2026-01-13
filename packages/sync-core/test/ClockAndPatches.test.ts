@@ -1,5 +1,5 @@
 import { SqlClient } from "@effect/sql"
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import { describe, it } from "@effect/vitest" // Import describe
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
@@ -311,14 +311,14 @@ describe("DB Reverse Patch Functions", () => {
 				// Check that all required columns exist
 				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("id")
 				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("_tag")
-					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("client_id")
-					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("transaction_id")
-					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("clock")
-					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("clock_time_ms")
-					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("clock_counter")
-					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("args")
-					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("created_at")
-					expect(actionRecordsColumns.map((c) => c.column_name)).toContain("synced")
+				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("client_id")
+				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("transaction_id")
+				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("clock")
+				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("clock_time_ms")
+				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("clock_counter")
+				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("args")
+				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("created_at")
+				expect(actionRecordsColumns.map((c) => c.column_name)).toContain("synced")
 
 				// Verify that the action_modified_rows table has the correct columns
 				const actionModifiedRowsColumns = yield* sql<{ column_name: string }>`
@@ -479,8 +479,8 @@ describe("DB Reverse Patch Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_update', 'server', ${currentTxId}, '{"timestamp": 2, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
@@ -576,8 +576,8 @@ describe("DB Reverse Patch Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_insert_for_delete', 'server', ${currentTxId}, '{"timestamp": 8, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id
@@ -608,8 +608,8 @@ describe("DB Reverse Patch Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_delete', 'server', ${currentTxId}, '{"timestamp": 9, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id, transaction_id
@@ -676,8 +676,8 @@ describe("DB Reverse Patch Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 					VALUES ('test_insert_for_forward', 'server', ${currentTxId}, '{"timestamp": 10, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					RETURNING id
@@ -709,8 +709,8 @@ describe("DB Reverse Patch Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						const actionResult = yield* sql<{ id: string; transaction_id: string }>`
+					// Create action record for this transaction
+					const actionResult = yield* sql<{ id: string; transaction_id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('test_apply_forward', 'server', ${currentTxId}, '{"timestamp": 11, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 						RETURNING id, transaction_id
@@ -740,8 +740,8 @@ describe("DB Reverse Patch Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction (for the reset operation)
-						const actionResult = yield* sql<{ id: string }>`
+					// Create action record for this transaction (for the reset operation)
+					const actionResult = yield* sql<{ id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('test_reset', 'server', ${currentTxId}, '{"timestamp": 12, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 						RETURNING id
@@ -764,8 +764,8 @@ describe("DB Reverse Patch Functions", () => {
 					const txResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					const currentTxId = txResult[0]!.txid
 
-						// Create action record for this transaction
-						yield* sql`
+					// Create action record for this transaction
+					yield* sql`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('test_apply_forward_patch', 'server', ${currentTxId}, '{"timestamp": 13, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
 					`
@@ -802,7 +802,7 @@ describe("DB Reverse Patch Functions", () => {
 					value: number
 					data: Record<string, unknown>
 				}
-				const sql = yield* PgLiteClient.PgLiteClient
+				const sql = yield* PgliteClient.PgliteClient
 				const deterministicId = yield* DeterministicId
 
 				// Create test table
@@ -819,7 +819,7 @@ describe("DB Reverse Patch Functions", () => {
 					// Create initial action record and set transaction variables
 					const initTxResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
 					yield* Effect.logInfo(`txid: ${initTxResult[0]!.txid}`)
-						const initActionRecord = yield* sql<{ id: string }>`
+					const initActionRecord = yield* sql<{ id: string }>`
 						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 						VALUES ('test_initial_data', 'test-client', ${initTxResult[0]!.txid}, '{"timestamp": 1000, "vector": { "test-client": 1 }}'::jsonb, '{}'::jsonb, 0)
 						RETURNING id
@@ -896,7 +896,7 @@ describe("DB Reverse Patch Functions", () => {
 					const currentTxId = txResult[0]!.txid
 
 					// Create an action record for this transaction
-						yield* sql`
+					yield* sql`
 							INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 							VALUES ('test_modify_before_reverse', 'test-client', ${currentTxId}, '{"timestamp": 1001, "vector": { "test-client": 2 }}'::jsonb, '{}'::jsonb, 0)
 						`
@@ -926,7 +926,7 @@ describe("DB Reverse Patch Functions", () => {
 				const result = yield* Effect.gen(function* () {
 					// Create new action record for reverse operation
 					const reverseTxResult = yield* sql<{ txid: string }>`SELECT txid_current() as txid`
-						yield* sql`
+					yield* sql`
 							INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
 							VALUES ('test_reverse_patch', 'test-client', ${reverseTxResult[0]!.txid}, '{"timestamp": 1002, "vector": { "test-client": 3 }}'::jsonb, '{}'::jsonb, 0)
 						`

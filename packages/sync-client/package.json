@@ -34,7 +34,6 @@
 		"@effect/platform": "catalog:",
 		"@effect/platform-browser": "catalog:",
 		"@effect/sql": "catalog:",
-		"@effect/sql-sqlite-react-native": "catalog:",
 		"@effect/sql-sqlite-wasm": "catalog:",
 		"@effect/wa-sqlite": "catalog:",
 		"@effect/rpc": "catalog:",
@@ -45,6 +44,18 @@
 		"effect": "catalog:",
 		"@synchrotron/sync-core": "workspace:*",
 		"@effect/sql-pglite": "workspace:*"
+	},
+	"peerDependencies": {
+		"@op-engineering/op-sqlite": "*",
+		"react-native": "*"
+	},
+	"peerDependenciesMeta": {
+		"@op-engineering/op-sqlite": {
+			"optional": true
+		},
+		"react-native": {
+			"optional": true
+		}
 	},
 	"devDependencies": {
 		"typescript": "catalog:",

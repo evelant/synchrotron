@@ -55,7 +55,7 @@ Requirement:
 
 Today:
 
-- `generate_deterministic_id()` uses `sync.current_action_record_id` + a content hash + collision map (`packages/sync-core/src/db/sql/patch/deterministic_id_trigger.sql`).
+- `generate_deterministic_id()` uses `sync.current_action_record_id` + a content hash + collision map (`packages/sync-core/src/db/sql/pglite/archive/deterministic_id_trigger.sql`).
 - Context is set by the engine: `set_config('sync.current_action_record_id', ...)` (`packages/sync-core/src/SyncService.ts`).
 
 Adapter implications:
@@ -71,7 +71,7 @@ Requirement:
 
 Today:
 
-- An AFTER trigger calls `generate_patches()` and stores diffs into `action_modified_rows` using the transaction’s action record (`txid_current()`) (`packages/sync-core/src/db/sql/patch/generate_patches.sql`).
+- An AFTER trigger calls `generate_patches()` and stores diffs into `action_modified_rows` using the transaction’s action record (`txid_current()`) (`packages/sync-core/src/db/sql/patch/generate_patches.ts`).
 - During apply/replay, patches for a batch are attributed to a single placeholder record (`_InternalSyncApply`) and compared to the incoming patches (`packages/sync-core/src/SyncService.ts`).
 
 Adapter implications:
@@ -87,7 +87,7 @@ Requirement:
 
 Today:
 
-- `rollback_to_action` is PL/pgSQL and applies `apply_reverse_amr_batch` (`packages/sync-core/src/db/sql/action/rollback_to_action.sql`).
+- `rollback_to_action` is PL/pgSQL and applies `apply_reverse_amr_batch` (`packages/sync-core/src/db/sql/action/rollback_to_action.ts`).
 
 Adapter implications:
 
@@ -101,9 +101,9 @@ Requirement:
 
 Today:
 
-- `action_records.clock_time_ms` and `action_records.clock_counter` are computed on insert/update from `clock` + `client_id` (`packages/sync-core/src/db/sql/schema/create_sync_tables.sql`).
+- `action_records.clock_time_ms` and `action_records.clock_counter` are computed on insert/update from `clock` + `client_id` (`packages/sync-core/src/db/sql/schema/create_sync_tables.ts`).
 - Server/client ordering uses `ORDER BY clock_time_ms, clock_counter, client_id, id` (btree index-friendly).
-- Some queries still rely on `compare_hlc` (`packages/sync-core/src/db/sql/clock/compare_hlc.sql`) as a causal filter.
+- Some queries still rely on `compare_hlc` (`packages/sync-core/src/db/sql/clock/compare_hlc.ts`) as a causal filter.
 
 Adapter implications:
 

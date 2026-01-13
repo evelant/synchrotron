@@ -153,7 +153,7 @@ Small dialect differences (if needed) are handled through `ClientDbAdapter.capab
 
 - [x] Add `DeterministicId` service and helper API.
 - [x] Update `SyncService.executeAction` and remote replay to provide action-scoped ID context.
-- [x] Update example app actions (`examples/todo-app/src/actions.ts`) to generate IDs before inserts.
+- [x] Update example app actions (`examples/todo-app-web-pglite/src/actions.ts`) to generate IDs before inserts.
 - [x] Update tests that relied on trigger-generated IDs.
 - [x] Update docs (`README.md`, `DESIGN.md`) to reflect app-provided IDs + TS generation.
 
@@ -181,7 +181,8 @@ Small dialect differences (if needed) are handled through `ClientDbAdapter.capab
    - generate per-table patch capture triggers
 2. Add a SQLite driver/layer (choose one per target platform):
    - Node tests: `better-sqlite3` / `sqlite3` driver via an Effect `SqlClient` adapter
-   - Browser/RN: `wa-sqlite` / `sql.js` / `expo-sqlite` adapter (future; keep interface stable)
+   - Browser: `@effect/sql-sqlite-wasm` (WASM SQLite)
+   - React Native: `@op-engineering/op-sqlite` via a small local `@effect/sql` adapter (`@synchrotron/sync-client`), since `@effect/sql-sqlite-react-native` is not compatible with the pinned `op-sqlite` result shape.
 3. Add test coverage:
    - patch capture correctness (INSERT/UPDATE/DELETE + sequence)
    - rollback correctness using TS runtime

@@ -1,11 +1,11 @@
 import { SqlClient, type SqlError } from "@effect/sql"
-import type { Fragment, Primitive } from "@effect/sql/Statement"
+import type { Fragment } from "@effect/sql/Statement"
 import { Effect } from "effect"
 import type { ActionModifiedRow } from "./models"
 
-type PatchSqlValue = Primitive | Fragment
+type PatchSqlValue = unknown | Fragment
 
-const isPrimitive = (value: unknown): value is Primitive =>
+const isPrimitive = (value: unknown) =>
 	value === null ||
 	typeof value === "string" ||
 	typeof value === "number" ||
@@ -40,7 +40,7 @@ const toPatchSqlValue = (sql: SqlClient.SqlClient, value: unknown): PatchSqlValu
 		if (value.every(isPrimitive)) {
 			return sql.onDialectOrElse({
 				pg: () => {
-					const array = (sql as any).array as undefined | ((a: ReadonlyArray<Primitive>) => Fragment)
+					const array = (sql as any).array as undefined | ((a: ReadonlyArray<unknown>) => Fragment)
 					if (!array) return JSON.stringify(value)
 					return array(value)
 				},

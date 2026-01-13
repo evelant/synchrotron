@@ -1,8 +1,8 @@
 import { KeyValueStore } from "@effect/platform"
 import { Model, SqlClient, SqlSchema } from "@effect/sql"
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import type { Row } from "@effect/sql/SqlConnection"
-import type { Argument, Statement } from "@effect/sql/Statement"
+import type { Statement } from "@effect/sql/Statement"
 import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
@@ -72,7 +72,7 @@ export const makeDbInitLayer = (schema: string) =>
 	`
 
 			// Initialize schema
-			yield* (schema === "server" ? initializeDatabaseSchema : initializeClientDatabaseSchema)
+			yield* schema === "server" ? initializeDatabaseSchema : initializeClientDatabaseSchema
 
 			// Apply sync patch-capture triggers to the notes table
 			yield* applySyncTriggers(["notes"])
@@ -114,9 +114,9 @@ export const testConfig: SynchrotronClientConfigData = {
 }
 
 /**
- * Create a layer that provides PgLiteClient with Electric extensions based on config
+ * Create a layer that provides PgliteClient with Electric extensions based on config
  */
-export const PgLiteClientLive = PgLiteClient.layer({
+export const PgliteClientLive = PgliteClient.layer({
 	// debug: 1,
 	dataDir: "memory://",
 	relaxedDurability: true,
@@ -129,14 +129,14 @@ const logger = Logger.prettyLogger({ mode: "tty", colors: true })
 
 export const makeTestLayers = (
 	clientId: string,
-	serverSql?: PgLiteClient.PgLiteClient,
+	serverSql?: PgliteClient.PgliteClient,
 	config?: {
 		initialState?: Partial<TestNetworkState> | undefined
 		simulateDelay?: boolean
 	}
 ) => {
 	const baseLayer = Layer.mergeAll(
-		PgLiteClientLive,
+		PgliteClientLive,
 		KeyValueStore.layerMemory,
 		Layer.succeed(ClientIdOverride, clientId),
 		Logger.replace(Logger.defaultLogger, logger),
@@ -198,7 +198,7 @@ export const createNoteRepo = (sqlClient?: SchemaWrappedSqlClient) =>
 export interface NoteRepo extends Effect.Effect.Success<ReturnType<typeof createNoteRepo>> {}
 
 export interface SchemaWrappedSqlClient {
-	<A extends object = Row>(strings: TemplateStringsArray, ...args: Array<Argument>): Statement<A>
+	<A extends object = Row>(strings: TemplateStringsArray, ...args: Array<unknown>): Statement<A>
 }
 export interface TestClient {
 	// For schema-isolated SQL client, we only need the tagged template literal functionality
@@ -216,7 +216,7 @@ export interface TestClient {
 	clientId: string
 }
 
-export const createTestClient = (id: string, serverSql: PgLiteClient.PgLiteClient) =>
+export const createTestClient = (id: string, serverSql: PgliteClient.PgliteClient) =>
 	Effect.gen(function* () {
 		// Get required services - getting these from the shared layers
 		const sql = yield* SqlClient.SqlClient

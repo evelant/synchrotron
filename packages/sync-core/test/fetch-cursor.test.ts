@@ -1,4 +1,4 @@
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { createTestClient, makeTestLayers } from "./helpers/TestLayers"
@@ -15,7 +15,7 @@ describe("Reliable fetch cursor (server_ingest_id)", () => {
 		"fetches late-arriving actions even if their HLC is older than last_synced_clock",
 		() =>
 			Effect.gen(function* () {
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 
 				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
 				const clientB = yield* createTestClient("clientB", serverSql).pipe(Effect.orDie)
@@ -59,12 +59,12 @@ describe("Reliable fetch cursor (server_ingest_id)", () => {
 				yield* clientA.syncService.performSync()
 
 				const lastSyncedClock = yield* clientA.clockService.getLastSyncedClock
-					expect(actionBOld.clock.timestamp).toBeLessThan(lastSyncedClock.timestamp)
+				expect(actionBOld.clock.timestamp).toBeLessThan(lastSyncedClock.timestamp)
 
-					const compare = yield* serverSql<{ result: number }>`
+				const compare = yield* serverSql<{ result: number }>`
 						SELECT compare_hlc(${serverSql.json(actionBOld.clock)}, ${serverSql.json(lastSyncedClock)}) as result
 					`
-					expect(compare[0]?.result).toBeLessThan(0)
+				expect(compare[0]?.result).toBeLessThan(0)
 
 				// Upload the offline action late (server assigns a new server_ingest_id).
 				yield* clientB.syncService.performSync()
@@ -77,8 +77,7 @@ describe("Reliable fetch cursor (server_ingest_id)", () => {
 
 				const lastSeenAfterB = yield* clientA.clockService.getLastSeenServerIngestId
 				expect(lastSeenAfterB).toBeGreaterThan(lastSeenAfterC)
-			}).pipe(Effect.provide(makeTestLayers("server")))
-		,
+			}).pipe(Effect.provide(makeTestLayers("server"))),
 		20_000
 	)
 })

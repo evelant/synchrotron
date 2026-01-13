@@ -1,5 +1,5 @@
 import { SqlClient } from "@effect/sql"
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import { describe, it } from "@effect/vitest" // Import describe
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo" // Correct import path
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
@@ -241,9 +241,9 @@ describe("SyncService", () => {
 					)
 				).toBe(true) // Added type check
 
-					// Mark it as synced
-					const sql = yield* SqlClient.SqlClient
-					yield* sql`UPDATE action_records SET synced = 1 WHERE id = ${actionRecord.id}`
+				// Mark it as synced
+				const sql = yield* SqlClient.SqlClient
+				yield* sql`UPDATE action_records SET synced = 1 WHERE id = ${actionRecord.id}`
 
 				// Run cleanup with a very short retention (0 days)
 				yield* syncService.cleanupOldActionRecords(0)
@@ -264,7 +264,7 @@ describe("Sync Algorithm Integration", () => {
 		() =>
 			Effect.gen(function* ($) {
 				// --- Arrange ---
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 				// Create two clients connected to the same server DB
 				const client1 = yield* createTestClient("client1", serverSql)
 				const remoteClient = yield* createTestClient("remoteClient", serverSql)
@@ -333,7 +333,7 @@ describe("Sync Algorithm Integration", () => {
 		"should correctly handle concurrent modifications to different fields",
 		() =>
 			Effect.gen(function* ($) {
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 				// Setup test clients and repositories *within* the provided context
 				const client1 = yield* createTestClient("client1", serverSql)
 				const client2 = yield* createTestClient("client2", serverSql)
@@ -379,7 +379,7 @@ describe("Sync Algorithm Integration", () => {
 							content: "Updated content from Client 2"
 							// Title remains initial from C2's perspective
 						})
-				)
+					)
 
 				// Verify initial states are different
 				const client1Note = yield* client1.noteRepo.findById(initialNoteId)

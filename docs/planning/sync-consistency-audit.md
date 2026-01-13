@@ -27,9 +27,9 @@ This doc captures design/implementation mismatches found while reviewing `README
 ### What exists today (three different notions)
 
 1. **TypeScript ordering**: `HLC._order` / `orderLogical` (`packages/sync-core/src/HLC.ts:61`).
-2. **SQL comparison**: `compare_hlc(hlc1, hlc2)` (`packages/sync-core/src/db/sql/clock/compare_hlc.sql:1`).
+2. **SQL comparison**: `compare_hlc(hlc1, hlc2)` (`packages/sync-core/src/db/sql/clock/compare_hlc.ts:1`).
    - Notably returns `2` for concurrency, i.e. not a total order.
-3. **Persisted ordering key**: `(clock_time_ms, clock_counter, client_id, id)` derived from `(clock.timestamp, clock.vector[client_id])` (`packages/sync-core/src/db/sql/schema/create_sync_tables.sql`).
+3. **Persisted ordering key**: `(clock_time_ms, clock_counter, client_id, id)` derived from `(clock.timestamp, clock.vector[client_id])` (`packages/sync-core/src/db/sql/schema/create_sync_tables.ts`).
    - Index-friendly (btree) and deterministic across TS + SQL.
 
 ### Concrete mismatch example (realistic)
@@ -41,7 +41,7 @@ Same physical timestamp, divergent vectors:
 
 Behavior:
 
-- SQL `compare_hlc(A,B)` ⇒ `2` (“concurrent”) (`packages/sync-core/src/db/sql/clock/compare_hlc.sql:1`).
+- SQL `compare_hlc(A,B)` ⇒ `2` (“concurrent”) (`packages/sync-core/src/db/sql/clock/compare_hlc.ts:1`).
 - TS `HLC._order(A,B)` ⇒ returns `-1|1` (forces an order via `orderLogical`) (`packages/sync-core/src/HLC.ts:61`).
 - Historical note: the old `sortable_clock` heuristic could disagree with TS ordering; this is now removed in favor of the composite ordering key.
 
@@ -128,14 +128,14 @@ It could be sound if:
 
 `rollback_to_action` builds `actions_to_rollback` as **all** `action_records` with a replay-order key greater than the target `(clock_time_ms, clock_counter, client_id, id)` and then reverses **all** AMRs for those actions:
 
-- `actions_to_rollback` does not filter to locally-applied actions (`packages/sync-core/src/db/sql/action/rollback_to_action.sql:32`).
-- Only the *cleanup* step (`action_ids_to_unapply`) is filtered to `local_applied_action_ids` (`packages/sync-core/src/db/sql/action/rollback_to_action.sql:40`).
+- `actions_to_rollback` does not filter to locally-applied actions (`packages/sync-core/src/db/sql/action/rollback_to_action.ts:32`).
+- Only the *cleanup* step (`action_ids_to_unapply`) is filtered to `local_applied_action_ids` (`packages/sync-core/src/db/sql/action/rollback_to_action.ts:40`).
 
 ### Why this is risky on clients
 
 Clients can have action records present but not yet applied locally (e.g. Electric inserts into `action_records` before `performSync` applies them). Reversing an UPDATE that was never applied can still mutate existing rows:
 
-- reverse of UPDATE executes an UPDATE statement unconditionally (`packages/sync-core/src/db/sql/amr/apply_reverse_amr.sql`).
+- reverse of UPDATE executes an UPDATE statement unconditionally (`packages/sync-core/src/db/sql/amr/apply_reverse_amr.ts`).
 
 So “reverse patches for unapplied actions” can be non-no-op and corrupt local state.
 
@@ -175,7 +175,7 @@ When a received action has `_tag === "_InternalSyncApply"`:
 
 ### Why this breaks INSERT patches
 
-`apply_forward_amr` builds an INSERT that explicitly includes the row id (`packages/sync-core/src/db/sql/amr/apply_forward_amr.sql:49`), but the deterministic-id trigger forbids manual IDs unless triggers are disabled (`packages/sync-core/src/db/sql/patch/deterministic_id_trigger.sql:31`).
+`apply_forward_amr` builds an INSERT that explicitly includes the row id (`packages/sync-core/src/db/sql/amr/apply_forward_amr.ts:49`), but the deterministic-id trigger forbids manual IDs unless triggers are disabled (`packages/sync-core/src/db/sql/pglite/archive/deterministic_id_trigger.sql:31`).
 
 So on clients:
 
@@ -225,7 +225,7 @@ There’s also commented-out drift window logic (`packages/sync-core/src/HLC.ts:
 
 ### Observed implementation constraints
 
-- Patch apply functions special-case a `tags` array column (`packages/sync-core/src/db/sql/amr/apply_forward_amr.sql:62`, `apply_reverse_amr.sql`).
+- Patch apply functions special-case a `tags` array column (`packages/sync-core/src/db/sql/amr/apply_forward_amr.ts:62`, `apply_reverse_amr.ts`).
 - This will likely break for:
   - other array columns
   - non-trivial types requiring special encoding/decoding (JSON, timestamps, nested objects, etc.)

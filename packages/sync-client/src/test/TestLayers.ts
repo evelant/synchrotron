@@ -1,11 +1,11 @@
-import { PgLiteClientLive } from "../db/connection"
+import { PgliteClientLive } from "../db/connection"
 import { SyncNetworkServiceLive } from "../SyncNetworkService"
 import { Layer } from "effect"
 
 /**
  * Provides the live PGLite client layer for testing client-specific database interactions.
  */
-export const PgliteClientTestLayer = PgLiteClientLive
+export const PgliteClientTestLayer = PgliteClientLive
 
 /**
  * Provides the live (stub) client network service layer for testing.

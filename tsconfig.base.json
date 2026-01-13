@@ -51,8 +51,8 @@
 			"@effect/sql-pglite/*": ["packages/sql-pglite/src/*"],
 			"@synchrotron/sync-server": ["packages/sync-server/src/index"],
 			"@synchrotron/sync-server/*": ["packages/sync-server/src/*"],
-			"@synchrotron/todo-app": ["examples/todo-app/src/index"],
-			"@synchrotron/todo-app/*": ["examples/todo-app/src/*"]
+			"@synchrotron/todo-app-web-pglite": ["examples/todo-app-web-pglite/src/index"],
+			"@synchrotron/todo-app-web-pglite/*": ["examples/todo-app-web-pglite/src/*"]
 		}
 	},
 	"exclude": ["**/node_modules", "**/build", "**/dist", "**/docs", "**/.vinxi"]

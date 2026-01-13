@@ -9,7 +9,7 @@ import type { SqlError } from "@effect/sql/SqlError"
 import { pgDump } from "@electric-sql/pglite-tools/pg_dump"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import { PgLiteClient } from "./PgLiteClient.js"
+import { PgliteClient } from "./PgliteClient.js"
 
 /**
  * @since 1.0.0
@@ -30,15 +30,15 @@ export const run: <R2 = never>(
 ) => Effect.Effect<
   ReadonlyArray<readonly [id: number, name: string]>,
   Migrator.MigrationError | SqlError,
-  FileSystem | Path | PgLiteClient | Client.SqlClient | R2
+  FileSystem | Path | PgliteClient | Client.SqlClient | R2
 > = Migrator.make({
   dumpSchema(path, table) {
     const runPgDump = (args: Array<string>) =>
       Effect.gen(function*() {
-        const pg = yield* PgLiteClient
+        const pg = yield* PgliteClient
         return Effect.tryPromise({
           try: async () => {
-            const file = await pgDump({ pg, args })
+            const file = await pgDump({ pg: pg.client, args })
             return (await file.text())
               .replace(/^--.*$/gm, "")
               .replace(/^SET .*$/gm, "")
@@ -66,9 +66,9 @@ export const run: <R2 = never>(
     const pgDumpFile = (path: string) =>
       Effect.gen(function*() {
         const fs = yield* FileSystem
-        const path_ = yield* Path
+        const { dirname } = yield* Path
         const dump = yield* pgDumpAll
-        yield* fs.makeDirectory(path_.dirname(path), { recursive: true })
+        yield* fs.makeDirectory(dirname(path), { recursive: true })
         yield* fs.writeFileString(path, dump)
       }).pipe(
         Effect.mapError(
@@ -88,5 +88,5 @@ export const layer = <R>(
 ): Layer.Layer<
   never,
   Migrator.MigrationError | SqlError,
-  PgLiteClient | Client.SqlClient | FileSystem | Path | R
+  PgliteClient | Client.SqlClient | FileSystem | Path | R
 > => Layer.effectDiscard(run(options))

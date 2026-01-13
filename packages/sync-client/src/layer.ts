@@ -9,12 +9,9 @@ import {
 	SqliteClientDbAdapter,
 	SyncService
 } from "@synchrotron/sync-core"
-import {
-	SynchrotronClientConfigData,
-	createSynchrotronConfig
-} from "@synchrotron/sync-core/config"
+import { SynchrotronClientConfigData, createSynchrotronConfig } from "@synchrotron/sync-core/config"
 import { Effect, Layer } from "effect"
-import { PgLiteClientLive } from "./db/connection"
+import { PgliteClientLive } from "./db/connection"
 import { SqliteWasmClientMemoryLive } from "./db/sqlite-wasm"
 import { ElectricSyncService } from "./electric/ElectricSyncService"
 import { SyncNetworkServiceLive } from "./SyncNetworkService"
@@ -67,7 +64,7 @@ export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConf
 		Layer.provideMerge(ActionModifiedRowRepo.Default),
 		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
 		Layer.provideMerge(PostgresClientDbAdapter),
-		Layer.provideMerge(PgLiteClientLive),
+		Layer.provideMerge(PgliteClientLive),
 		Layer.provideMerge(configLayer)
 	)
 }

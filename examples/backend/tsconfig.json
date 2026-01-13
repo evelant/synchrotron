@@ -1,0 +1,26 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"composite": true,
+		"outDir": "build",
+		"tsBuildInfoFile": ".tsbuildinfo/tsconfig.build.tsbuildinfo",
+		"types": ["node"],
+		"declaration": true,
+		"declarationMap": true,
+		"rootDir": "src",
+		"noEmit": false
+	},
+	"include": [],
+	"references": [
+		{
+			"path": "./tsconfig.src.json"
+		},
+		{
+			"path": "../../packages/sync-core/tsconfig.json"
+		},
+		{
+			"path": "../../packages/sync-server/tsconfig.json"
+		}
+	]
+}
+

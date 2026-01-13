@@ -1,4 +1,4 @@
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Option } from "effect"
 import { createTestClient, makeTestLayers } from "./helpers/TestLayers"
@@ -9,7 +9,7 @@ describe("Sync Divergence Scenarios", () => {
 		() =>
 			Effect.gen(function* () {
 				// --- Arrange ---
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 				const clientA = yield* createTestClient("clientA", serverSql)
 				const clientB = yield* createTestClient("clientB", serverSql)
 				const baseContent = "Base Content"
@@ -108,7 +108,7 @@ describe("Sync Divergence Scenarios", () => {
 		() =>
 			Effect.gen(function* () {
 				// --- Arrange ---
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 				const clientA = yield* createTestClient("clientA", serverSql)
 				const clientB = yield* createTestClient("clientB", serverSql)
 				const clientC = yield* createTestClient("clientC", serverSql)
@@ -202,181 +202,179 @@ describe("Sync Divergence Scenarios", () => {
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer for the test
 	)
 
-	it.scoped(
-		"should keep placeholder SYNC when received SYNC does not cover local divergence",
-		() =>
-			Effect.gen(function* () {
-				// --- Arrange ---
-				const serverSql = yield* PgLiteClient.PgLiteClient
-				const clientA = yield* createTestClient("clientA", serverSql)
-				const clientB = yield* createTestClient("clientB", serverSql)
-				const clientC = yield* createTestClient("clientC", serverSql)
-				const baseContent = "Base Apply + Extra"
-				const suffixA = " Suffix Apply A"
-				const initialContent = "Initial Apply"
-				const clientCTags = ["clientC"]
-
-				// 1. ClientA creates initial note
-				const { result } = yield* clientA.syncService.executeAction(
-					clientA.testHelpers.createNoteAction({
-						title: "SYNC Apply Extra Divergence Test",
-						content: initialContent,
-						user_id: "user1"
-					})
-				)
-				const noteId = result.id
-
-				// 2. Sync all clients
-				yield* clientA.syncService.performSync()
-				yield* clientB.syncService.performSync()
-				yield* clientC.syncService.performSync()
-
-				// 3. ClientA executes conditional update (adds suffix); clientC will additionally update tags.
-				const { actionRecord: actionA } = yield* clientA.syncService.executeAction(
-					clientA.testHelpers.conditionalUpdateWithClientCExtraAction({
-						id: noteId,
-						baseContent: baseContent, // Condition will fail on B and C (they don't add suffix)
-						conditionalSuffix: suffixA,
-						clientCTags
-					})
-				)
-
-				// 4. ClientA syncs action to server
-				yield* clientA.syncService.performSync()
-
-				// 5. ClientB syncs, receives actionA, applies locally, diverges, creates SYNC action
-				yield* clientB.syncService.performSync()
-				const syncApplyActionsB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncApplyActionsB.length).toBe(1)
-				const syncActionBRecord = syncApplyActionsB[0]
-				expect(syncActionBRecord).toBeDefined()
-				if (!syncActionBRecord) return
-
-				// 6. ClientB syncs again to send its SYNC action to the server
-				yield* clientB.syncService.performSync()
-
-				// --- Act ---
-				// 7. ClientC syncs. Should receive actionA AND syncActionBRecord.
-				// ClientC should still keep its own placeholder SYNC because it has additional divergence (tags).
-				yield* clientC.syncService.performSync()
-
-				// --- Assert ---
-				const noteC_final = yield* clientC.noteRepo.findById(noteId)
-				expect(noteC_final._tag).toBe("Some")
-				if (noteC_final._tag === "Some") {
-					expect(noteC_final.value.content).toBe(baseContent)
-					expect(noteC_final.value.tags).toEqual(clientCTags)
-				}
-
-				const syncApplyActionsC = yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncApplyActionsC.length).toBe(2)
-
-				const receivedSyncOnC = syncApplyActionsC.find((a) => a.id === syncActionBRecord.id)
-				const localSyncOnC = syncApplyActionsC.find((a) => a.id !== syncActionBRecord.id)
-				expect(receivedSyncOnC).toBeDefined()
-				expect(localSyncOnC).toBeDefined()
-				if (!receivedSyncOnC || !localSyncOnC) return
-
-				expect(receivedSyncOnC.synced).toBe(true)
-				expect(localSyncOnC.synced).toBe(false)
-
-				const localSyncAmrs = yield* clientC.actionModifiedRowRepo.findByActionRecordIds([
-					localSyncOnC.id
-				])
-				expect(localSyncAmrs.length).toBeGreaterThan(0)
-				const hasTagsPatch = localSyncAmrs.some((amr) =>
-					Object.prototype.hasOwnProperty.call(amr.forward_patches, "tags")
-				)
-				expect(hasTagsPatch).toBe(true)
-
-				// The original action from A should be marked applied on C
-				const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
-				expect(isOriginalAppliedC).toBe(true)
-
-				// The SYNC action from B should be marked applied on C
-				const isSyncBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
-					syncActionBRecord.id
-				)
-				expect(isSyncBAppliedC).toBe(true)
-			}).pipe(Effect.provide(makeTestLayers("server")))
-	)
-
-		it.scopedLive("should reconcile locally when pending action conflicts with newer remote action", () =>
-		// This test now verifies client-side reconciliation preempts server rejection
+	it.scoped("should keep placeholder SYNC when received SYNC does not cover local divergence", () =>
 		Effect.gen(function* () {
 			// --- Arrange ---
-			const serverSql = yield* PgLiteClient.PgLiteClient
+			const serverSql = yield* PgliteClient.PgliteClient
 			const clientA = yield* createTestClient("clientA", serverSql)
 			const clientB = yield* createTestClient("clientB", serverSql)
+			const clientC = yield* createTestClient("clientC", serverSql)
+			const baseContent = "Base Apply + Extra"
+			const suffixA = " Suffix Apply A"
+			const initialContent = "Initial Apply"
+			const clientCTags = ["clientC"]
 
-			// 1. ClientA creates note
+			// 1. ClientA creates initial note
 			const { result } = yield* clientA.syncService.executeAction(
 				clientA.testHelpers.createNoteAction({
-					title: "Initial Conflict Title",
-					content: "Initial Content",
+					title: "SYNC Apply Extra Divergence Test",
+					content: initialContent,
 					user_id: "user1"
 				})
 			)
 			const noteId = result.id
 
-			// 2. ClientA syncs, ClientB syncs to get the note
+			// 2. Sync all clients
 			yield* clientA.syncService.performSync()
 			yield* clientB.syncService.performSync()
+			yield* clientC.syncService.performSync()
 
-			// 3. ClientA updates title and syncs (Server now has a newer version)
-			const actionA_update = yield* clientA.syncService.executeAction(
-				clientA.testHelpers.updateTitleAction({
+			// 3. ClientA executes conditional update (adds suffix); clientC will additionally update tags.
+			const { actionRecord: actionA } = yield* clientA.syncService.executeAction(
+				clientA.testHelpers.conditionalUpdateWithClientCExtraAction({
 					id: noteId,
-					title: "Title from A"
+					baseContent: baseContent, // Condition will fail on B and C (they don't add suffix)
+					conditionalSuffix: suffixA,
+					clientCTags
 				})
 			)
+
+			// 4. ClientA syncs action to server
 			yield* clientA.syncService.performSync()
 
-			// 4. ClientB updates title offline (creates a pending action)
-			const { actionRecord: actionB_update } = yield* clientB.syncService.executeAction(
-				clientB.testHelpers.updateTitleAction({
-					id: noteId,
-					title: "Title from B"
-				})
-			)
+			// 5. ClientB syncs, receives actionA, applies locally, diverges, creates SYNC action
+			yield* clientB.syncService.performSync()
+			const syncApplyActionsB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
+			expect(syncApplyActionsB.length).toBe(1)
+			const syncActionBRecord = syncApplyActionsB[0]
+			expect(syncActionBRecord).toBeDefined()
+			if (!syncActionBRecord) return
+
+			// 6. ClientB syncs again to send its SYNC action to the server
+			yield* clientB.syncService.performSync()
 
 			// --- Act ---
-			// 5. ClientB attempts to sync.
-			//    ACTUAL BEHAVIOR: Client B detects HLC conflict and reconciles locally first.
-			yield* Effect.log("--- Client B Syncing (Reconciliation Expected) ---")
-			const syncResultB = yield* Effect.either(clientB.syncService.performSync()) // Should succeed now
+			// 7. ClientC syncs. Should receive actionA AND syncActionBRecord.
+			// ClientC should still keep its own placeholder SYNC because it has additional divergence (tags).
+			yield* clientC.syncService.performSync()
 
 			// --- Assert ---
-			// Expect the sync to SUCCEED because the client reconciles locally
-			expect(syncResultB._tag).toBe("Right")
-
-			// Check that reconciliation happened on Client B
-			const rollbackActionsB = yield* clientB.actionRecordRepo.findByTag("RollbackAction")
-			expect(rollbackActionsB.length).toBeGreaterThan(0) // Reconciliation creates a rollback action
-
-			// Client B's original conflicting action should now be marked as synced (as it was reconciled)
-			const actionB_final = yield* clientB.actionRecordRepo.findById(actionB_update.id)
-			expect(actionB_final._tag).toBe("Some")
-			if (actionB_final._tag === "Some") {
-				expect(actionB_final.value.synced).toBe(true)
+			const noteC_final = yield* clientC.noteRepo.findById(noteId)
+			expect(noteC_final._tag).toBe("Some")
+			if (noteC_final._tag === "Some") {
+				expect(noteC_final.value.content).toBe(baseContent)
+				expect(noteC_final.value.tags).toEqual(clientCTags)
 			}
 
-			// Client B's local state should reflect the reconciled outcome (B's title wins due to later HLC)
-			const noteB_final = yield* clientB.noteRepo.findById(noteId)
-			expect(noteB_final._tag).toBe("Some")
-			expect(noteB_final.pipe(Option.map((n) => n.title)).pipe(Option.getOrThrow)).toBe(
-				"Title from B"
+			const syncApplyActionsC = yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
+			expect(syncApplyActionsC.length).toBe(2)
+
+			const receivedSyncOnC = syncApplyActionsC.find((a) => a.id === syncActionBRecord.id)
+			const localSyncOnC = syncApplyActionsC.find((a) => a.id !== syncActionBRecord.id)
+			expect(receivedSyncOnC).toBeDefined()
+			expect(localSyncOnC).toBeDefined()
+			if (!receivedSyncOnC || !localSyncOnC) return
+
+			expect(receivedSyncOnC.synced).toBe(true)
+			expect(localSyncOnC.synced).toBe(false)
+
+			const localSyncAmrs = yield* clientC.actionModifiedRowRepo.findByActionRecordIds([
+				localSyncOnC.id
+			])
+			expect(localSyncAmrs.length).toBeGreaterThan(0)
+			const hasTagsPatch = localSyncAmrs.some((amr) =>
+				Object.prototype.hasOwnProperty.call(amr.forward_patches, "tags")
 			)
-			// yield* Effect.sleep(Duration.millis(100)) // Reverted delay addition
-			// Server state should reflect the reconciled state sent by B (B's title wins)
-			const serverNote = yield* serverSql<{ id: string; title: string }>`
+			expect(hasTagsPatch).toBe(true)
+
+			// The original action from A should be marked applied on C
+			const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
+			expect(isOriginalAppliedC).toBe(true)
+
+			// The SYNC action from B should be marked applied on C
+			const isSyncBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(syncActionBRecord.id)
+			expect(isSyncBAppliedC).toBe(true)
+		}).pipe(Effect.provide(makeTestLayers("server")))
+	)
+
+	it.scopedLive(
+		"should reconcile locally when pending action conflicts with newer remote action",
+		() =>
+			// This test now verifies client-side reconciliation preempts server rejection
+			Effect.gen(function* () {
+				// --- Arrange ---
+				const serverSql = yield* PgliteClient.PgliteClient
+				const clientA = yield* createTestClient("clientA", serverSql)
+				const clientB = yield* createTestClient("clientB", serverSql)
+
+				// 1. ClientA creates note
+				const { result } = yield* clientA.syncService.executeAction(
+					clientA.testHelpers.createNoteAction({
+						title: "Initial Conflict Title",
+						content: "Initial Content",
+						user_id: "user1"
+					})
+				)
+				const noteId = result.id
+
+				// 2. ClientA syncs, ClientB syncs to get the note
+				yield* clientA.syncService.performSync()
+				yield* clientB.syncService.performSync()
+
+				// 3. ClientA updates title and syncs (Server now has a newer version)
+				const actionA_update = yield* clientA.syncService.executeAction(
+					clientA.testHelpers.updateTitleAction({
+						id: noteId,
+						title: "Title from A"
+					})
+				)
+				yield* clientA.syncService.performSync()
+
+				// 4. ClientB updates title offline (creates a pending action)
+				const { actionRecord: actionB_update } = yield* clientB.syncService.executeAction(
+					clientB.testHelpers.updateTitleAction({
+						id: noteId,
+						title: "Title from B"
+					})
+				)
+
+				// --- Act ---
+				// 5. ClientB attempts to sync.
+				//    ACTUAL BEHAVIOR: Client B detects HLC conflict and reconciles locally first.
+				yield* Effect.log("--- Client B Syncing (Reconciliation Expected) ---")
+				const syncResultB = yield* Effect.either(clientB.syncService.performSync()) // Should succeed now
+
+				// --- Assert ---
+				// Expect the sync to SUCCEED because the client reconciles locally
+				expect(syncResultB._tag).toBe("Right")
+
+				// Check that reconciliation happened on Client B
+				const rollbackActionsB = yield* clientB.actionRecordRepo.findByTag("RollbackAction")
+				expect(rollbackActionsB.length).toBeGreaterThan(0) // Reconciliation creates a rollback action
+
+				// Client B's original conflicting action should now be marked as synced (as it was reconciled)
+				const actionB_final = yield* clientB.actionRecordRepo.findById(actionB_update.id)
+				expect(actionB_final._tag).toBe("Some")
+				if (actionB_final._tag === "Some") {
+					expect(actionB_final.value.synced).toBe(true)
+				}
+
+				// Client B's local state should reflect the reconciled outcome (B's title wins due to later HLC)
+				const noteB_final = yield* clientB.noteRepo.findById(noteId)
+				expect(noteB_final._tag).toBe("Some")
+				expect(noteB_final.pipe(Option.map((n) => n.title)).pipe(Option.getOrThrow)).toBe(
+					"Title from B"
+				)
+				// yield* Effect.sleep(Duration.millis(100)) // Reverted delay addition
+				// Server state should reflect the reconciled state sent by B (B's title wins)
+				const serverNote = yield* serverSql<{ id: string; title: string }>`
 						SELECT id, title FROM notes WHERE id = ${noteId}
 					`
-			expect(serverNote.length).toBe(1)
-			// Check if serverNote[0] exists before accessing title
-			if (serverNote[0]) {
-				expect(serverNote[0].title).toBe("Title from B") // Server should have B's title after reconciliation sync
-			}
-		}).pipe(Effect.provide(makeTestLayers("server")))
+				expect(serverNote.length).toBe(1)
+				// Check if serverNote[0] exists before accessing title
+				if (serverNote[0]) {
+					expect(serverNote[0].title).toBe("Title from B") // Server should have B's title after reconciliation sync
+				}
+			}).pipe(Effect.provide(makeTestLayers("server")))
 	)
 })

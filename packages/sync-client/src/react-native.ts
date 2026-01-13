@@ -15,7 +15,7 @@ import { SyncNetworkServiceLive } from "./SyncNetworkService"
 /**
  * SQLite (React Native) client layer (no Electric integration).
  *
- * The caller supplies the database config for `@effect/sql-sqlite-react-native`.
+ * The caller supplies the database config for the underlying `@op-engineering/op-sqlite` database.
  */
 export const makeSynchrotronSqliteReactNativeClientLayer = (
 	sqliteConfig: Parameters<typeof makeSqliteReactNativeClientLayer>[0],

@@ -1,4 +1,4 @@
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import { describe, it } from "@effect/vitest"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import * as HLC from "@synchrotron/sync-core/HLC"
@@ -9,7 +9,7 @@ import { makeTestLayers } from "./helpers/TestLayers"
 describe("Clock ordering consistency", () => {
 	it.scoped("TS action ordering matches DB ordering key columns", () =>
 		Effect.gen(function* () {
-			const sql = yield* PgLiteClient.PgLiteClient
+			const sql = yield* PgliteClient.PgliteClient
 			const clockService = yield* ClockService
 
 			const actions = [

@@ -74,7 +74,7 @@ Backend state:
 
 - Action registry: maps `_tag` -> action implementation (today: `ActionRegistry.defineAction(tag, argsSchema, fn)` validates/decodes args via Effect Schema and injects a `timestamp` for recording + replay).
 - Database access layer: built on `@effect/sql` models/repositories.
-- Client runtime layers (`@synchrotron/sync-client`): PGlite + SQLite (WASM) layers are exported from the main entrypoint; the SQLite (React Native) layer lives at `@synchrotron/sync-client/react-native`.
+- Client runtime layers (`@synchrotron/sync-client`): PGlite + SQLite (WASM) layers are exported from the main entrypoint; the SQLite (React Native) layer lives at `@synchrotron/sync-client/react-native` and is backed by `@op-engineering/op-sqlite` via a small local `@effect/sql` adapter.
 - Client DB adapter (`ClientDbAdapter`): encapsulates client-side DB dialect concerns needed by `sync-core` (schema init, trigger context, patch tracking toggles, and trigger installation). Implementations include `PostgresClientDbAdapter` and `SqliteClientDbAdapter`.
 - Sync transport (`SyncNetworkService`): fetches remote actions (and their patches) and sends local unsynced actions to the server. Implementations can be Electric-backed streaming ingestion or a plain HTTP RPC client, depending on environment constraints.
 - Trigger system:

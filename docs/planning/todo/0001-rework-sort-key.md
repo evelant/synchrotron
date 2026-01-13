@@ -104,7 +104,7 @@ Explicitly not solved by this change (but should be tracked):
 
 Files:
 
-- `packages/sync-core/src/db/sql/schema/create_sync_tables.sql`
+- `packages/sync-core/src/db/sql/schema/create_sync_tables.ts`
 
 Plan:
 
@@ -121,8 +121,8 @@ Plan:
 
 Files:
 
-- `packages/sync-core/src/db/sql/action/find_common_ancestor.sql`
-- `packages/sync-core/src/db/sql/action/rollback_to_action.sql`
+- `packages/sync-core/src/db/sql/action/find_common_ancestor.ts`
+- `packages/sync-core/src/db/sql/action/rollback_to_action.ts`
 
 Plan:
 

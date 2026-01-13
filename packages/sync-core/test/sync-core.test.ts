@@ -1,4 +1,4 @@
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest" // Import describe
 import { ActionRecord } from "@synchrotron/sync-core/models" // Import ActionRecord directly
 import { Effect, TestClock } from "effect"
@@ -17,7 +17,7 @@ describe("Core Sync Functionality", () => {
 		() =>
 			Effect.gen(function* () {
 				// Removed TestServices context type
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 				const client1 = yield* createTestClient("client1", serverSql).pipe(Effect.orDie)
 				const client2 = yield* createTestClient("client2", serverSql).pipe(Effect.orDie)
 
@@ -59,7 +59,7 @@ describe("Core Sync Functionality", () => {
 		() =>
 			Effect.gen(function* () {
 				// Removed TestServices context type
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 				const client1 = yield* createTestClient("client1", serverSql) // Renamed from client7
 				const client2 = yield* createTestClient("client2", serverSql) // Renamed from client8
 
@@ -140,7 +140,7 @@ describe("Core Sync Functionality", () => {
 		"should reconcile interleaved actions",
 		() =>
 			Effect.gen(function* () {
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 				const client1 = yield* createTestClient("client1", serverSql).pipe(Effect.orDie)
 				const client2 = yield* createTestClient("client2", serverSql).pipe(Effect.orDie)
 

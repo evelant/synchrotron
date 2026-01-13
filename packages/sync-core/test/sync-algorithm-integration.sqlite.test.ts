@@ -1,4 +1,4 @@
-import { PgLiteClient } from "@effect/sql-pglite"
+import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
 import { Effect, Option } from "effect"
@@ -9,7 +9,7 @@ describe("Sync Algorithm Integration (SQLite clients)", () => {
 		"should apply remote actions when no local actions are pending (no divergence)",
 		() =>
 			Effect.gen(function* () {
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 				yield* withSqliteTestClients(["client1", "remoteClient"], serverSql, (clients) =>
 					Effect.gen(function* () {
 						const client1 = clients[0]!
@@ -50,7 +50,8 @@ describe("Sync Algorithm Integration (SQLite clients)", () => {
 						)
 						expect(isAppliedClient1).toBe(true)
 
-						const syncApplyRecordsClient1 = yield* client1.actionRecordRepo.findByTag("_InternalSyncApply")
+						const syncApplyRecordsClient1 =
+							yield* client1.actionRecordRepo.findByTag("_InternalSyncApply")
 						expect(syncApplyRecordsClient1.length).toBe(0)
 
 						const serverAction =
@@ -67,7 +68,7 @@ describe("Sync Algorithm Integration (SQLite clients)", () => {
 		"should correctly handle concurrent modifications to different fields",
 		() =>
 			Effect.gen(function* () {
-				const serverSql = yield* PgLiteClient.PgLiteClient
+				const serverSql = yield* PgliteClient.PgliteClient
 				yield* withSqliteTestClients(["client1", "client2"], serverSql, (clients) =>
 					Effect.gen(function* () {
 						const client1 = clients[0]!
@@ -132,18 +133,30 @@ describe("Sync Algorithm Integration (SQLite clients)", () => {
 						const rollbackClient2 = yield* client2.actionRecordRepo.findByTag("RollbackAction")
 						expect(rollbackClient2.length).toBeGreaterThan(0)
 
-						const titleAppliedC1 = yield* client1.actionRecordRepo.isLocallyApplied(updateTitleRecord.id)
-						const contentAppliedC1 = yield* client1.actionRecordRepo.isLocallyApplied(updateContentRecord.id)
-						const titleAppliedC2 = yield* client2.actionRecordRepo.isLocallyApplied(updateTitleRecord.id)
-						const contentAppliedC2 = yield* client2.actionRecordRepo.isLocallyApplied(updateContentRecord.id)
+						const titleAppliedC1 = yield* client1.actionRecordRepo.isLocallyApplied(
+							updateTitleRecord.id
+						)
+						const contentAppliedC1 = yield* client1.actionRecordRepo.isLocallyApplied(
+							updateContentRecord.id
+						)
+						const titleAppliedC2 = yield* client2.actionRecordRepo.isLocallyApplied(
+							updateTitleRecord.id
+						)
+						const contentAppliedC2 = yield* client2.actionRecordRepo.isLocallyApplied(
+							updateContentRecord.id
+						)
 
 						expect(titleAppliedC1).toBe(true)
 						expect(contentAppliedC1).toBe(true)
 						expect(titleAppliedC2).toBe(true)
 						expect(contentAppliedC2).toBe(true)
 
-						const originalTitleSynced = yield* client1.actionRecordRepo.findById(updateTitleRecord.id)
-						const originalContentSynced = yield* client2.actionRecordRepo.findById(updateContentRecord.id)
+						const originalTitleSynced = yield* client1.actionRecordRepo.findById(
+							updateTitleRecord.id
+						)
+						const originalContentSynced = yield* client2.actionRecordRepo.findById(
+							updateContentRecord.id
+						)
 						expect(
 							originalTitleSynced.pipe(Option.map((a) => a.synced)).pipe(Option.getOrThrow)
 						).toBe(true)

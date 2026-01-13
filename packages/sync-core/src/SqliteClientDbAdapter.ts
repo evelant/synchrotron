@@ -1,6 +1,6 @@
 import { SqlClient, type SqlError } from "@effect/sql"
 import { Effect, Layer } from "effect"
-import createSyncTablesSqliteSQL from "./db/sql/schema/create_sync_tables_sqlite.sql?raw" with { type: "text" }
+import createSyncTablesSqliteSQL from "./db/sql/schema/create_sync_tables_sqlite"
 import { ClientDbAdapter } from "./ClientDbAdapter"
 
 const ensureSqliteDialect = (sql: SqlClient.SqlClient) =>

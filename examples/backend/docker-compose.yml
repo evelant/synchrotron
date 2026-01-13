@@ -1,0 +1,33 @@
+name: "${PROJECT_NAME:-synchrotron-example-default}"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: electric
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - 56321:5432
+    volumes:
+      - ./postgres.conf:/etc/postgresql/postgresql.conf:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+      - /tmp
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+
+  electric:
+    image: electricsql/electric:canary
+    environment:
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
+      # Not suitable for production. Only use insecure mode in development or if you've otherwise secured the Electric API.
+      # See https://electric-sql.com/docs/guides/security
+      ELECTRIC_INSECURE: true
+      ELECTRIC_LOG_LEVEL: debug
+    ports:
+      - 5133:3000
+    depends_on:
+      - postgres
