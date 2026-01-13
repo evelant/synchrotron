@@ -34,6 +34,8 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		const clientId = yield* clockService.getNodeId
 		const actionRegistry = yield* ActionRegistry
 		const deterministicId = yield* DeterministicId
+
+		const newTraceId = Effect.sync(() => crypto.randomUUID())
 		/**
 		 * Execute an action and record it for later synchronization
 		 *
@@ -132,7 +134,10 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						)
 					})
 					),
-					Effect.annotateLogs("clientId", clientId) // Use service-level clientId here
+					Effect.annotateLogs({ clientId, actionTag: action._tag }),
+					Effect.withSpan("SyncService.executeAction", {
+						attributes: { clientId, actionTag: action._tag }
+					})
 				)
 
 		/**
@@ -147,7 +152,11 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				yield* Effect.logDebug(`Found common ancestor: ${JSON.stringify(commonAncestor)}`)
 				yield* rollbackToAction(commonAncestor?.id ?? null)
 				return commonAncestor
-			}).pipe(sqlClient.withTransaction, Effect.annotateLogs("clientId", clientId))
+			}).pipe(
+				sqlClient.withTransaction,
+				Effect.annotateLogs({ clientId }),
+				Effect.withSpan("SyncService.rollbackToCommonAncestor", { attributes: { clientId } })
+			)
 
 		const rollbackToAction = (targetActionId: string | null) =>
 			Effect.gen(function* () {
@@ -216,7 +225,12 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				)
 
 				yield* sqlClient`DELETE FROM local_applied_action_ids WHERE ${sqlClient.in("action_record_id", actionIds)}`
-			})
+			}).pipe(
+				Effect.annotateLogs({ clientId, rollbackTargetActionId: targetActionId ?? "null" }),
+				Effect.withSpan("SyncService.rollbackToAction", {
+					attributes: { clientId, rollbackTargetActionId: targetActionId ?? "null" }
+				})
+			)
 
 		/**
 		 * synchronize with the server
@@ -227,120 +241,141 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		 * Returns the actions that were effectively processed (applied, sent, or reconciled).
 		 */
 		const performSync = () =>
-			Effect.gen(function* () {
-				// 1. Get pending local actions
-				const pendingActions = yield* actionRecordRepo.findBySynced(false)
-				yield* Effect.logDebug(
-					`performSync start: Found ${pendingActions.length} pending actions: [${pendingActions.map((a) => `${a.id} (${a._tag})`).join(", ")}]`
-				)
+			newTraceId.pipe(
+				Effect.flatMap((syncSessionId) =>
+					Effect.gen(function* () {
+						yield* Effect.logInfo("performSync.start", { syncSessionId })
+						// 1. Get pending local actions
+						const pendingActions = yield* actionRecordRepo.findBySynced(false)
+						yield* Effect.logDebug("performSync.pendingActions", {
+							count: pendingActions.length,
+							actions: pendingActions.map((a) => ({ id: a.id, _tag: a._tag, client_id: a.client_id }))
+						})
 
-				// 2. Get remote actions since last sync
-				const { actions: remoteActions } = yield* syncNetworkService.fetchRemoteActions()
-				yield* Effect.logInfo(
-					`Fetched ${remoteActions.length} remote actions for client ${clientId}: [${remoteActions.map((a) => `${a.id} (${a._tag})`).join(", ")}]`
-				)
-				const latestSeenServerIngestId = remoteActions.reduce((max, action) => {
-					const ingestId = action.server_ingest_id
-					if (ingestId === null || ingestId === undefined) return max
-					return ingestId > max ? ingestId : max
-				}, 0)
-
-				const hasPending = pendingActions.length > 0
-				const hasRemote = remoteActions.length > 0
-				if (!hasPending && !hasRemote) {
-					yield* Effect.logInfo("No pending or remote actions to sync.")
-					return [] as const // Return readonly empty array
-				}
-				if (!hasPending && hasRemote) {
-					yield* Effect.logInfo(
-						`Case 1: No pending actions, applying ${remoteActions.length} remote actions and checking divergence.`
-					)
-					// applyActionRecords handles clock updates for received actions
-					const applied = yield* applyActionRecords(remoteActions)
-					yield* clockService.advanceLastSeenServerIngestId(latestSeenServerIngestId)
-					return applied
-				}
-				if (hasPending && !hasRemote) {
-					yield* Effect.logInfo(
-						`Case 2: No remote actions, sending ${pendingActions.length} local actions.`
-					)
-					return yield* sendLocalActions()
-				}
-					if (hasPending && hasRemote) {
-						const sortedPending = clockService.sortClocks(
-							pendingActions.map((a) => ({
-								action: a,
-								clock: a.clock,
-								clientId: a.client_id,
-								id: a.id
+						// 2. Get remote actions since last sync
+						const { actions: remoteActions } = yield* syncNetworkService.fetchRemoteActions().pipe(
+							Effect.withSpan("SyncNetworkService.fetchRemoteActions", {
+								attributes: { clientId, syncSessionId }
+							})
+						)
+						yield* Effect.logInfo("performSync.remoteActions", {
+							count: remoteActions.length,
+							actions: remoteActions.map((a) => ({
+								id: a.id,
+								_tag: a._tag,
+								client_id: a.client_id,
+								server_ingest_id: a.server_ingest_id
 							}))
-						)
-						const sortedRemote = clockService.sortClocks(
-							remoteActions.map((a) => ({ action: a, clock: a.clock, clientId: a.client_id, id: a.id }))
-						)
+						})
+						const latestSeenServerIngestId = remoteActions.reduce((max, action) => {
+							const ingestId = action.server_ingest_id
+							if (ingestId === null || ingestId === undefined) return max
+							return ingestId > max ? ingestId : max
+						}, 0)
 
-						const latestPendingAction = sortedPending[sortedPending.length - 1]?.action
-						const earliestRemoteAction = sortedRemote[0]?.action
-
-						if (latestPendingAction && earliestRemoteAction) {
-							if (
-								!remoteActions.find((a) => a._tag === "RollbackAction") &&
-								clockService.compareClock(
-									{
-										clock: latestPendingAction.clock,
-										clientId: latestPendingAction.client_id,
-										id: latestPendingAction.id
-									},
-									{
-										clock: earliestRemoteAction.clock,
-										clientId: earliestRemoteAction.client_id,
-										id: earliestRemoteAction.id
-									}
-								) < 0
-							) {
-								yield* Effect.logInfo(
-									`Case 4: Latest pending action (${latestPendingAction.id}) is older than earliest remote action (${earliestRemoteAction.id}). Applying remote, then sending pending.`
+						const hasPending = pendingActions.length > 0
+						const hasRemote = remoteActions.length > 0
+						if (!hasPending && !hasRemote) {
+							yield* Effect.logInfo("performSync.noop")
+							return [] as const // Return readonly empty array
+						}
+						if (!hasPending && hasRemote) {
+							yield* Effect.logInfo("performSync.case1.applyRemote", {
+								remoteCount: remoteActions.length
+							})
+							// applyActionRecords handles clock updates for received actions
+							const applied = yield* applyActionRecords(remoteActions)
+							yield* clockService.advanceLastSeenServerIngestId(latestSeenServerIngestId)
+							return applied
+						}
+						if (hasPending && !hasRemote) {
+							yield* Effect.logInfo("performSync.case2.sendPending", {
+								pendingCount: pendingActions.length
+							})
+							return yield* sendLocalActions()
+						}
+							if (hasPending && hasRemote) {
+								const sortedPending = clockService.sortClocks(
+									pendingActions.map((a) => ({
+										action: a,
+										clock: a.clock,
+										clientId: a.client_id,
+										id: a.id
+									}))
+								)
+								const sortedRemote = clockService.sortClocks(
+									remoteActions.map((a) => ({ action: a, clock: a.clock, clientId: a.client_id, id: a.id }))
 								)
 
-							// 1. Apply remote actions
-							const appliedRemotes = yield* applyActionRecords(remoteActions)
-							yield* clockService.advanceLastSeenServerIngestId(latestSeenServerIngestId)
-							// 2. Send pending actions
-							yield* sendLocalActions()
-							// For now, returning applied remotes as they were processed first in this flow.
-							return appliedRemotes
-						} else {
-							yield* Effect.logInfo(
-								"Case 3: Actions interleaved or remote older than pending. Reconciliation required."
-							)
-							const allLocalActions = yield* actionRecordRepo.all()
-								yield* reconcile(pendingActions, remoteActions, allLocalActions)
-								yield* clockService.advanceLastSeenServerIngestId(latestSeenServerIngestId)
-								return yield* sendLocalActions()
+								const latestPendingAction = sortedPending[sortedPending.length - 1]?.action
+								const earliestRemoteAction = sortedRemote[0]?.action
+
+								if (latestPendingAction && earliestRemoteAction) {
+									if (
+										!remoteActions.find((a) => a._tag === "RollbackAction") &&
+										clockService.compareClock(
+											{
+												clock: latestPendingAction.clock,
+												clientId: latestPendingAction.client_id,
+												id: latestPendingAction.id
+											},
+											{
+												clock: earliestRemoteAction.clock,
+												clientId: earliestRemoteAction.client_id,
+												id: earliestRemoteAction.id
+											}
+										) < 0
+									) {
+										yield* Effect.logInfo("performSync.case4.applyRemoteThenSendPending", {
+											latestPendingActionId: latestPendingAction.id,
+											earliestRemoteActionId: earliestRemoteAction.id,
+											pendingCount: pendingActions.length,
+											remoteCount: remoteActions.length
+										})
+
+									// 1. Apply remote actions
+									const appliedRemotes = yield* applyActionRecords(remoteActions)
+									yield* clockService.advanceLastSeenServerIngestId(latestSeenServerIngestId)
+									// 2. Send pending actions
+									yield* sendLocalActions()
+									// For now, returning applied remotes as they were processed first in this flow.
+									return appliedRemotes
+								} else {
+									yield* Effect.logInfo("performSync.case3.reconcileThenSendPending", {
+										pendingCount: pendingActions.length,
+										remoteCount: remoteActions.length
+									})
+									const allLocalActions = yield* actionRecordRepo.all()
+										yield* reconcile(pendingActions, remoteActions, allLocalActions)
+										yield* clockService.advanceLastSeenServerIngestId(latestSeenServerIngestId)
+										return yield* sendLocalActions()
+									}
+								} else {
+									return yield* Effect.fail(
+										new SyncError({
+											message: "Could not determine latest pending or earliest remote clock."
+										})
+									)
+								}
 							}
-						} else {
-							return yield* Effect.fail(
-								new SyncError({
-									message: "Could not determine latest pending or earliest remote clock."
-								})
-							)
-						}
-					}
-				return yield* Effect.dieMessage("Unreachable code reached in performSync")
-			}).pipe(
-				Effect.catchAll((error) =>
-					Effect.gen(function* () {
-						const message = error instanceof Error ? error.message : String(error)
-						yield* Effect.logError(`Sync failed: ${message}`, error)
-						if (error instanceof SyncError) {
-							return yield* Effect.fail(error)
-						}
-						return yield* Effect.fail(
-							new SyncError({ message: `Sync failed: ${message}`, cause: error })
-						)
-					})
-				),
-				Effect.annotateLogs("clientId", clientId)
+						return yield* Effect.dieMessage("Unreachable code reached in performSync")
+					}).pipe(
+						Effect.catchAll((error) =>
+							Effect.gen(function* () {
+								const message = error instanceof Error ? error.message : String(error)
+								yield* Effect.logError(`Sync failed: ${message}`, error)
+								if (error instanceof SyncError) {
+									return yield* Effect.fail(error)
+								}
+								return yield* Effect.fail(
+									new SyncError({ message: `Sync failed: ${message}`, cause: error })
+								)
+							})
+						),
+						Effect.annotateLogs({ clientId, syncSessionId }),
+						Effect.withSpan("SyncService.performSync", { attributes: { clientId, syncSessionId } })
+					)
+				)
 			)
 
 		const reconcile = (
@@ -391,16 +426,31 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				// then check for any divergence, adding a SYNC action if needed
 				yield* applyActionRecords(actionsToReplay)
 				return yield* actionRecordRepo.allUnsynced()
-			})
+			}).pipe(
+				Effect.annotateLogs({ clientId, operation: "reconcile" }),
+				Effect.withSpan("SyncService.reconcile", { attributes: { clientId } })
+			)
 		/**
 		 * Applies incoming remote actions, creating a SYNC record to capture the resulting
 		 * patches, and compares them against original patches to detect divergence.
 		 */
 		const applyActionRecords = (remoteActions: readonly ActionRecord[]) =>
-			Effect.gen(function* () {
+			newTraceId.pipe(
+				Effect.flatMap((applyBatchId) =>
+					Effect.gen(function* () {
 					yield* Effect.logInfo(
 						`Applying ${remoteActions.length} remote actions and checking for divergence.`
 					)
+					yield* Effect.logDebug("applyActionRecords.remoteActions", {
+						applyBatchId,
+						count: remoteActions.length,
+						actions: remoteActions.map((a) => ({
+							id: a.id,
+							_tag: a._tag,
+							client_id: a.client_id,
+							server_ingest_id: a.server_ingest_id
+						}))
+					})
 
 					// 1. Use an application-level transaction identifier for the batch.
 					const transactionId = Date.now()
@@ -424,7 +474,11 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						transaction_id: transactionId
 					})
 				)
-				yield* Effect.logDebug(`Created placeholder SYNC action: ${syncRecord.id}`)
+				yield* Effect.logDebug("applyActionRecords.createdSyncPlaceholder", {
+					applyBatchId,
+					syncActionRecordId: syncRecord.id,
+					syncActionTag
+				})
 					yield* clientDbAdapter.setCaptureContext(syncRecord.id)
 
 				// 3. Apply the incoming remote actions' logic (or patches for SYNC) in HLC order
@@ -432,19 +486,22 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					remoteActions.map((a) => ({ ...a, clientId: a.client_id }))
 				)
 
-				for (const actionRecord of sortedRemoteActions) {
+				const applyOneRemoteAction = (actionRecord: ActionRecord) =>
+					Effect.gen(function* () {
 					if (actionRecord._tag === "RollbackAction") {
 						yield* Effect.logTrace(
 							`Skipping application of Rollback action during apply phase: ${actionRecord.id}`
 						)
 						yield* actionRecordRepo.markLocallyApplied(actionRecord.id) // Use new method
-						continue // Move to the next action
+							return // Move to the next action
 					}
 
 					const actionCreator = actionRegistry.getActionCreator(actionRecord._tag)
 
 					if (actionRecord._tag === "_InternalSyncApply") {
-						yield* Effect.logDebug(`Applying patches for received SYNC action: ${actionRecord.id}`)
+						yield* Effect.logDebug("applyActionRecords.applyReceivedSyncPatches", {
+							receivedSyncActionId: actionRecord.id
+						})
 						const syncAmrs = yield* actionModifiedRowRepo.findByActionRecordIds([actionRecord.id])
 							if (syncAmrs.length > 0) {
 								yield* clientDbAdapter.withPatchTrackingDisabled(
@@ -465,9 +522,11 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							new SyncError({ message: `Missing action creator: ${actionRecord._tag}` })
 						)
 					} else {
-						yield* Effect.logDebug(
-							`Applying logic for remote action: ${actionRecord.id} (${actionRecord._tag}) ${JSON.stringify(actionRecord.args)}`
-						)
+						yield* Effect.logDebug("applyActionRecords.applyRemoteAction", {
+							remoteActionId: actionRecord.id,
+							remoteActionTag: actionRecord._tag,
+							args: actionRecord.args
+						})
 
 						yield* deterministicId.withActionContext(
 							actionRecord.id,
@@ -476,6 +535,18 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					}
 					yield* actionRecordRepo.markLocallyApplied(actionRecord.id) // Use new method
 					yield* Effect.logDebug(`Marked remote action ${actionRecord.id} as applied locally.`)
+					}).pipe(
+						Effect.annotateLogs({
+							remoteActionId: actionRecord.id,
+							remoteActionTag: actionRecord._tag
+						}),
+						Effect.withSpan("SyncService.applyActionRecords.applyOneRemoteAction", {
+							attributes: { remoteActionId: actionRecord.id, remoteActionTag: actionRecord._tag }
+						})
+					)
+
+				for (const actionRecord of sortedRemoteActions) {
+					yield* applyOneRemoteAction(actionRecord)
 				}
 					yield* Effect.logDebug(
 						`Finished applying ${remoteActions.length} remote actions logic/patches.`
@@ -578,6 +649,48 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					`SYNC delta check (generated - known): delta rows=${deltaRowKeys.length}, covered rows=${coveredRowKeys.length}`
 				)
 
+				if (hasSyncDelta) {
+					const deltaDetails = deltaRowKeys.map(({ table_name, row_id }) => {
+						const key = `${table_name}|${row_id}`
+						const generated = generatedFinalEffects.get(key)
+						const known = knownFinalEffects.get(key)
+
+						const missingColumns: string[] = []
+						const differingColumns: string[] = []
+
+						if (generated?.operation === "DELETE") {
+							if (known?.operation !== "DELETE") differingColumns.push("_operation")
+						} else {
+							for (const [columnKey, replayValue] of Object.entries(generated?.columns ?? {})) {
+								if (!known || !Object.prototype.hasOwnProperty.call(known.columns, columnKey)) {
+									missingColumns.push(columnKey)
+									continue
+								}
+								if (!deepObjectEquals(replayValue, known.columns[columnKey])) {
+									differingColumns.push(columnKey)
+								}
+							}
+						}
+
+						return {
+							table_name,
+							row_id,
+							generatedOperation: generated?.operation ?? "UNKNOWN",
+							knownOperation: known?.operation ?? "UNKNOWN",
+							missingColumns,
+							differingColumns
+						}
+					})
+
+					yield* Effect.logWarning("applyActionRecords.syncDeltaDetected", {
+						applyBatchId,
+						syncActionRecordId: syncRecord.id,
+						deltaRowCount: deltaRowKeys.length,
+						coveredRowCount: coveredRowKeys.length,
+						deltaDetails
+					})
+				}
+
 				if (!hasSyncDelta) {
 					yield* Effect.logInfo(
 						"No outgoing SYNC delta remains after accounting for received patches (base + SYNC). Deleting placeholder SYNC action."
@@ -609,8 +722,13 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				}).pipe(
 					sqlClient.withTransaction,
 					Effect.ensuring(clientDbAdapter.setCaptureContext(null).pipe(Effect.orDie)),
-					Effect.annotateLogs("clientId", clientId)
+					Effect.annotateLogs({ clientId, applyBatchId, operation: "applyActionRecords" }),
+					Effect.withSpan("SyncService.applyActionRecords", {
+						attributes: { clientId, applyBatchId, remoteActionCount: remoteActions.length }
+					})
 				)
+				)
+			)
 
 		/**
 		 * Finds the most recent common ancestor action based on local pending actions (synced=false)
@@ -675,47 +793,71 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		 * Attempt to send all unsynced actions to the server.
 		 */
 		const sendLocalActions = () =>
-			Effect.gen(function* () {
-				const actionsToSend = yield* actionRecordRepo.allUnsynced()
-				const amrs = yield* actionModifiedRowRepo.allUnsynced()
-				if (actionsToSend.length === 0) {
-					return []
-				}
+			newTraceId.pipe(
+				Effect.flatMap((sendBatchId) =>
+					Effect.gen(function* () {
+						const actionsToSend = yield* actionRecordRepo.allUnsynced()
+						const amrs = yield* actionModifiedRowRepo.allUnsynced()
+						if (actionsToSend.length === 0) {
+							yield* Effect.logDebug("sendLocalActions.noop", { sendBatchId })
+							return []
+						}
 
-				yield* Effect.logInfo(`Sending ${actionsToSend.length} actions to server`)
+						yield* Effect.logInfo("sendLocalActions.sending", {
+							sendBatchId,
+							actionCount: actionsToSend.length,
+							amrCount: amrs.length,
+							actions: actionsToSend.map((a) => ({ id: a.id, _tag: a._tag, client_id: a.client_id }))
+						})
 
-				yield* syncNetworkService.sendLocalActions(actionsToSend, amrs).pipe(
-					Effect.catchAll((error) =>
-						Effect.gen(function* () {
-							if (error instanceof NetworkRequestError) {
-								yield* Effect.logWarning(`Failed to send actions to server: ${error.message}`)
-							}
-							return yield* Effect.fail(
+						yield* syncNetworkService.sendLocalActions(actionsToSend, amrs).pipe(
+							Effect.withSpan("SyncNetworkService.sendLocalActions", {
+								attributes: {
+									clientId,
+									sendBatchId,
+									actionCount: actionsToSend.length,
+									amrCount: amrs.length
+								}
+							}),
+							Effect.catchAll((error) =>
+								Effect.gen(function* () {
+									if (error instanceof NetworkRequestError) {
+										yield* Effect.logWarning(`Failed to send actions to server: ${error.message}`)
+									}
+									return yield* Effect.fail(
+										new SyncError({
+											message: `Failed to send actions to server: ${error.message}`,
+											cause: error
+										})
+									)
+								})
+							)
+						)
+						for (const action of actionsToSend) {
+							yield* actionRecordRepo.markAsSynced(action.id)
+							yield* Effect.logDebug(
+								`Marked action ${action.id} (${action._tag}) as synced after send.`
+							)
+						}
+						yield* clockService.updateLastSyncedClock()
+
+						return actionsToSend // Return the actions that were handled
+					}).pipe(
+						Effect.catchAll((error) => {
+							const message = error instanceof Error ? error.message : String(error)
+							return Effect.fail(
 								new SyncError({
-									message: `Failed to send actions to server: ${error.message}`,
+									message: `Failed during sendLocalActions: ${message}`,
 									cause: error
 								})
 							)
+						}),
+						Effect.annotateLogs({ clientId, sendBatchId, operation: "sendLocalActions" }),
+						Effect.withSpan("SyncService.sendLocalActions", {
+							attributes: { clientId, sendBatchId }
 						})
 					)
 				)
-				for (const action of actionsToSend) {
-					yield* actionRecordRepo.markAsSynced(action.id)
-					yield* Effect.logDebug(
-						`Marked action ${action.id} (${action._tag}) as synced after send.`
-					)
-				}
-				yield* clockService.updateLastSyncedClock()
-
-				return actionsToSend // Return the actions that were handled
-			}).pipe(
-				Effect.catchAll((error) => {
-					const message = error instanceof Error ? error.message : String(error)
-					return Effect.fail(
-						new SyncError({ message: `Failed during sendLocalActions: ${message}`, cause: error })
-					)
-				}),
-				Effect.annotateLogs("clientId", clientId)
 			)
 
 		return {

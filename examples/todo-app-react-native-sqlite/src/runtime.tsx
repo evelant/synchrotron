@@ -35,7 +35,7 @@ const AppLive = TodoRepo.Default.pipe(
 	Layer.provideMerge(
 		Logger.replace(Logger.defaultLogger, Logger.prettyLoggerDefault.pipe(Logger.withLeveledConsole))
 	),
-	Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Info)),
+	Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Trace)),
 	Layer.provideMerge(Layer.scope)
 )
 

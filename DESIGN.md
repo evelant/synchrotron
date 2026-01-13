@@ -86,6 +86,11 @@ Backend state:
 - HLC service: generates/merges clocks and provides a total order for action replay using `(clock_time_ms, clock_counter, client_id, id)` (btree index-friendly).
 - Electric SQL integration: streams `action_records` and `action_modified_rows` using a reliable receipt cursor (`server_ingest_id`) and up-to-date signals so a transaction's full set of patches arrives before applying.
 
+## Observability
+
+- Sync phases are instrumented with `Effect.withSpan(...)` and log annotations (for example: `clientId`, `syncSessionId`, `applyBatchId`, `sendBatchId`) so logs can be correlated across fetch/apply/send/reconcile.
+- The PGlite `@effect/sql` adapter logs all executed SQL statements at `TRACE` (`pglite.statement.*`) to make it easier to follow replay and patch application.
+
 ## Deterministic row IDs
 
 Synced tables require app-provided `id`s. To keep replay deterministic across client databases, Synchrotron generates row IDs in TypeScript (not via DB triggers):

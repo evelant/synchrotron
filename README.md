@@ -94,6 +94,13 @@ The client DB is selected by which `@effect/sql` driver layer you provide:
 
 - Configure the RPC endpoint with `makeSynchrotronClientLayer({ syncRpcUrl: "http://..." })` or `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
 
+## Observability
+
+Synchrotron uses Effect's built-in logging + tracing.
+
+- `SyncService` wraps key sync phases in `Effect.withSpan(...)` and annotates logs with correlation IDs like `syncSessionId`, `applyBatchId`, and `sendBatchId`.
+- `@effect/sql-pglite` logs every executed SQL statement at `TRACE` as `pglite.statement.start` / `pglite.statement.end` / `pglite.statement.error` (statement text is truncated to keep logs readable).
+
 ## Usage
 
 Synchrotron only works if you follow these rules. They're simple, but they're hard requirements:

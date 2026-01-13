@@ -18,6 +18,9 @@ import * as Layer from "effect/Layer"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 
+const truncateForLog = (value: string, maxLength = 2000) =>
+	value.length <= maxLength ? value : `${value.slice(0, maxLength)}…`
+
 /**
  * @category type ids
  * @since 1.0.0
@@ -126,13 +129,51 @@ export const make = <TExtensions extends Extensions = Extensions>(
 				})
 			}
 
+			private loggedStatement<A extends object>(
+				method: "query" | "exec",
+				statement: string,
+				params: ReadonlyArray<unknown>,
+				effect: Effect.Effect<ReadonlyArray<A>, SqlError>
+			) {
+				const statementId = crypto.randomUUID()
+				const statementPreview = truncateForLog(statement)
+				const base = {
+					statementId,
+					dialect: "pglite",
+					method,
+					statement: statementPreview,
+					params
+				} as const
+
+				return Effect.logTrace("pglite.statement.start", base).pipe(
+					Effect.zipRight(effect),
+					Effect.tap((rows) =>
+						Effect.logTrace("pglite.statement.end", { ...base, rowCount: rows.length })
+					),
+					Effect.tapError((error) =>
+						Effect.logError("pglite.statement.error", { ...base, error })
+					),
+					Effect.tap(() => Effect.annotateCurrentSpan(OtelSemConv.ATTR_DB_QUERY_TEXT, statementPreview)),
+					Effect.annotateLogs({ statementId, dbDialect: "pglite", dbMethod: method }),
+					Effect.withSpan("PgliteClient.statement", {
+						attributes: {
+							statementId,
+							[OtelSemConv.ATTR_DB_QUERY_TEXT]: statementPreview,
+							[OtelSemConv.ATTR_DB_OPERATION_NAME]: method
+						}
+					})
+				)
+			}
+
 			execute(
 				sql: string,
 				params: ReadonlyArray<unknown>,
 				transformRows?: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined,
 				unprepared?: boolean
 			) {
-				return transformRows
+				const method = unprepared ? "exec" : "query"
+
+				const effect = transformRows
 					? Effect.map(
 							this.run(
 								unprepared ? this.pg.exec(sql, params as any) : this.pg.query(sql, params as any)
@@ -142,12 +183,14 @@ export const make = <TExtensions extends Extensions = Extensions>(
 					: unprepared
 						? this.run(this.pg.exec(sql, params as any))
 						: this.run(this.pg.query(sql, params as any))
+
+				return this.loggedStatement(method, sql, params, effect)
 			}
 			executeRaw(sql: string, params: ReadonlyArray<unknown>) {
-				return this.run(this.pg.exec(sql, params as any))
+				return this.loggedStatement("exec", sql, params, this.run(this.pg.exec(sql, params as any)))
 			}
 			executeWithoutTransform(sql: string, params: ReadonlyArray<unknown>) {
-				return this.run(this.pg.query(sql, params as any))
+				return this.loggedStatement("query", sql, params, this.run(this.pg.query(sql, params as any)))
 			}
 			executeValues(sql: string, params: ReadonlyArray<unknown>) {
 				return this.execute(sql, params, (r) => r.map((v) => Object.values(v) as any))
@@ -167,10 +210,15 @@ export const make = <TExtensions extends Extensions = Extensions>(
 				// PGlite doesn't have a cursor method like postgres.js
 				// We'll fetch all results at once and convert to a stream
 				return Stream.fromIterableEffect(
-					Effect.map(this.run(this.pg.query(sql, params as any)), (rows) => {
-						const result = transformRows ? transformRows(rows) : rows
-						return result
-					})
+					this.loggedStatement(
+						"query",
+						sql,
+						params,
+						Effect.map(this.run(this.pg.query(sql, params as any)), (rows) => {
+							const result = transformRows ? transformRows(rows) : rows
+							return result
+						})
+					)
 				)
 			}
 		}
