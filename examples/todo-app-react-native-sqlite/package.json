@@ -8,7 +8,7 @@
 		"dev:app": "pnpm start",
 		"android:reverse": "node scripts/adb-reverse.mjs",
 		"dev": "pnpm android:reverse && pnpm run --parallel --filter . \"/dev:(backend|server|app)/\"",
-		"start": "expo start",
+		"start": "expo start -c",
 		"android": "expo run:android",
 		"ios": "expo run:ios",
 		"web": "expo start --web",
@@ -16,6 +16,7 @@
 	},
 	"dependencies": {
 		"@effect/sql": "catalog:",
+		"@effect/sql-sqlite-react-native": "catalog:",
 		"@expo/metro-runtime": "~6.1.2",
 		"@op-engineering/op-sqlite": "15.2.2",
 		"@synchrotron/sync-client": "workspace:*",

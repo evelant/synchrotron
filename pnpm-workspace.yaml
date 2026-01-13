@@ -61,5 +61,6 @@ overrides:
   "@opentelemetry/semantic-conventions": "catalog:"
   "@op-engineering/op-sqlite": "15.2.2"
 patchedDependencies:
+  "@effect/sql-sqlite-react-native": patches/@effect__sql-sqlite-react-native.patch
   "@electric-sql/pglite-repl": patches/@electric-sql__pglite-repl.patch
 nodeLinker: hoisted

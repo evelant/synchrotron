@@ -32,11 +32,11 @@ Synchrotron moves the merge boundary up a level:
   - **Shared backend**: `examples/backend` (Postgres + Electric + Bun RPC server).
     - `pnpm -C examples/backend run up` (requires Docker)
     - `pnpm -C examples/backend run dev`
-	  - **Web + PGlite**: `examples/todo-app-web-pglite` (Bun build --watch + Bun static server; works online/offline; does not yet handle multiple tabs in the same window).
-	    - `pnpm -C examples/todo-app-web-pglite dev`
-	    - Open http://localhost:5173 in your browser
-	  - **React Native + SQLite**: `examples/todo-app-react-native-sqlite` (uses `@op-engineering/op-sqlite` via a small `@effect/sql` adapter; requires `expo prebuild`, not Expo Go).
-	    - `pnpm -C examples/todo-app-react-native-sqlite dev`
+  - **Web + PGlite**: `examples/todo-app-web-pglite` (Bun build --watch + Bun static server; works online/offline; does not yet handle multiple tabs in the same window).
+    - `pnpm -C examples/todo-app-web-pglite dev`
+    - Open http://localhost:5173 in your browser
+  - **React Native + SQLite (+ Web)**: `examples/todo-app-react-native-sqlite` (native uses `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web uses `@effect/sql-sqlite-wasm` via a `.web.ts` module).
+    - `pnpm -C examples/todo-app-react-native-sqlite dev`
 
 ## Capabilities
 
@@ -86,7 +86,9 @@ The client DB is selected by which `@effect/sql` driver layer you provide:
 
 - **PGlite** (browser): `makeSynchrotronClientLayer(...)` from `@synchrotron/sync-client`
 - **SQLite (WASM)**: `makeSynchrotronSqliteWasmClientLayer()` from `@synchrotron/sync-client`
-- **SQLite (React Native)**: `makeSynchrotronSqliteReactNativeClientLayer(sqliteConfig, config?)` from `@synchrotron/sync-client/react-native` (backed by `@op-engineering/op-sqlite`)
+- **SQLite (React Native / React Native Web)**: `makeSynchrotronSqliteReactNativeClientLayer(sqliteConfig, config?)` from `@synchrotron/sync-client/react-native` (native: `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web: `@effect/sql-sqlite-wasm` in-memory)
+
+Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlite-react-native` for `@op-engineering/op-sqlite@15.x` compatibility (see `patches/@effect__sql-sqlite-react-native.patch`).
 
 ## Networking
 
@@ -100,6 +102,7 @@ Synchrotron uses Effect's built-in logging + tracing.
 
 - `SyncService` wraps key sync phases in `Effect.withSpan(...)` and annotates logs with correlation IDs like `syncSessionId`, `applyBatchId`, and `sendBatchId`.
 - `@effect/sql-pglite` logs every executed SQL statement at `TRACE` as `pglite.statement.start` / `pglite.statement.end` / `pglite.statement.error` (statement text is truncated to keep logs readable).
+- The client/server RPC path logs structured `sync.network.*` / `rpc.*` events with action + patch counts (plus extra detail for `_InternalSyncApply` / SYNC deltas).
 
 ## Usage
 
@@ -108,6 +111,7 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
 1.  **Initialize the Sync Schema:** On clients, call `ClientDbAdapter.initializeSyncSchema` (provided by either `PostgresClientDbAdapter` or `SqliteClientDbAdapter`). On the Postgres backend, run `initializeDatabaseSchema` to also install server-only SQL functions used for patch-apply / rollback.
 2.  **Install Patch Capture:** Call `ClientDbAdapter.installPatchCapture([...])` during your database initialization for _all_ tables whose changes should be tracked and synchronized by the system. This installs patch-capture triggers (AFTER INSERT/UPDATE/DELETE) that write to `action_modified_rows` (dialect-specific implementation).
     - On SQLite, `installPatchCapture` should be called after any schema migrations that add/remove columns on tracked tables (it drops/recreates triggers from the current table schema).
+    - On SQLite, declare boolean columns as `BOOLEAN` (not `INTEGER`) so patch capture can encode booleans as JSON `true/false` (portable to Postgres); `0/1` numeric patches can cause false divergence and server-side apply failures.
     ```typescript
     // Example during setup:
     import { ClientDbAdapter } from "@synchrotron/sync-core"

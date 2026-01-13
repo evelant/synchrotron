@@ -9,7 +9,7 @@ import {
 	NetworkRequestError,
 	RemoteActionFetchError
 } from "@synchrotron/sync-core/SyncNetworkService"
-import { Effect, Layer } from "effect"
+import { Cause, Effect, Layer } from "effect"
 import { ServerConflictError, ServerInternalError, SyncServerService } from "./SyncServerService"
 
 export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
@@ -20,12 +20,18 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 			Effect.gen(function* (_) {
 				const clientId = payload.clientId
 
-				yield* Effect.logInfo(`FetchRemoteActionsHandler: ${clientId}`)
+				yield* Effect.logInfo("rpc.FetchRemoteActions.start", {
+					clientId,
+					sinceServerIngestId: payload.sinceServerIngestId
+				})
 				const result = yield* serverService.getActionsSince(clientId, payload.sinceServerIngestId)
 
-				yield* Effect.logInfo(
-					`Fetched ${result.actions.length} remote actions for client ${clientId} and ${result.modifiedRows.length} AMRs\n ${JSON.stringify(result.actions[0], null, 2)}`
-				)
+				yield* Effect.logDebug("rpc.FetchRemoteActions.result", {
+					clientId,
+					actionCount: result.actions.length,
+					amrCount: result.modifiedRows.length,
+					firstActionId: result.actions[0]?.id ?? null
+				})
 
 				// return { actions: [], modifiedRows: [] }
 				return {
@@ -34,7 +40,9 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					modifiedRows: result.modifiedRows
 				}
 			}).pipe(
-				Effect.tapErrorCause((c) => Effect.logError(`error in FetchRemoteActions handler`, c)),
+				Effect.tapErrorCause((c) =>
+					Effect.logError("rpc.FetchRemoteActions.error", { cause: Cause.pretty(c) })
+				),
 				Effect.catchTag("ServerInternalError", (e: ServerInternalError) =>
 					Effect.fail(
 						new RemoteActionFetchError({
@@ -43,19 +51,38 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 						})
 					)
 				),
+				Effect.annotateLogs({ rpcMethod: "FetchRemoteActions", clientId: payload.clientId }),
 				Effect.withSpan("RpcHandler.FetchRemoteActions")
 			)
 
 		const SendLocalActionsHandler = (payload: SendLocalActions) =>
 			Effect.gen(function* (_) {
-				yield* Effect.logInfo(`SendLocalActionsHandler`)
 				const clientId = payload.clientId
+
+				yield* Effect.logInfo("rpc.SendLocalActions.start", {
+					clientId,
+					actionCount: payload.actions.length,
+					amrCount: payload.amrs.length,
+					actionTags: payload.actions.reduce<Record<string, number>>((acc, a) => {
+						acc[a._tag] = (acc[a._tag] ?? 0) + 1
+						return acc
+					}, {}),
+					hasSyncDelta: payload.actions.some((a) => a._tag === "_InternalSyncApply")
+				})
 
 				yield* serverService.receiveActions(clientId, payload.actions, payload.amrs)
 
+				yield* Effect.logInfo("rpc.SendLocalActions.success", {
+					clientId,
+					actionCount: payload.actions.length,
+					amrCount: payload.amrs.length
+				})
+
 				return true
 			}).pipe(
-				Effect.tapErrorCause((c) => Effect.logError(`error in SendLocalActions handler`, c)),
+				Effect.tapErrorCause((c) =>
+					Effect.logError("rpc.SendLocalActions.error", { cause: Cause.pretty(c) })
+				),
 				Effect.catchTags({
 					ServerConflictError: (e: ServerConflictError) =>
 						Effect.fail(
@@ -72,6 +99,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 							})
 						)
 				}),
+				Effect.annotateLogs({ rpcMethod: "SendLocalActions", clientId: payload.clientId }),
 				Effect.withSpan("RpcHandler.SendLocalActions")
 			)
 

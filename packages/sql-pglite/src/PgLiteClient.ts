@@ -119,15 +119,19 @@ export const make = <TExtensions extends Extensions = Extensions>(
 			catch: (cause) => new SqlError({ cause, message: "PgliteClient: Failed to query" })
 		})
 
-		class ConnectionImpl implements Connection {
-			constructor(private readonly pg: PGlite) {}
+			class ConnectionImpl implements Connection {
+				constructor(private readonly pg: PGlite) {}
 
-			private run(query: Promise<any>) {
-				return Effect.tryPromise<ReadonlyArray<any>, SqlError>({
-					try: async () => (await query).rows,
-					catch: (cause) => new SqlError({ cause, message: "Failed to execute statement" })
-				})
-			}
+				private run(query: Promise<any>) {
+					return Effect.tryPromise<ReadonlyArray<any>, SqlError>({
+						try: async () => {
+							const result = await query
+							const rows = result && typeof result === "object" && "rows" in result ? (result as any).rows : []
+							return Array.isArray(rows) ? rows : []
+						},
+						catch: (cause) => new SqlError({ cause, message: "Failed to execute statement" })
+					})
+				}
 
 			private loggedStatement<A extends object>(
 				method: "query" | "exec",

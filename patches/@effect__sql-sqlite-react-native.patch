@@ -1,0 +1,59 @@
+diff --git a/dist/cjs/SqliteClient.js b/dist/cjs/SqliteClient.js
+index 4a94d05..8e16954 100644
+--- a/dist/cjs/SqliteClient.js
++++ b/dist/cjs/SqliteClient.js
+@@ -66,15 +66,15 @@ const make = options => Effect.gen(function* () {
+     const run = (sql, params = []) => Effect.withFiberRuntime(fiber => {
+       if (fiber.getFiberRef(asyncQuery)) {
+         return Effect.map(Effect.tryPromise({
+-          try: () => db.executeAsync(sql, params),
++          try: () => db.execute(sql, params),
+           catch: cause => new _SqlError.SqlError({
+             cause,
+             message: "Failed to execute statement (async)"
+           })
+-        }), result => result.rows?._array ?? []);
++        }), result => result.rows ?? []);
+       }
+       return Effect.try({
+-        try: () => db.execute(sql, params).rows?._array ?? [],
++        try: () => db.executeSync(sql, params).rows ?? [],
+         catch: cause => new _SqlError.SqlError({
+           cause,
+           message: "Failed to execute statement"
+diff --git a/dist/esm/SqliteClient.js b/dist/esm/SqliteClient.js
+index 8b50c5d..400fc36 100644
+--- a/dist/esm/SqliteClient.js
++++ b/dist/esm/SqliteClient.js
+@@ -57,15 +57,15 @@ export const make = options => Effect.gen(function* () {
+     const run = (sql, params = []) => Effect.withFiberRuntime(fiber => {
+       if (fiber.getFiberRef(asyncQuery)) {
+         return Effect.map(Effect.tryPromise({
+-          try: () => db.executeAsync(sql, params),
++          try: () => db.execute(sql, params),
+           catch: cause => new SqlError({
+             cause,
+             message: "Failed to execute statement (async)"
+           })
+-        }), result => result.rows?._array ?? []);
++        }), result => result.rows ?? []);
+       }
+       return Effect.try({
+-        try: () => db.execute(sql, params).rows?._array ?? [],
++        try: () => db.executeSync(sql, params).rows ?? [],
+         catch: cause => new SqlError({
+           cause,
+           message: "Failed to execute statement"
+diff --git a/package.json b/package.json
+index ab75dff..f7f3c82 100644
+--- a/package.json
++++ b/package.json
+@@ -11,7 +11,7 @@
+   "sideEffects": [],
+   "homepage": "https://effect.website",
+   "peerDependencies": {
+-    "@op-engineering/op-sqlite": "7.1.0",
++    "@op-engineering/op-sqlite": ">=12.0.0",
+     "@effect/experimental": "^0.58.0",
+     "effect": "^3.19.13",
+     "@effect/sql": "^0.49.0"

@@ -117,7 +117,6 @@ export const compareActionModifiedRows = (
 
 	// Check if we have the same set of row keys
 	if (lastColumnValuesA.size !== lastColumnValuesB.size) {
-		console.log(`AMR compare fail: Final state size mismatch ${lastColumnValuesA.size} vs ${lastColumnValuesB.size}`)
 		return false
 	}
 
@@ -125,7 +124,6 @@ export const compareActionModifiedRows = (
 	for (const [key, columnsA] of lastColumnValuesA) {
 		const columnsB = lastColumnValuesB.get(key)
 		if (!columnsB) {
-			console.log(`AMR compare fail: Row key ${key} missing in final state B`)
 			return false
 		}
 
@@ -133,9 +131,6 @@ export const compareActionModifiedRows = (
 		const operationA = operationsA.get(key)
 		const operationB = operationsB.get(key)
 		if (operationA !== operationB) {
-			console.log(
-				`AMR compare fail: Final operation mismatch for key ${key}: ${operationA} vs ${operationB}`
-			)
 			return false
 		}
 
@@ -151,9 +146,6 @@ export const compareActionModifiedRows = (
 			const valueB = columnsB[columnKey]
 
 			if (!deepObjectEquals(valueA, valueB)) {
-				console.log(`AMR compare fail: Final value differs for key ${key}, column ${columnKey}`)
-				console.log(`Column A value: ${JSON.stringify(valueA)}`)
-				console.log(`Column B value: ${JSON.stringify(valueB)}`)
 				return false
 			}
 		}

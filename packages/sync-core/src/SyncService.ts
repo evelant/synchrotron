@@ -36,6 +36,17 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		const deterministicId = yield* DeterministicId
 
 		const newTraceId = Effect.sync(() => crypto.randomUUID())
+		const valueKind = (value: unknown) =>
+			value === null ? "null" : Array.isArray(value) ? "array" : typeof value
+		const valuePreview = (value: unknown, maxLength = 300) => {
+			try {
+				const json = JSON.stringify(value)
+				return json.length <= maxLength ? json : `${json.slice(0, maxLength)}…`
+			} catch {
+				const str = String(value)
+				return str.length <= maxLength ? str : `${str.slice(0, maxLength)}…`
+			}
+		}
 		/**
 		 * Execute an action and record it for later synchronization
 		 *
@@ -649,38 +660,73 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					`SYNC delta check (generated - known): delta rows=${deltaRowKeys.length}, covered rows=${coveredRowKeys.length}`
 				)
 
-				if (hasSyncDelta) {
-					const deltaDetails = deltaRowKeys.map(({ table_name, row_id }) => {
-						const key = `${table_name}|${row_id}`
-						const generated = generatedFinalEffects.get(key)
-						const known = knownFinalEffects.get(key)
+					if (hasSyncDelta) {
+						const deltaDetails = deltaRowKeys.map(({ table_name, row_id }) => {
+							const key = `${table_name}|${row_id}`
+							const generated = generatedFinalEffects.get(key)
+							const known = knownFinalEffects.get(key)
 
-						const missingColumns: string[] = []
-						const differingColumns: string[] = []
+							const missingColumns: string[] = []
+							const differingColumns: string[] = []
+							const missingColumnDetails: Array<{
+								column: string
+								generatedKind: string
+								generatedPreview: string
+							}> = []
+							const differingColumnDetails: Array<{
+								column: string
+								generatedKind: string
+								generatedPreview: string
+								knownKind: string
+								knownPreview: string
+							}> = []
 
-						if (generated?.operation === "DELETE") {
-							if (known?.operation !== "DELETE") differingColumns.push("_operation")
-						} else {
-							for (const [columnKey, replayValue] of Object.entries(generated?.columns ?? {})) {
-								if (!known || !Object.prototype.hasOwnProperty.call(known.columns, columnKey)) {
-									missingColumns.push(columnKey)
-									continue
+							if (generated?.operation === "DELETE") {
+								if (known?.operation !== "DELETE") {
+									differingColumns.push("_operation")
+									differingColumnDetails.push({
+										column: "_operation",
+										generatedKind: "string",
+										generatedPreview: valuePreview(generated.operation),
+										knownKind: "string",
+										knownPreview: valuePreview(known?.operation ?? "UNKNOWN")
+									})
 								}
-								if (!deepObjectEquals(replayValue, known.columns[columnKey])) {
-									differingColumns.push(columnKey)
+							} else {
+								for (const [columnKey, replayValue] of Object.entries(generated?.columns ?? {})) {
+									if (!known || !Object.prototype.hasOwnProperty.call(known.columns, columnKey)) {
+										missingColumns.push(columnKey)
+										missingColumnDetails.push({
+											column: columnKey,
+											generatedKind: valueKind(replayValue),
+											generatedPreview: valuePreview(replayValue)
+										})
+										continue
+									}
+									if (!deepObjectEquals(replayValue, known.columns[columnKey])) {
+										differingColumns.push(columnKey)
+										differingColumnDetails.push({
+											column: columnKey,
+											generatedKind: valueKind(replayValue),
+											generatedPreview: valuePreview(replayValue),
+											knownKind: valueKind(known.columns[columnKey]),
+											knownPreview: valuePreview(known.columns[columnKey])
+										})
+									}
 								}
 							}
-						}
 
-						return {
-							table_name,
-							row_id,
-							generatedOperation: generated?.operation ?? "UNKNOWN",
-							knownOperation: known?.operation ?? "UNKNOWN",
-							missingColumns,
-							differingColumns
-						}
-					})
+							return {
+								table_name,
+								row_id,
+								generatedOperation: generated?.operation ?? "UNKNOWN",
+								knownOperation: known?.operation ?? "UNKNOWN",
+								missingColumns,
+								differingColumns,
+								missingColumnDetails,
+								differingColumnDetails
+							}
+						})
 
 					yield* Effect.logWarning("applyActionRecords.syncDeltaDetected", {
 						applyBatchId,
@@ -801,44 +847,100 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						if (actionsToSend.length === 0) {
 							yield* Effect.logDebug("sendLocalActions.noop", { sendBatchId })
 							return []
-						}
+							}
 
-						yield* Effect.logInfo("sendLocalActions.sending", {
-							sendBatchId,
-							actionCount: actionsToSend.length,
-							amrCount: amrs.length,
-							actions: actionsToSend.map((a) => ({ id: a.id, _tag: a._tag, client_id: a.client_id }))
-						})
+							const actionTags = actionsToSend.reduce<Record<string, number>>((acc, action) => {
+								acc[action._tag] = (acc[action._tag] ?? 0) + 1
+								return acc
+							}, {})
+							const amrCountsByActionRecordId: Record<string, number> = {}
+							for (const amr of amrs) {
+								amrCountsByActionRecordId[amr.action_record_id] =
+									(amrCountsByActionRecordId[amr.action_record_id] ?? 0) + 1
+							}
 
-						yield* syncNetworkService.sendLocalActions(actionsToSend, amrs).pipe(
-							Effect.withSpan("SyncNetworkService.sendLocalActions", {
-								attributes: {
-									clientId,
+							yield* Effect.logInfo("sendLocalActions.sending", {
+								sendBatchId,
+								actionCount: actionsToSend.length,
+								amrCount: amrs.length,
+								actionTags,
+								hasSyncDelta: actionsToSend.some((a) => a._tag === "_InternalSyncApply"),
+								actions: actionsToSend.map((a) => ({
+									id: a.id,
+									_tag: a._tag,
+									client_id: a.client_id,
+									clock: a.clock
+								})),
+								amrCountsByActionRecordId
+							})
+
+							const syncActionIds = actionsToSend
+								.filter((a) => a._tag === "_InternalSyncApply")
+								.map((a) => a.id)
+							if (syncActionIds.length > 0) {
+								const syncActionIdSet = new Set(syncActionIds)
+								const syncAmrPreview = amrs
+									.filter((amr) => syncActionIdSet.has(amr.action_record_id))
+									.slice(0, 10)
+									.map((amr) => ({
+										id: amr.id,
+										table_name: amr.table_name,
+										row_id: amr.row_id,
+										operation: amr.operation,
+										forward_patches: valuePreview(amr.forward_patches),
+										reverse_patches: valuePreview(amr.reverse_patches)
+									}))
+								yield* Effect.logDebug("sendLocalActions.syncDelta.preview", {
+									sendBatchId,
+									syncActionIds,
+									syncAmrPreview
+								})
+							}
+
+							yield* syncNetworkService.sendLocalActions(actionsToSend, amrs).pipe(
+								Effect.withSpan("SyncNetworkService.sendLocalActions", {
+									attributes: {
+										clientId,
 									sendBatchId,
 									actionCount: actionsToSend.length,
 									amrCount: amrs.length
 								}
-							}),
-							Effect.catchAll((error) =>
-								Effect.gen(function* () {
-									if (error instanceof NetworkRequestError) {
-										yield* Effect.logWarning(`Failed to send actions to server: ${error.message}`)
-									}
-									return yield* Effect.fail(
-										new SyncError({
-											message: `Failed to send actions to server: ${error.message}`,
-											cause: error
+								}),
+								Effect.catchAll((error) =>
+									Effect.gen(function* () {
+										const errorMessage = error instanceof Error ? error.message : String(error)
+										yield* Effect.logError("sendLocalActions.sendFailed", {
+											sendBatchId,
+											actionCount: actionsToSend.length,
+											amrCount: amrs.length,
+											actionTags,
+											errorMessage,
+											error
 										})
-									)
+										if (error instanceof NetworkRequestError) {
+											yield* Effect.logWarning("sendLocalActions.networkError", {
+												sendBatchId,
+												message: error.message,
+												cause: error.cause ?? null
+											})
+										}
+										return yield* Effect.fail(
+											new SyncError({
+												message: `Failed to send actions to server: ${errorMessage}`,
+												cause: error
+											})
+										)
+									})
+							)
+							)
+							for (const action of actionsToSend) {
+								yield* actionRecordRepo.markAsSynced(action.id)
+								yield* Effect.logDebug("sendLocalActions.markedSynced", {
+									sendBatchId,
+									actionId: action.id,
+									actionTag: action._tag
 								})
-							)
-						)
-						for (const action of actionsToSend) {
-							yield* actionRecordRepo.markAsSynced(action.id)
-							yield* Effect.logDebug(
-								`Marked action ${action.id} (${action._tag}) as synced after send.`
-							)
-						}
+							}
 						yield* clockService.updateLastSyncedClock()
 
 						return actionsToSend // Return the actions that were handled

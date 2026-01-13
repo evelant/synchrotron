@@ -42,6 +42,9 @@ overrides:
   '@op-engineering/op-sqlite': 15.2.2
 
 patchedDependencies:
+  '@effect/sql-sqlite-react-native':
+    hash: 3e4cc6fdb52be1dae0aab6a8e7fc083d86e7d673c7f25bd4e6fea38fddc92ae0
+    path: patches/@effect__sql-sqlite-react-native.patch
   '@electric-sql/pglite-repl':
     hash: 1af85463dadd5c267a16f6bebff8cbf3907d0fc1f753f8e5e55a8144e3d6de1e
     path: patches/@electric-sql__pglite-repl.patch
@@ -141,6 +144,9 @@ importers:
       '@effect/sql':
         specifier: ~0.49.0
         version: 0.49.0(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14)
+      '@effect/sql-sqlite-react-native':
+        specifier: ~0.52.0
+        version: 0.52.0(patch_hash=3e4cc6fdb52be1dae0aab6a8e7fc083d86e7d673c7f25bd4e6fea38fddc92ae0)(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/sql@0.49.0(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@op-engineering/op-sqlite@15.2.2(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(effect@3.19.14)
       '@expo/metro-runtime':
         specifier: ~6.1.2
         version: 6.1.2(expo@54.0.31)(react-dom@19.1.0(react@19.1.0))(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
@@ -467,6 +473,9 @@ importers:
         specifier: '*'
         version: 0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.3)
     devDependencies:
+      '@effect/sql-sqlite-react-native':
+        specifier: ~0.52.0
+        version: 0.52.0(patch_hash=3e4cc6fdb52be1dae0aab6a8e7fc083d86e7d673c7f25bd4e6fea38fddc92ae0)(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/sql@0.49.0(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@op-engineering/op-sqlite@15.2.2(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.3))(react@19.2.3))(effect@3.19.14)
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
@@ -1323,6 +1332,14 @@ packages:
       '@effect/experimental': ~0.58.0
       '@effect/platform': ~0.94.1
       '@effect/sql': ~0.49.0
+      effect: ~3.19.14
+
+  '@effect/sql-sqlite-react-native@0.52.0':
+    resolution: {integrity: sha512-m4DTr6txmlPXz51hDoMEiRV606toUx+ayHMxOpiJuJ/yA3zOi/dS9Fi6IYOgSGEZ8FwKKulNF3sKHmNf4buRgw==}
+    peerDependencies:
+      '@effect/experimental': ~0.58.0
+      '@effect/sql': ~0.49.0
+      '@op-engineering/op-sqlite': 15.2.2
       effect: ~3.19.14
 
   '@effect/sql-sqlite-wasm@0.50.0':
@@ -8676,6 +8693,20 @@ snapshots:
       '@effect/platform': 0.94.1(effect@3.19.14)
       '@effect/sql': 0.49.0(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14)
       better-sqlite3: 11.10.0
+      effect: 3.19.14
+
+  '@effect/sql-sqlite-react-native@0.52.0(patch_hash=3e4cc6fdb52be1dae0aab6a8e7fc083d86e7d673c7f25bd4e6fea38fddc92ae0)(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/sql@0.49.0(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@op-engineering/op-sqlite@15.2.2(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(effect@3.19.14)':
+    dependencies:
+      '@effect/experimental': 0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14)
+      '@effect/sql': 0.49.0(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14)
+      '@op-engineering/op-sqlite': 15.2.2(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      effect: 3.19.14
+
+  '@effect/sql-sqlite-react-native@0.52.0(patch_hash=3e4cc6fdb52be1dae0aab6a8e7fc083d86e7d673c7f25bd4e6fea38fddc92ae0)(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/sql@0.49.0(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@op-engineering/op-sqlite@15.2.2(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.3))(react@19.2.3))(effect@3.19.14)':
+    dependencies:
+      '@effect/experimental': 0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14)
+      '@effect/sql': 0.49.0(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14)
+      '@op-engineering/op-sqlite': 15.2.2(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.3))(react@19.2.3)
       effect: 3.19.14
 
   '@effect/sql-sqlite-wasm@0.50.0(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/sql@0.49.0(@effect/experimental@0.58.0(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/platform@0.94.1(effect@3.19.14))(effect@3.19.14))(@effect/wa-sqlite@0.2.1)(effect@3.19.14)':

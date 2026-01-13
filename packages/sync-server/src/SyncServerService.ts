@@ -6,7 +6,7 @@ import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
-import { Data, Effect, Schema } from "effect"
+import { Cause, Data, Effect, Schema } from "effect"
 
 export class ServerConflictError extends Data.TaggedError("ServerConflictError")<{
 	readonly message: string
@@ -70,16 +70,26 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			clientId: string,
 			actions: readonly ActionRecord[],
 			amrs: readonly ActionModifiedRow[]
-		) =>
-			Effect.gen(function* () {
-				const sql = yield* PgClient.PgClient
-				yield* Effect.logInfo(
-					`Server: receiveActions called by ${clientId} with ${actions.length} actions.`
-				)
-				if (actions.length === 0) {
-					yield* Effect.logDebug("Server: No incoming actions to process.")
-					return
-				}
+			) =>
+				Effect.gen(function* () {
+					const sql = yield* PgClient.PgClient
+					const actionTags = actions.reduce<Record<string, number>>((acc, action) => {
+						acc[action._tag] = (acc[action._tag] ?? 0) + 1
+						return acc
+					}, {})
+					const hasSyncDelta = actions.some((a) => a._tag === "_InternalSyncApply")
+
+					yield* Effect.logInfo("server.receiveActions.start", {
+						clientId,
+						actionCount: actions.length,
+						amrCount: amrs.length,
+						actionTags,
+						hasSyncDelta
+					})
+					if (actions.length === 0) {
+						yield* Effect.logDebug("server.receiveActions.noop", { clientId })
+						return
+					}
 
 				if (amrs.length > 0) {
 					const affectedRowKeys = amrs.map((r) => ({
@@ -105,9 +115,12 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						return yield* Effect.die("Incoming actions must have a clock for conflict check")
 					}
 
-					yield* Effect.logDebug(
-						`Server: Checking for conflicts newer than ${JSON.stringify(latestIncomingClock)} affecting rows: ${JSON.stringify(affectedRowKeys)}`
-					)
+						yield* Effect.logDebug("server.receiveActions.conflictCheck.start", {
+							clientId,
+							latestIncomingClock,
+							affectedRowCount: affectedRowKeys.length,
+							affectedRowPreview: affectedRowKeys.slice(0, 20)
+						})
 
 					const conflictingServerActions = yield* sql<ActionRecord>`
 							WITH conflicting_rows AS (
@@ -126,29 +139,38 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						)
 					)
 
-					if (conflictingServerActions.length > 0) {
-						yield* Effect.logWarning(
-							`Server: Conflict detected for client ${clientId}. ${conflictingServerActions.length} newer server actions affect the same rows.`
-						)
-						return yield* Effect.fail(
-							new ServerConflictError({
-								message: `Conflict detected: ${conflictingServerActions.length} newer server actions affect the same rows. Client must reconcile.`,
-								conflictingActions: conflictingServerActions
+						if (conflictingServerActions.length > 0) {
+							yield* Effect.logWarning("server.receiveActions.conflictCheck.conflict", {
+								clientId,
+								conflictCount: conflictingServerActions.length,
+								conflictingActions: conflictingServerActions.slice(0, 25).map((a) => ({
+									id: a.id,
+									_tag: a._tag,
+									client_id: a.client_id,
+									clock: a.clock,
+									server_ingest_id: a.server_ingest_id
+								}))
 							})
-						)
+							return yield* Effect.fail(
+								new ServerConflictError({
+									message: `Conflict detected: ${conflictingServerActions.length} newer server actions affect the same rows. Client must reconcile.`,
+									conflictingActions: conflictingServerActions
+								})
+							)
+						}
+						yield* Effect.logDebug("server.receiveActions.conflictCheck.ok", { clientId })
 					}
-					yield* Effect.logDebug("Server: No conflicts detected.")
-				}
 
-				yield* Effect.gen(function* () {
-					const incomingRollbacks = actions.filter((a) => a._tag === "RollbackAction")
-					if (incomingRollbacks.length > 0) {
-						yield* Effect.logInfo(
-							`Server: Received ${incomingRollbacks.length} RollbackAction(s) from ${clientId}. Determining oldest target.`
-						)
-						const targetActionIds = incomingRollbacks.map(
-							(rb) => rb.args["target_action_id"] as string
-						)
+					yield* Effect.gen(function* () {
+						const incomingRollbacks = actions.filter((a) => a._tag === "RollbackAction")
+						if (incomingRollbacks.length > 0) {
+							yield* Effect.logInfo("server.receiveActions.rollback.detected", {
+								clientId,
+								rollbackCount: incomingRollbacks.length
+							})
+							const targetActionIds = incomingRollbacks.map(
+								(rb) => rb.args["target_action_id"] as string
+							)
 
 						if (targetActionIds.length > 0 && targetActionIds.every((id) => id)) {
 							const targetActions = yield* sql<ActionRecord>`
@@ -160,13 +182,14 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 									.map((a) => ({ clock: a.clock, clientId: a.client_id, id: a.id }))
 									.sort((a, b) => clockService.compareClock(a, b))
 
-								const oldestTargetAction = sortedTargets[0]
-								if (oldestTargetAction) {
-									yield* Effect.logInfo(
-										`Server: Rolling back server state to target action: ${oldestTargetAction.id}`
-									)
-									yield* sql`SELECT rollback_to_action(${oldestTargetAction.id})`
-								} else {
+									const oldestTargetAction = sortedTargets[0]
+									if (oldestTargetAction) {
+										yield* Effect.logInfo("server.receiveActions.rollback.apply", {
+											clientId,
+											targetActionId: oldestTargetAction.id
+										})
+										yield* sql`SELECT rollback_to_action(${oldestTargetAction.id})`
+									} else {
 									yield* Effect.logWarning(
 										"Server: Could not determine the oldest target action for rollback."
 									)
@@ -236,9 +259,12 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							})
 							const sortedAmrIdsToApply = sortedAmrs.map((amr) => amr.id)
 
-							yield* Effect.logDebug(
-								`Server: Applying forward patches for ${sortedAmrIdsToApply.length} AMRs in HLC order: [${sortedAmrIdsToApply.join(", ")}]`
-							)
+							yield* Effect.logDebug("server.receiveActions.applyForward.start", {
+								clientId,
+								amrCount: sortedAmrIdsToApply.length,
+								amrIdsPreview: sortedAmrIdsToApply.slice(0, 50)
+							})
+
 							yield* Effect.acquireUseRelease(
 								sql`SELECT set_config('sync.disable_trigger', 'true', true)`,
 								() => sql`SELECT apply_forward_amr_batch(${sql.array(sortedAmrIdsToApply)})`,
@@ -246,11 +272,22 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 									sql`SELECT set_config('sync.disable_trigger', 'false', true)`.pipe(
 										Effect.catchAll(Effect.logError)
 									)
-							).pipe(sql.withTransaction)
-						} else {
-							yield* Effect.logDebug(
-								"Server: No forward patches to apply after filtering rollbacks."
+							).pipe(
+								sql.withTransaction,
+								Effect.tapErrorCause((cause) =>
+									Effect.logError("server.receiveActions.applyForward.error", {
+										clientId,
+										amrCount: sortedAmrIdsToApply.length,
+										amrIdsPreview: sortedAmrIdsToApply.slice(0, 50),
+										cause: Cause.pretty(cause)
+									})
+								),
+								Effect.withSpan("SyncServerService.applyForwardPatches", {
+									attributes: { clientId, amrCount: sortedAmrIdsToApply.length }
+								})
 							)
+						} else {
+							yield* Effect.logDebug("server.receiveActions.applyForward.noop", { clientId })
 						}
 					}
 				}).pipe(
@@ -263,10 +300,13 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					)
 				)
 
-				yield* Effect.logInfo(
-					`Server: Successfully processed ${actions.length} actions from client ${clientId}.`
-				)
-			}).pipe(
+					yield* Effect.logInfo("server.receiveActions.success", {
+						clientId,
+						actionCount: actions.length,
+						amrCount: amrs.length,
+						actionTags
+					})
+				}).pipe(
 				sql.withTransaction,
 				Effect.catchAll((error) => {
 					// Check specific error types first
@@ -284,29 +324,32 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							cause: unknownError // Keep original error as cause
 						})
 					)
-				}),
-				Effect.annotateLogs({ serverOperation: "receiveActions", requestingClientId: clientId })
-			)
-
-		const getActionsSince = (clientId: string, sinceServerIngestId: number) =>
-			Effect.gen(function* () {
-				const sql = yield* PgClient.PgClient
-				yield* Effect.logDebug(
-					`Server: getActionsSince called by ${clientId} since server_ingest_id ${sinceServerIngestId}`
+					}),
+					Effect.annotateLogs({ serverOperation: "receiveActions", requestingClientId: clientId }),
+					Effect.withSpan("SyncServerService.receiveActions", {
+						attributes: { clientId, actionCount: actions.length, amrCount: amrs.length }
+					})
 				)
-				const actions = yield* findActionsSince({ clientId, sinceServerIngestId }).pipe(
-					Effect.mapError(
-						(error) =>
-							new ServerInternalError({
+
+			const getActionsSince = (clientId: string, sinceServerIngestId: number) =>
+				Effect.gen(function* () {
+					const sql = yield* PgClient.PgClient
+					yield* Effect.logDebug("server.getActionsSince.start", { clientId, sinceServerIngestId })
+					const actions = yield* findActionsSince({ clientId, sinceServerIngestId }).pipe(
+						Effect.mapError(
+							(error) =>
+								new ServerInternalError({
 								message: `Database error fetching actions: ${error.message}`,
 								cause: error
 							})
 					)
 				)
 
-				yield* Effect.logDebug(
-					`Server: Found ${actions.length} actions newer than client ${clientId}'s server_ingest_id cursor.`
-				)
+				yield* Effect.logDebug("server.getActionsSince.actions", {
+					clientId,
+					sinceServerIngestId,
+					actionCount: actions.length
+				})
 
 				let modifiedRows: readonly ActionModifiedRow[] = []
 				if (actions.length > 0) {
@@ -320,9 +363,11 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 								})
 						)
 					)
-					yield* Effect.logDebug(
-						`Server: Found ${modifiedRows.length} modified rows for ${actions.length} actions.`
-					)
+					yield* Effect.logDebug("server.getActionsSince.modifiedRows", {
+						clientId,
+						actionCount: actions.length,
+						amrCount: modifiedRows.length
+					})
 				}
 
 				const serverClock = yield* clockService.getClientClock.pipe(
@@ -337,6 +382,10 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 
 				return { actions, modifiedRows, serverClock }
 			}).pipe(
+				Effect.annotateLogs({ serverOperation: "getActionsSince", requestingClientId: clientId }),
+				Effect.withSpan("SyncServerService.getActionsSince", {
+					attributes: { clientId, sinceServerIngestId }
+				}),
 				Effect.catchAll((error) => {
 					const unknownError = error as unknown
 					if (unknownError instanceof ServerInternalError) {

@@ -9,7 +9,7 @@ const createTodoTables = Effect.gen(function* () {
 		CREATE TABLE IF NOT EXISTS todos (
 			id TEXT PRIMARY KEY,
 			text TEXT NOT NULL,
-			completed INTEGER NOT NULL DEFAULT 0,
+			completed BOOLEAN NOT NULL DEFAULT FALSE,
 			owner_id TEXT NOT NULL
 		);
 	`.raw

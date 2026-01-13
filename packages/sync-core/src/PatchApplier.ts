@@ -86,6 +86,14 @@ const applyForwardAmr = (
 	amr: ActionModifiedRow
 ): Effect.Effect<void, SqlError.SqlError> =>
 	Effect.gen(function* () {
+		yield* Effect.logTrace("patch.applyForward.start", {
+			amrId: amr.id,
+			actionRecordId: amr.action_record_id,
+			operation: amr.operation,
+			table_name: amr.table_name,
+			row_id: amr.row_id,
+			forwardPatchKeyCount: Object.keys(amr.forward_patches).length
+		})
 		const table = sql(amr.table_name)
 
 		if (amr.operation === "DELETE") {
@@ -114,13 +122,31 @@ const applyForwardAmr = (
 			SET ${sql.update(toPatchSqlRecord(sql, patches))}
 			WHERE id = ${amr.row_id}
 		`
-	})
+	}).pipe(
+		Effect.annotateLogs({
+			amrId: amr.id,
+			operation: amr.operation,
+			table_name: amr.table_name,
+			row_id: amr.row_id
+		}),
+		Effect.withSpan("PatchApplier.applyForwardAmr", {
+			attributes: { amrId: amr.id, operation: amr.operation, table_name: amr.table_name }
+		})
+	)
 
 const applyReverseAmr = (
 	sql: SqlClient.SqlClient,
 	amr: ActionModifiedRow
 ): Effect.Effect<void, SqlError.SqlError> =>
 	Effect.gen(function* () {
+		yield* Effect.logTrace("patch.applyReverse.start", {
+			amrId: amr.id,
+			actionRecordId: amr.action_record_id,
+			operation: amr.operation,
+			table_name: amr.table_name,
+			row_id: amr.row_id,
+			reversePatchKeyCount: Object.keys(amr.reverse_patches).length
+		})
 		const table = sql(amr.table_name)
 
 		if (amr.operation === "INSERT") {
@@ -151,24 +177,36 @@ const applyReverseAmr = (
 			SET ${sql.update(toPatchSqlRecord(sql, patches))}
 			WHERE id = ${amr.row_id}
 		`
-	})
+	}).pipe(
+		Effect.annotateLogs({
+			amrId: amr.id,
+			operation: amr.operation,
+			table_name: amr.table_name,
+			row_id: amr.row_id
+		}),
+		Effect.withSpan("PatchApplier.applyReverseAmr", {
+			attributes: { amrId: amr.id, operation: amr.operation, table_name: amr.table_name }
+		})
+	)
 
 export const applyForwardAmrs = (
 	amrs: readonly ActionModifiedRow[]
 ): Effect.Effect<void, SqlError.SqlError, SqlClient.SqlClient> =>
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
+		yield* Effect.logDebug("patch.applyForward.batch", { amrCount: amrs.length })
 		for (const amr of amrs) {
 			yield* applyForwardAmr(sql, amr)
 		}
-	})
+	}).pipe(Effect.withSpan("PatchApplier.applyForwardAmrs", { attributes: { amrCount: amrs.length } }))
 
 export const applyReverseAmrs = (
 	amrs: readonly ActionModifiedRow[]
 ): Effect.Effect<void, SqlError.SqlError, SqlClient.SqlClient> =>
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
+		yield* Effect.logDebug("patch.applyReverse.batch", { amrCount: amrs.length })
 		for (const amr of amrs) {
 			yield* applyReverseAmr(sql, amr)
 		}
-	})
+	}).pipe(Effect.withSpan("PatchApplier.applyReverseAmrs", { attributes: { amrCount: amrs.length } }))

@@ -19,8 +19,14 @@ export const SqliteClientDbAdapter = Layer.effect(
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
 		yield* ensureSqliteDialect(sql)
+		const dbDialect = "sqlite" as const
 
-		const initializeSyncSchema: Effect.Effect<void, SqlError.SqlError | Error> = Effect.gen(function* () {
+		const initializeSyncSchema: Effect.Effect<void, SqlError.SqlError | Error> = Effect.logDebug(
+			"clientDbAdapter.initializeSyncSchema.start",
+			{ dbDialect }
+		).pipe(
+			Effect.zipRight(
+				Effect.gen(function* () {
 			// better-sqlite3 (used by @effect/sql-sqlite-node) cannot prepare multi-statement SQL.
 			// Execute the schema file one statement at a time.
 			for (const statement of createSyncTablesSqliteSQL
@@ -46,8 +52,12 @@ export const SqliteClientDbAdapter = Layer.effect(
 				VALUES (NULL, 0, 0)
 			`.raw
 
-			yield* Effect.logInfo("SQLite client database schema initialization complete")
-		})
+			yield* Effect.logInfo("clientDbAdapter.initializeSyncSchema.done", { dbDialect })
+				})
+			),
+			Effect.annotateLogs({ dbDialect }),
+			Effect.withSpan("ClientDbAdapter.initializeSyncSchema", { attributes: { dbDialect } })
+		)
 
 		const quoteSqliteIdentifier = (identifier: string) =>
 			`"${identifier.replaceAll("\"", "\"\"").replaceAll(".", "\".\"")}"`
@@ -57,10 +67,10 @@ export const SqliteClientDbAdapter = Layer.effect(
 			return `sync_patches_${base}_${op}`.slice(0, 60)
 		}
 
-		const createSqlitePatchTriggersForTable = (tableName: string) =>
-			Effect.gen(function* () {
-				const columns = yield* sql<{ name: string }>`
-					SELECT name FROM pragma_table_info(${tableName})
+			const createSqlitePatchTriggersForTable = (tableName: string) =>
+				Effect.gen(function* () {
+				const columns = yield* sql<{ name: string; type: string | null }>`
+					SELECT name, type FROM pragma_table_info(${tableName})
 				`
 				if (columns.length === 0) {
 					return yield* Effect.fail(
@@ -69,6 +79,11 @@ export const SqliteClientDbAdapter = Layer.effect(
 				}
 
 				const columnNames = columns.map((c) => c.name)
+				const booleanColumnNames = new Set(
+					columns
+						.filter((c) => (c.type ?? "").toLowerCase().includes("bool"))
+						.map((c) => c.name)
+				)
 				const hasId = columnNames.some((c) => c.toLowerCase() === "id")
 				if (!hasId) {
 					return yield* Effect.fail(
@@ -80,10 +95,16 @@ export const SqliteClientDbAdapter = Layer.effect(
 
 				const tableIdent = quoteSqliteIdentifier(tableName)
 
+				const sqliteJsonValue = (prefix: "NEW" | "OLD", columnName: string) => {
+					const columnRef = `${prefix}.${quoteSqliteIdentifier(columnName)}`
+					if (!booleanColumnNames.has(columnName)) return columnRef
+					return `CASE WHEN ${columnRef} IS NULL THEN NULL WHEN ${columnRef} != 0 THEN json('true') ELSE json('false') END`
+				}
+
 				const jsonObjectFor = (prefix: "NEW" | "OLD") => {
 					const parts: string[] = []
 					for (const col of columnNames) {
-						parts.push(`'${col.replaceAll("'", "''")}', ${prefix}.${quoteSqliteIdentifier(col)}`)
+						parts.push(`'${col.replaceAll("'", "''")}', ${sqliteJsonValue(prefix, col)}`)
 					}
 					return `json_object(${parts.join(", ")})`
 				}
@@ -98,15 +119,16 @@ export const SqliteClientDbAdapter = Layer.effect(
 								)
 								.join(" OR ")
 
-				const jsonPatchChain = (prefix: "NEW" | "OLD") => {
-					let expr = `'{}'`
-					for (const col of nonIdColumns) {
-						const colLiteral = col.replaceAll("'", "''")
-						const colIdent = quoteSqliteIdentifier(col)
-						expr = `json_patch(${expr}, CASE WHEN OLD.${colIdent} IS NOT NEW.${colIdent} THEN json_object('${colLiteral}', ${prefix}.${colIdent}) ELSE '{}' END)`
+					const jsonPatchChain = (prefix: "NEW" | "OLD") => {
+						let expr = `'{}'`
+						for (const col of nonIdColumns) {
+							const colLiteral = col.replaceAll("'", "''")
+							const colIdent = quoteSqliteIdentifier(col)
+							const valueExpr = sqliteJsonValue(prefix, col)
+							expr = `json_patch(${expr}, CASE WHEN OLD.${colIdent} IS NOT NEW.${colIdent} THEN json_object('${colLiteral}', ${valueExpr}) ELSE '{}' END)`
+						}
+						return expr
 					}
-					return expr
-				}
 
 				const triggerInsertName = sqliteTriggerName(tableName, "insert")
 				const triggerUpdateName = sqliteTriggerName(tableName, "update")
@@ -231,36 +253,71 @@ END;
 				yield* sql.unsafe(`DROP TRIGGER IF EXISTS ${quoteSqliteIdentifier(triggerDeleteName)}`).raw
 				yield* sql.unsafe(deleteTriggerSql).raw
 
-				yield* Effect.logInfo(`SQLite patch triggers installed for table: ${tableName}`)
+				yield* Effect.logInfo("clientDbAdapter.installPatchCapture.table", {
+					dbDialect,
+					tableName,
+					triggers: {
+						insert: triggerInsertName,
+						update: triggerUpdateName,
+						delete: triggerDeleteName
+					}
+				})
 			})
 
 		const installPatchCapture = (
 			tableNames: ReadonlyArray<string>
 		): Effect.Effect<void, SqlError.SqlError | Error> =>
-			Effect.all(
-				Array.from(tableNames).map((t) => createSqlitePatchTriggersForTable(t)),
-				{ concurrency: 1 }
-			).pipe(Effect.asVoid)
+			Effect.logDebug("clientDbAdapter.installPatchCapture.start", {
+				dbDialect,
+				tableCount: tableNames.length,
+				tables: tableNames
+			}).pipe(
+				Effect.zipRight(
+					Effect.all(
+						Array.from(tableNames).map((t) => createSqlitePatchTriggersForTable(t)),
+						{ concurrency: 1 }
+					).pipe(Effect.asVoid)
+				),
+				Effect.annotateLogs({ dbDialect }),
+				Effect.withSpan("ClientDbAdapter.installPatchCapture", {
+					attributes: { dbDialect, tableCount: tableNames.length }
+				})
+			)
 
 		const setCaptureContext = (
 			actionRecordId: string | null
 		): Effect.Effect<void, SqlError.SqlError | Error> =>
-			Effect.gen(function* () {
-				yield* sql`
-					UPDATE sync_context
-					SET capture_action_record_id = ${actionRecordId}, sequence = 0
-				`
-			})
+			Effect.logTrace("clientDbAdapter.setCaptureContext", {
+				dbDialect,
+				actionRecordId: actionRecordId ?? null
+			}).pipe(
+				Effect.zipRight(
+					sql`
+						UPDATE sync_context
+						SET capture_action_record_id = ${actionRecordId}, sequence = 0
+					`.pipe(Effect.asVoid)
+				),
+				Effect.annotateLogs({ dbDialect, captureActionRecordId: actionRecordId ?? null }),
+				Effect.withSpan("ClientDbAdapter.setCaptureContext", {
+					attributes: { dbDialect, hasCaptureContext: actionRecordId != null }
+				})
+			)
 
 		const setPatchTrackingEnabled = (
 			enabled: boolean
 		): Effect.Effect<void, SqlError.SqlError | Error> =>
-			Effect.gen(function* () {
-				yield* sql`
-					UPDATE sync_context
-					SET disable_tracking = ${enabled ? 0 : 1}
-				`
-			})
+			Effect.logTrace("clientDbAdapter.setPatchTrackingEnabled", { dbDialect, enabled }).pipe(
+				Effect.zipRight(
+					sql`
+						UPDATE sync_context
+						SET disable_tracking = ${enabled ? 0 : 1}
+					`.pipe(Effect.asVoid)
+				),
+				Effect.annotateLogs({ dbDialect, patchTrackingEnabled: enabled }),
+				Effect.withSpan("ClientDbAdapter.setPatchTrackingEnabled", {
+					attributes: { dbDialect, patchTrackingEnabled: enabled }
+				})
+			)
 
 		const withPatchTrackingDisabled = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 			setPatchTrackingEnabled(false).pipe(
