@@ -1,4 +1,5 @@
 import { SqlClient, type SqlError } from "@effect/sql"
+import * as SqlStatement from "@effect/sql/Statement"
 import { Effect, Layer } from "effect"
 import createSyncTablesSqliteSQL from "./db/sql/schema/create_sync_tables_sqlite"
 import { ClientDbAdapter } from "./ClientDbAdapter"
@@ -14,7 +15,31 @@ const ensureSqliteDialect = (sql: SqlClient.SqlClient) =>
 			)
 	})
 
-export const SqliteClientDbAdapter = Layer.effect(
+const SqliteBooleanBindCoercion = SqlStatement.setTransformer((self, sql) =>
+	Effect.sync(() => {
+		const isSqlite = sql.onDialectOrElse({
+			sqlite: () => true,
+			orElse: () => false
+		})
+
+		if (!isSqlite) return self
+
+		const [statementSql, params] = self.compile()
+
+		let changed = false
+		const coercedParams = params.map((param) => {
+			if (typeof param === "boolean") {
+				changed = true
+				return param ? 1 : 0
+			}
+			return param
+		})
+
+		return changed ? sql.unsafe(statementSql, coercedParams) : self
+	})
+)
+
+const SqliteClientDbAdapterLive = Layer.effect(
 	ClientDbAdapter,
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
@@ -341,4 +366,9 @@ END;
 			withCaptureContext
 		} as const
 	})
+)
+
+export const SqliteClientDbAdapter = Layer.mergeAll(
+	SqliteBooleanBindCoercion,
+	SqliteClientDbAdapterLive
 )

@@ -114,6 +114,7 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
 2.  **Install Patch Capture:** Call `ClientDbAdapter.installPatchCapture([...])` during your database initialization for _all_ tables whose changes should be tracked and synchronized by the system. This installs patch-capture triggers (AFTER INSERT/UPDATE/DELETE) that write to `action_modified_rows` (dialect-specific implementation).
     - On SQLite, `installPatchCapture` should be called after any schema migrations that add/remove columns on tracked tables (it drops/recreates triggers from the current table schema).
     - On SQLite, declare boolean columns as `BOOLEAN` (not `INTEGER`) so patch capture can encode booleans as JSON `true/false` (portable to Postgres); `0/1` numeric patches can cause false divergence and server-side apply failures.
+    - On SQLite, Synchrotron coerces bound boolean parameters (`true/false`) to `1/0` at execution time (SQLite driver limitation).
     ```typescript
     // Example during setup:
     import { ClientDbAdapter } from "@synchrotron/sync-core"

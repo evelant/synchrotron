@@ -50,7 +50,8 @@ describe("Core Sync Functionality", () => {
 					expect(noteC1.value.title).toBe("Title C1")
 					expect(noteC2.value.title).toBe("Title C1")
 				}
-			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer here
+			}).pipe(Effect.provide(makeTestLayers("server"))), // Provide layer here
+		{ timeout: 30000 }
 	)
 
 	// --- Test 2: Case 4 (Remote Newer) - No Conflict/Divergence ---

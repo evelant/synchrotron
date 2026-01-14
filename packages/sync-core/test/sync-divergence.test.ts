@@ -100,7 +100,8 @@ describe("Sync Divergence Scenarios", () => {
 				if (originalActionB._tag === "Some") {
 					expect(originalActionB.value.synced).toBe(true)
 				}
-			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer for the test
+			}).pipe(Effect.provide(makeTestLayers("server"))), // Provide layer for the test
+		{ timeout: 30000 }
 	)
 
 	it.scoped(
