@@ -1,0 +1,210 @@
+diff --git a/dist/cjs/OpfsWorker.js b/dist/cjs/OpfsWorker.js
+index 4170afe..8a7d0c6 100644
+--- a/dist/cjs/OpfsWorker.js
++++ b/dist/cjs/OpfsWorker.js
+@@ -22,8 +22,20 @@ function _interopRequireWildcard(e, t) { if ("function" == typeof WeakMap) var r
+  * @category constructor
+  * @since 1.0.0
+  */
+ const run = options => Effect.gen(function* () {
+-  const factory = yield* Effect.promise(() => (0, _waSqlite2.default)());
++  const locateWasmBinary = (path, scriptDirectory) => {
++    const override = typeof globalThis !== "undefined" ? globalThis.__EFFECT_WA_SQLITE_WASM_URL__ : undefined;
++    if (typeof override === "string" && override.length > 0) return override;
++    try {
++      if (typeof require === "function" && typeof require.resolve === "function") {
++        return require.resolve(`@effect/wa-sqlite/dist/${path}`);
++      }
++    } catch {}
++    return scriptDirectory + path;
++  };
++  const factory = yield* Effect.promise(() => (0, _waSqlite2.default)({
++    locateFile: locateWasmBinary
++  }));
+   const sqlite3 = WaSqlite.Factory(factory);
+   const vfs = yield* Effect.promise(() => _AccessHandlePoolVFS.AccessHandlePoolVFS.create("opfs", factory));
+   sqlite3.vfs_register(vfs, false);
+diff --git a/dist/cjs/SqliteClient.js b/dist/cjs/SqliteClient.js
+index 9acc8e8..69971fa 100644
+--- a/dist/cjs/SqliteClient.js
++++ b/dist/cjs/SqliteClient.js
+@@ -41,8 +41,20 @@ const TypeId = exports.TypeId = /*#__PURE__*/Symbol.for("@effect/sql-sqlite-wasm/
+  * @since 1.0.0
+  */
+ const SqliteClient = exports.SqliteClient = /*#__PURE__*/Context.GenericTag("@effect/sql-sqlite-wasm/SqliteClient");
+-const initModule = /*#__PURE__*/Effect.runSync(/*#__PURE__*/Effect.cached(/*#__PURE__*/Effect.promise(() => (0, _waSqlite2.default)())));
++const locateWasmBinary = (path, scriptDirectory) => {
++  const override = typeof globalThis !== "undefined" ? globalThis.__EFFECT_WA_SQLITE_WASM_URL__ : undefined;
++  if (typeof override === "string" && override.length > 0) return override;
++  try {
++    if (typeof require === "function" && typeof require.resolve === "function") {
++      return require.resolve(`@effect/wa-sqlite/dist/${path}`);
++    }
++  } catch {}
++  return scriptDirectory + path;
++};
++const initModule = /*#__PURE__*/Effect.runSync(/*#__PURE__*/Effect.cached(/*#__PURE__*/Effect.promise(() => (0, _waSqlite2.default)({
++  locateFile: locateWasmBinary
++}))));
+ const initEffect = /*#__PURE__*/Effect.runSync(/*#__PURE__*/Effect.cached(/*#__PURE__*/initModule.pipe(/*#__PURE__*/Effect.map(module => WaSqlite.Factory(module)))));
+ const registered = /*#__PURE__*/(0, _GlobalValue.globalValue)("@effect/sql-sqlite-wasm/registered", () => new Set());
+ /**
+  * @category constructor
+@@ -199,5 +199,6 @@ const make = options => Effect.gen(function* () {
+   const reactivity = yield* Reactivity.Reactivity;
+   const compiler = Statement.makeCompilerSqlite(options.transformQueryNames);
+   const transformRows = options.transformResultNames ? Statement.defaultTransforms(options.transformResultNames).array : undefined;
+   const pending = new Map();
++  let connectionRef;
+   const makeConnection = Effect.gen(function* () {
+@@ -211,4 +212,5 @@ const makeConnection = Effect.gen(function* () {
+     const port = "port" in worker ? worker.port : worker;
+     const postMessage = (message, transferables) => port.postMessage(message, transferables);
+     yield* Scope.addFinalizer(scope, Effect.sync(() => postMessage(["close"])));
++    let readyDone = false;
+     const onMessage = event => {
+@@ -212,4 +212,12 @@ const make = options => Effect.gen(function* () {
+       if (id === "ready") {
+-        Deferred.unsafeDone(readyDeferred, Exit.void);
+-        return;
++        readyDone = true;
++        if (error) {
++          Deferred.unsafeDone(readyDeferred, Exit.fail(new _SqlError.SqlError({
++            cause: error,
++            message: "Failed to start sqlite worker"
++          })));
++        } else {
++          Deferred.unsafeDone(readyDeferred, Exit.void);
++        }
++        return;
+       } else if (id === "update_hook") {
+@@ -219,8 +241,18 @@ const makeConnection = Effect.gen(function* () {
+     };
+     port.addEventListener("message", onMessage);
+-    function onError() {
+-      Effect.runFork(ScopedRef.set(connectionRef, makeConnection));
++    function onError(event) {
++      if (readyDone === false) {
++        readyDone = true;
++        Deferred.unsafeDone(readyDeferred, Exit.fail(new _SqlError.SqlError({
++          cause: event,
++          message: "Failed to start sqlite worker"
++        })));
++        return;
++      }
++      if (connectionRef) {
++        Effect.runFork(ScopedRef.set(connectionRef, makeConnection));
++      }
+     }
+     if ("onerror" in worker) {
+       worker.addEventListener("error", onError);
+     }
+@@ -293,2 +316,2 @@ const make = options => Effect.gen(function* () {
+-  const connectionRef = yield* ScopedRef.fromAcquire(makeConnection);
++  connectionRef = yield* ScopedRef.fromAcquire(makeConnection);
+   const semaphore = yield* Effect.makeSemaphore(1);
+diff --git a/dist/esm/OpfsWorker.js b/dist/esm/OpfsWorker.js
+index 0977b23..6328052 100644
+--- a/dist/esm/OpfsWorker.js
++++ b/dist/esm/OpfsWorker.js
+@@ -14,8 +14,20 @@ import * as Effect from "effect/Effect";
+  * @category constructor
+  * @since 1.0.0
+  */
+ export const run = options => Effect.gen(function* () {
+-  const factory = yield* Effect.promise(() => SQLiteESMFactory());
++  const locateWasmBinary = (path, scriptDirectory) => {
++    const override = typeof globalThis !== "undefined" ? globalThis.__EFFECT_WA_SQLITE_WASM_URL__ : undefined;
++    if (typeof override === "string" && override.length > 0) return override;
++    if (scriptDirectory) return scriptDirectory + path;
++    try {
++      return new URL(path, import.meta.url).href;
++    } catch {
++      return path;
++    }
++  };
++  const factory = yield* Effect.promise(() => SQLiteESMFactory({
++    locateFile: locateWasmBinary
++  }));
+   const sqlite3 = WaSqlite.Factory(factory);
+   const vfs = yield* Effect.promise(() => AccessHandlePoolVFS.create("opfs", factory));
+   sqlite3.vfs_register(vfs, false);
+diff --git a/dist/esm/SqliteClient.js b/dist/esm/SqliteClient.js
+index 179a99b..4045b29 100644
+--- a/dist/esm/SqliteClient.js
++++ b/dist/esm/SqliteClient.js
+@@ -32,8 +32,20 @@ export const TypeId = /*#__PURE__*/Symbol.for("@effect/sql-sqlite-wasm/SqliteClie
+  * @since 1.0.0
+  */
+ export const SqliteClient = /*#__PURE__*/Context.GenericTag("@effect/sql-sqlite-wasm/SqliteClient");
+-const initModule = /*#__PURE__*/Effect.runSync(/*#__PURE__*/Effect.cached(/*#__PURE__*/Effect.promise(() => SQLiteESMFactory())));
++const locateWasmBinary = (path, scriptDirectory) => {
++  const override = typeof globalThis !== "undefined" ? globalThis.__EFFECT_WA_SQLITE_WASM_URL__ : undefined;
++  if (typeof override === "string" && override.length > 0) return override;
++  if (scriptDirectory) return scriptDirectory + path;
++  try {
++    return new URL(path, import.meta.url).href;
++  } catch {
++    return path;
++  }
++};
++const initModule = /*#__PURE__*/Effect.runSync(/*#__PURE__*/Effect.cached(/*#__PURE__*/Effect.promise(() => SQLiteESMFactory({
++  locateFile: locateWasmBinary
++}))));
+ const initEffect = /*#__PURE__*/Effect.runSync(/*#__PURE__*/Effect.cached(/*#__PURE__*/initModule.pipe(/*#__PURE__*/Effect.map(module => WaSqlite.Factory(module)))));
+ const registered = /*#__PURE__*/globalValue("@effect/sql-sqlite-wasm/registered", () => new Set());
+ /**
+  * @category constructor
+@@ -188,5 +188,6 @@ export const make = options => Effect.gen(function* () {
+   const reactivity = yield* Reactivity.Reactivity;
+   const compiler = Statement.makeCompilerSqlite(options.transformQueryNames);
+   const transformRows = options.transformResultNames ? Statement.defaultTransforms(options.transformResultNames).array : undefined;
+   const pending = new Map();
++  let connectionRef;
+   const makeConnection = Effect.gen(function* () {
+@@ -200,4 +201,5 @@ const makeConnection = Effect.gen(function* () {
+     const port = "port" in worker ? worker.port : worker;
+     const postMessage = (message, transferables) => port.postMessage(message, transferables);
+     yield* Scope.addFinalizer(scope, Effect.sync(() => postMessage(["close"])));
++    let readyDone = false;
+     const onMessage = event => {
+@@ -202,4 +202,12 @@ export const make = options => Effect.gen(function* () {
+       if (id === "ready") {
+-        Deferred.unsafeDone(readyDeferred, Exit.void);
+-        return;
++        readyDone = true;
++        if (error) {
++          Deferred.unsafeDone(readyDeferred, Exit.fail(new SqlError({
++            cause: error,
++            message: "Failed to start sqlite worker"
++          })));
++        } else {
++          Deferred.unsafeDone(readyDeferred, Exit.void);
++        }
++        return;
+       } else if (id === "update_hook") {
+@@ -209,8 +231,18 @@ const makeConnection = Effect.gen(function* () {
+     };
+     port.addEventListener("message", onMessage);
+-    function onError() {
+-      Effect.runFork(ScopedRef.set(connectionRef, makeConnection));
++    function onError(event) {
++      if (readyDone === false) {
++        readyDone = true;
++        Deferred.unsafeDone(readyDeferred, Exit.fail(new SqlError({
++          cause: event,
++          message: "Failed to start sqlite worker"
++        })));
++        return;
++      }
++      if (connectionRef) {
++        Effect.runFork(ScopedRef.set(connectionRef, makeConnection));
++      }
+     }
+     if ("onerror" in worker) {
+       worker.addEventListener("error", onError);
+     }
+@@ -283,2 +306,2 @@ export const make = options => Effect.gen(function* () {
+-  const connectionRef = yield* ScopedRef.fromAcquire(makeConnection);
++  connectionRef = yield* ScopedRef.fromAcquire(makeConnection);
+   const semaphore = yield* Effect.makeSemaphore(1);

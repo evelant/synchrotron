@@ -86,9 +86,11 @@ The client DB is selected by which `@effect/sql` driver layer you provide:
 
 - **PGlite** (browser): `makeSynchrotronClientLayer(...)` from `@synchrotron/sync-client`
 - **SQLite (WASM)**: `makeSynchrotronSqliteWasmClientLayer()` from `@synchrotron/sync-client`
-- **SQLite (React Native / React Native Web)**: `makeSynchrotronSqliteReactNativeClientLayer(sqliteConfig, config?)` from `@synchrotron/sync-client/react-native` (native: `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web: `@effect/sql-sqlite-wasm` in-memory)
+- **SQLite (React Native / React Native Web)**: `makeSynchrotronSqliteReactNativeClientLayer(sqliteConfig, config?)` from `@synchrotron/sync-client/react-native` (native: `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web: `@effect/sql-sqlite-wasm` using OPFS persistence via `OpfsWorker`)
 
 Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlite-react-native` for `@op-engineering/op-sqlite@15.x` compatibility (see `patches/@effect__sql-sqlite-react-native.patch`).
+
+Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlite-wasm` to (a) provide a `locateFile` override for Metro / React Native Web wasm loading (SqliteClient + OpfsWorker), (b) fail fast on OPFS worker startup errors instead of hanging on the `ready` handshake, and (c) avoid a `connectionRef` TDZ crash if the worker errors before initialization (see `patches/@effect__sql-sqlite-wasm.patch` and `packages/sync-client/src/db/sqlite-react-native.web.ts`). The React Native example copies the `wa-sqlite.wasm` binaries into `examples/todo-app-react-native-sqlite/public/` (via `postinstall`) so web can load them from `/wa-sqlite.wasm`.
 
 ## Networking
 

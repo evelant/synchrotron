@@ -3,6 +3,10 @@
 	"version": "1.0.0",
 	"main": "index.ts",
 	"scripts": {
+		"sync:wa-sqlite-wasm": "node scripts/sync-wa-sqlite-wasm.mjs",
+		"postinstall": "node scripts/sync-wa-sqlite-wasm.mjs",
+		"prestart": "pnpm sync:wa-sqlite-wasm && pnpm -C ../../packages/sync-client build",
+		"preweb": "pnpm sync:wa-sqlite-wasm && pnpm -C ../../packages/sync-client build",
 		"dev:backend": "pnpm -C ../backend run up",
 		"dev:server": "pnpm -C ../backend run dev",
 		"dev:app": "pnpm start",

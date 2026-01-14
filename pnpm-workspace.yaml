@@ -62,5 +62,6 @@ overrides:
   "@op-engineering/op-sqlite": "15.2.2"
 patchedDependencies:
   "@effect/sql-sqlite-react-native": patches/@effect__sql-sqlite-react-native.patch
+  "@effect/sql-sqlite-wasm": patches/@effect__sql-sqlite-wasm.patch
   "@electric-sql/pglite-repl": patches/@electric-sql__pglite-repl.patch
 nodeLinker: hoisted

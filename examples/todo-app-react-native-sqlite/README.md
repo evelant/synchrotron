@@ -2,6 +2,8 @@
 
 This is the React Native todo example, using SQLite via `@op-engineering/op-sqlite` (through a small `@effect/sql` adapter in `@synchrotron/sync-client`).
 
+On web, it uses sqlite-wasm via `@effect/sql-sqlite-wasm` / `@effect/wa-sqlite` (no native modules) with OPFS persistence via `@effect/sql-sqlite-wasm`'s `OpfsWorker`.
+
 ## Prereqs
 
 - Run the shared backend (Postgres + Electric + Bun RPC server) from `examples/backend`.
@@ -30,6 +32,20 @@ pnpm -C examples/todo-app-react-native-sqlite dev
 ```
 
 For Android devices connected over USB, `pnpm dev` runs `adb reverse` so the app can use `http://localhost:3010/rpc`.
+
+## Run on web
+
+From repo root:
+
+```sh
+pnpm -C examples/todo-app-react-native-sqlite web
+```
+
+Notes:
+
+- This app copies `@effect/wa-sqlite`’s wasm binaries into `examples/todo-app-react-native-sqlite/public/` on install (`postinstall`) so the web dev server can load them from `/wa-sqlite.wasm`.
+  - If needed, run manually: `pnpm -C examples/todo-app-react-native-sqlite sync:wa-sqlite-wasm`
+- Web uses OPFS persistence via a Web Worker; this app imports `@expo/metro-runtime` in `examples/todo-app-react-native-sqlite/index.ts` to enable Metro’s web worker bundling.
 
 To point the app at a non-local backend (LAN / physical device without USB reverse), set:
 
