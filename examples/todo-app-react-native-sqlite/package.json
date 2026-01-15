@@ -3,19 +3,20 @@
 	"version": "1.0.0",
 	"main": "index.ts",
 	"scripts": {
-		"sync:wa-sqlite-wasm": "node scripts/sync-wa-sqlite-wasm.mjs",
-		"postinstall": "node scripts/sync-wa-sqlite-wasm.mjs",
-		"prestart": "pnpm sync:wa-sqlite-wasm && pnpm -C ../../packages/sync-client build",
-		"preweb": "pnpm sync:wa-sqlite-wasm && pnpm -C ../../packages/sync-client build",
-		"dev:backend": "pnpm -C ../backend run up",
-		"dev:server": "pnpm -C ../backend run dev",
-		"dev:app": "pnpm start",
-		"android:reverse": "node scripts/adb-reverse.mjs",
-		"dev": "pnpm android:reverse && pnpm run --parallel --filter . \"/dev:(backend|server|app)/\"",
-		"start": "expo start -c",
-		"android": "expo run:android",
-		"ios": "expo run:ios",
-		"web": "expo start --web",
+		"sync:wa-sqlite-wasm": "bun scripts/sync-wa-sqlite-wasm.ts",
+		"postinstall": "pnpm run sync:wa-sqlite-wasm",
+		"docker:up": "pnpm --filter @synchrotron-examples/backend run docker:up",
+		"docker:down": "pnpm --filter @synchrotron-examples/backend run docker:down",
+		"docker:reset": "pnpm --filter @synchrotron-examples/backend run docker:reset",
+		"server:dev": "pnpm --filter @synchrotron-examples/backend run server:dev",
+		"preclient:dev": "pnpm run sync:wa-sqlite-wasm && pnpm --filter @synchrotron/sync-client run build",
+		"client:dev": "expo start -c",
+		"preclient:web": "pnpm run sync:wa-sqlite-wasm && pnpm --filter @synchrotron/sync-client run build",
+		"client:web": "expo start --web",
+		"client:android": "expo run:android",
+		"client:ios": "expo run:ios",
+		"android:reverse": "bun scripts/adb-reverse.ts",
+		"dev": "pnpm run android:reverse && pnpm run docker:up && concurrently -k -n server,client \"pnpm run server:dev\" \"pnpm run client:dev\"",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
@@ -39,6 +40,7 @@
 		"uuid": "catalog:"
 	},
 	"devDependencies": {
+		"concurrently": "~9.2.1",
 		"@types/react": "~19.1.0",
 		"tsx": "^4.19.3",
 		"typescript": "~5.9.2"

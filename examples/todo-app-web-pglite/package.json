@@ -71,13 +71,14 @@
 		"clean": "rm -rf .tsbuildinfo build dist",
 		"clean:node_modules": "rm -rf node_modules",
 		"build": "rm -rf dist && bun build ./index.html --outdir dist --minify && cp favicon.ico robots.txt ../../node_modules/@electric-sql/pglite/dist/pglite.wasm ../../node_modules/@electric-sql/pglite/dist/pglite.data ../../node_modules/@electric-sql/pglite/dist/uuid-ossp.tar.gz dist/",
-		"dev:backend": "pnpm -C ../backend run up",
-		"dev:server": "pnpm -C ../backend run dev",
-		"dev:build": "bun build ./index.html --outdir dist --watch",
-		"dev:serve": "bun --hot server.ts",
-		"dev:frontend": "concurrently -k -n build,serve \"pnpm dev:build\" \"pnpm dev:serve\"",
-		"dev:app": "pnpm dev:frontend",
-		"dev": "pnpm run --parallel --filter . \"/dev:(backend|server|app)/\"",
+		"docker:up": "pnpm --filter @synchrotron-examples/backend run docker:up",
+		"docker:down": "pnpm --filter @synchrotron-examples/backend run docker:down",
+		"docker:reset": "pnpm --filter @synchrotron-examples/backend run docker:reset",
+		"server:dev": "pnpm --filter @synchrotron-examples/backend run server:dev",
+		"client:build:watch": "bun build ./index.html --outdir dist --watch",
+		"client:serve": "bun --hot server.ts",
+		"client:dev": "concurrently -k -n build,serve \"pnpm run client:build:watch\" \"pnpm run client:serve\"",
+		"dev": "pnpm run docker:up && concurrently -k -n server,client \"pnpm run server:dev\" \"pnpm run client:dev\"",
 		"typecheck": "tsc --noEmit"
 	}
 }

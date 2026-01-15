@@ -42,7 +42,7 @@ export const defaultConfig: SynchrotronClientConfigData = {
 	electricSyncUrl: "http://localhost:5133",
 	syncRpcUrl: "http://localhost:3010/rpc",
 	pglite: {
-		debug: 1,
+		debug: 0,
 		dataDir: "idb://synchrotron",
 		relaxedDurability: true
 	}

@@ -16,10 +16,8 @@ On web, it uses sqlite-wasm via `@effect/sql-sqlite-wasm` / `@effect/wa-sqlite` 
 If you want to run it manually, from repo root:
 
 ```sh
-# Start backend docker containers
-pnpm -C examples/backend run up
-# Start backend dev server
-pnpm -C examples/backend run dev
+# Start backend (docker + dev server)
+pnpm dev:backend
 ```
 
 ## Run mobile app
@@ -27,8 +25,8 @@ pnpm -C examples/backend run dev
 From repo root:
 
 ```sh
-pnpm -C examples/todo-app-react-native-sqlite typecheck
-pnpm -C examples/todo-app-react-native-sqlite dev
+pnpm --filter todo-app-react-native-sqlite run typecheck
+pnpm dev:react-native
 ```
 
 For Android devices connected over USB, `pnpm dev` runs `adb reverse` so the app can use `http://localhost:3010/rpc`.
@@ -38,13 +36,13 @@ For Android devices connected over USB, `pnpm dev` runs `adb reverse` so the app
 From repo root:
 
 ```sh
-pnpm -C examples/todo-app-react-native-sqlite web
+pnpm --filter todo-app-react-native-sqlite run client:web
 ```
 
 Notes:
 
 - This app copies `@effect/wa-sqlite`’s wasm binaries into `examples/todo-app-react-native-sqlite/public/` on install (`postinstall`) so the web dev server can load them from `/wa-sqlite.wasm`.
-  - If needed, run manually: `pnpm -C examples/todo-app-react-native-sqlite sync:wa-sqlite-wasm`
+  - If needed, run manually: `pnpm --filter todo-app-react-native-sqlite run sync:wa-sqlite-wasm`
 - Web uses OPFS persistence via a Web Worker; this app imports `@expo/metro-runtime` in `examples/todo-app-react-native-sqlite/index.ts` to enable Metro’s web worker bundling.
 
 To point the app at a non-local backend (LAN / physical device without USB reverse), set:

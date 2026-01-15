@@ -12,24 +12,18 @@ From repo root:
 
 ```sh
 pnpm run -r build
-# Start backend docker containers
-pnpm -C examples/backend run up
-# Start backend dev server
-pnpm -C examples/backend run dev
-```
-
-```sh
-pnpm -C examples/backend run dev
+# Start backend (docker + dev server)
+pnpm dev:backend
 ```
 
 Stop Docker services:
 
 ```sh
-pnpm -C examples/backend run down
+pnpm docker:down
 ```
 
 Reset the database (drops volumes):
 
 ```sh
-pnpm -C examples/backend run reset
+pnpm docker:reset
 ```

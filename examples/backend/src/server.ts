@@ -60,7 +60,7 @@ const makeRouter = Effect.gen(function* () {
 				allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 			})
 		),
-		Effect.tap((r) => Effect.logInfo(`response: ${JSON.stringify(r)}`)),
+		// Effect.tap((r) => Effect.logInfo(`response: ${JSON.stringify(r)}`)),
 		Effect.tapErrorCause((c) => Effect.logError(`Error in router: ${Cause.pretty(c)}`))
 	)
 	return router

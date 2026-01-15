@@ -18,8 +18,7 @@ pnpm run -r build
 If you want to run it manually, use:
 
 ```shell
-pnpm -C examples/backend run up
-pnpm -C examples/backend run dev
+pnpm dev:backend
 ```
 
 ## Run the web app
@@ -52,5 +51,5 @@ pnpm build
 When you're done, stop the backend services using:
 
 ```shell
-pnpm -C examples/backend run down
+pnpm docker:down
 ```

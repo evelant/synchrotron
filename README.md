@@ -30,13 +30,13 @@ Synchrotron moves the merge boundary up a level:
 - API is split into packages: `sync-client`, `sync-core`, and `sync-server`
 - There are example apps demonstrating basic functionality:
   - **Shared backend**: `examples/backend` (Postgres + Electric + Bun RPC server).
-    - `pnpm -C examples/backend run up` (requires Docker)
-    - `pnpm -C examples/backend run dev`
+    - `pnpm docker:up` (requires Docker)
+    - `pnpm dev:backend` (starts docker + server)
   - **Web + PGlite**: `examples/todo-app-web-pglite` (Bun build --watch + Bun static server; works online/offline; does not yet handle multiple tabs in the same window).
-    - `pnpm -C examples/todo-app-web-pglite dev`
+    - `pnpm dev:web`
     - Open http://localhost:5173 in your browser
   - **React Native + SQLite (+ Web)**: `examples/todo-app-react-native-sqlite` (native uses `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web uses `@effect/sql-sqlite-wasm` via a `.web.ts` module).
-    - `pnpm -C examples/todo-app-react-native-sqlite dev`
+    - `pnpm dev:react-native`
 
 ## Capabilities
 

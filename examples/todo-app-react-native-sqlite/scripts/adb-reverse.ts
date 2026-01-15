@@ -1,9 +1,8 @@
-#!/usr/bin/env node
 import { spawnSync } from "node:child_process"
 
-const DEFAULT_PORTS = [3010, 5133, 8081, 19000, 19001, 19002]
+const DEFAULT_PORTS = [3010, 5133, 8081, 19000, 19001, 19002] as const
 
-const parsePorts = (value) =>
+const parsePorts = (value: string): number[] =>
 	value
 		.split(/[,\s]+/g)
 		.map((part) => part.trim())
@@ -16,18 +15,18 @@ const ports =
 		? parsePorts(process.argv.slice(2).join(","))
 		: process.env.ADB_REVERSE_PORTS
 			? parsePorts(process.env.ADB_REVERSE_PORTS)
-			: DEFAULT_PORTS
+			: [...DEFAULT_PORTS]
 
 const adb = process.env.ADB ?? "adb"
 
-const run = (args) =>
+const run = (args: string[]) =>
 	spawnSync(adb, args, {
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"]
 	})
 
 const version = run(["version"])
-if (version.error && version.error.code === "ENOENT") {
+if (version.error && (version.error as NodeJS.ErrnoException).code === "ENOENT") {
 	console.warn(`[adb-reverse] Skipping (adb not found in PATH)`)
 	process.exit(0)
 }
@@ -40,7 +39,7 @@ if (devicesResult.status !== 0) {
 	process.exit(0)
 }
 
-const deviceSerials = devicesResult.stdout
+const deviceSerials = (devicesResult.stdout ?? "")
 	.split("\n")
 	.map((line) => line.trim())
 	.filter((line) => line && !line.startsWith("List of devices"))
@@ -64,5 +63,7 @@ for (const serial of deviceSerials) {
 	}
 }
 
-console.log(`[adb-reverse] Reversed ports (${ports.join(", ")}) for: ${deviceSerials.join(", ")}`)
+console.log(
+	`[adb-reverse] Reversed ports (${ports.join(", ")}) for: ${deviceSerials.join(", ")}`
+)
 

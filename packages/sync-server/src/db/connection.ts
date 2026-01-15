@@ -8,7 +8,7 @@ import { Config, Duration, Effect, Layer } from "effect"
 const config: Config.Config.Wrap<PgClient.PgClientConfig> = Config.all({
 	url: Config.redacted("DATABASE_URL"),
 	debug: Config.succeed((a: any, b: any, c: any, d: any) => {
-		console.log(`PgClient debug:`, a, b, c, d)
+		// console.log(`PgClient debug:`, a, b, c, d)
 	}),
 	maxConnections: Config.succeed(100),
 	idleTimeout: Config.succeed(Duration.seconds(120)),

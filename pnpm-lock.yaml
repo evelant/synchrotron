@@ -199,6 +199,9 @@ importers:
         specifier: ~13.0.0
         version: 13.0.0
     devDependencies:
+      concurrently:
+        specifier: ~9.2.1
+        version: 9.2.1
       '@types/react':
         specifier: ~19.1.0
         version: 19.1.17

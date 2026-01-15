@@ -5,7 +5,12 @@ import { createRequire } from "node:module"
 
 const require = createRequire(import.meta.url)
 
-const getBunPaths = () => {
+type BunPaths = {
+	bunExe: string
+	installScript: string
+}
+
+const getBunPaths = (): BunPaths => {
 	const packageJsonPath = require.resolve("bun/package.json")
 	const bunDir = path.dirname(packageJsonPath)
 	return {
@@ -14,7 +19,7 @@ const getBunPaths = () => {
 	}
 }
 
-const hasNonEmptyFile = (filePath) => {
+const hasNonEmptyFile = (filePath: string): boolean => {
 	try {
 		return fs.statSync(filePath).size > 0
 	} catch {
@@ -23,7 +28,7 @@ const hasNonEmptyFile = (filePath) => {
 }
 
 const main = () => {
-	let paths
+	let paths: BunPaths
 	try {
 		paths = getBunPaths()
 	} catch {
@@ -36,7 +41,7 @@ const main = () => {
 	if (hasNonEmptyFile(paths.bunExe)) return
 
 	console.log("[ensure-bun] Bun binary not initialized (postinstall blocked?). Initializing now…")
-	const result = spawnSync(process.execPath, [paths.installScript], { stdio: "inherit" })
+	const result = spawnSync("node", [paths.installScript], { stdio: "inherit" })
 	if (result.status !== 0) process.exit(result.status ?? 1)
 
 	if (!hasNonEmptyFile(paths.bunExe)) {

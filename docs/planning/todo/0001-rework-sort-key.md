@@ -21,7 +21,7 @@ and rewires all “replay order” logic to use it consistently across TypeScrip
 ## Fresh Session Checklist (Start Here)
 
 1. Baseline sanity:
-   - Run `pnpm -C packages/sync-core test` (record failures before changes).
+   - Run `pnpm --filter @synchrotron/sync-core test` (record failures before changes).
    - Run `rg -n "clock_time_ms|clock_counter|compare_hlc" packages docs` to re-locate all touchpoints (update this doc if new ones appear).
 2. Make the key decision up front (document the chosen values in this doc):
    - Timestamp handling: use raw `clock.timestamp` ms (no bucketing).
@@ -203,8 +203,8 @@ Add targeted tests around:
 
 ### 4) Full test suite runs
 
-- `pnpm -C packages/sync-core test`
-- `pnpm -C packages/sync-server test` (if present)
+- `pnpm --filter @synchrotron/sync-core test`
+- `pnpm --filter @synchrotron/sync-server test` (if present)
 
 ## Migration / Rollout Plan
 

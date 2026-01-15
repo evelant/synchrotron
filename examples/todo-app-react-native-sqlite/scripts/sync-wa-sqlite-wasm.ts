@@ -24,7 +24,7 @@ const copyWasmToPublic = async () => {
 			from: require.resolve("@effect/wa-sqlite/dist/wa-sqlite-jspi.wasm"),
 			to: path.join(publicDir, "wa-sqlite-jspi.wasm")
 		}
-	]
+	] as const
 
 	for (const file of files) {
 		const [fromStat, toStat] = await Promise.all([
