@@ -2,7 +2,7 @@ import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
 import { Effect, Option } from "effect"
-import { makeSqliteTestServerLayer, withSqliteTestClients } from "./helpers/SqliteTestLayers"
+import { makeSqliteTestServerLayer, withSqliteTestClients } from "../helpers/SqliteTestLayers"
 
 describe("Sync Algorithm Integration (SQLite clients)", () => {
 	it.scoped(

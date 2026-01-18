@@ -1,7 +1,7 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Option } from "effect"
-import { makeSqliteTestServerLayer, withSqliteTestClients } from "./helpers/SqliteTestLayers"
+import { makeSqliteTestServerLayer, withSqliteTestClients } from "../helpers/SqliteTestLayers"
 
 describe("Sync Divergence Scenarios (SQLite clients)", () => {
 	it.scoped(

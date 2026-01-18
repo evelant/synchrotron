@@ -221,18 +221,47 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			return 0
 		}
 
-		/**
-		 * Merge two clocks, taking the maximum values
-		 */
-		const mergeClock = (a: HLC.HLC, b: HLC.HLC): HLC.HLC => {
-			return HLC.receiveRemoteMutation(a, b, clientId)
-		}
+			/**
+			 * Merge two clocks, taking the maximum values
+			 */
+			const mergeClock = (a: HLC.HLC, b: HLC.HLC): HLC.HLC => {
+				return HLC.receiveRemoteMutation(a, b, clientId)
+			}
 
-		/**
-		 * Sort an array of clocks in ascending order
-		 */
-		const sortClocks = <T extends { clock: HLC.HLC; clientId: string }>(items: T[]): T[] => {
-			return [...items].sort((a, b) => compareClock(a, b))
+			/**
+			 * Observe remote clocks by merging them into the current clock state.
+			 *
+			 * This ensures that subsequent local actions carry vector-causality information about
+			 * the remote actions the client has applied, and that local HLC time doesn't regress
+			 * relative to far-future remote timestamps.
+			 */
+			const observeRemoteClocks = (remoteClocks: ReadonlyArray<HLC.HLC>) =>
+				Effect.gen(function* () {
+					if (remoteClocks.length === 0) return yield* getClientClock
+
+					const currentState = yield* getClientClockState
+					let nextClock = currentState.current_clock
+					for (const remoteClock of remoteClocks) {
+						nextClock = HLC.receiveRemoteMutation(nextClock, remoteClock, clientId)
+					}
+
+					yield* clientSyncStatusRepo.update(
+						ClientSyncStatusModel.update.make({
+							client_id: clientId,
+							current_clock: nextClock,
+							last_synced_clock: currentState.last_synced_clock,
+							last_seen_server_ingest_id: currentState.last_seen_server_ingest_id
+						})
+					)
+
+					return nextClock
+				}).pipe(Effect.annotateLogs("clientId", clientId))
+
+			/**
+			 * Sort an array of clocks in ascending order
+			 */
+			const sortClocks = <T extends { clock: HLC.HLC; clientId: string }>(items: T[]): T[] => {
+				return [...items].sort((a, b) => compareClock(a, b))
 		}
 
 		/**
@@ -334,16 +363,17 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			incrementClock,
 			getLastSyncedClock,
 			getLastSeenServerIngestId,
-			advanceLastSeenServerIngestId,
-			getEarliestClock,
-			getLatestClock,
-			updateLastSyncedClock,
-			compareClock,
-			mergeClock,
-			sortClocks,
-			findLatestCommonClock
-		}
-	}),
+				advanceLastSeenServerIngestId,
+				getEarliestClock,
+				getLatestClock,
+				updateLastSyncedClock,
+				compareClock,
+				mergeClock,
+				observeRemoteClocks,
+				sortClocks,
+				findLatestCommonClock
+			}
+		}),
 	accessors: true,
 	dependencies: [ActionRecordRepo.Default]
 }) {}

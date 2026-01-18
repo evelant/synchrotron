@@ -4,8 +4,8 @@ import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { SyncService } from "@synchrotron/sync-core/SyncService"
 import { Effect, Schema } from "effect"
 import { expect } from "vitest"
-import { TestHelpers } from "./helpers/TestHelpers"
-import { NoteModel, makeTestLayers } from "./helpers/TestLayers"
+import { TestHelpers } from "../helpers/TestHelpers"
+import { NoteModel, makeTestLayers } from "../helpers/TestLayers"
 
 /**
  * Tests for basic action execution functionality

@@ -22,15 +22,15 @@ import {
 	initializeDatabaseSchema
 } from "@synchrotron/sync-core/db" // Import applySyncTriggers
 import {
-	SyncNetworkService,
-	type TestNetworkState
+	SyncNetworkService
 } from "@synchrotron/sync-core/SyncNetworkService"
 import { SyncService } from "@synchrotron/sync-core/SyncService"
 import { Effect, Layer, Logger, LogLevel, Schema } from "effect"
 import {
 	createTestSyncNetworkServiceLayer,
 	SyncNetworkServiceTestHelpers,
-	type SyncNetworkServiceTestHelpersService
+	type SyncNetworkServiceTestHelpersService,
+	type TestNetworkState
 } from "./SyncNetworkServiceTest"
 import { TestHelpers } from "./TestHelpers"
 
@@ -216,7 +216,14 @@ export interface TestClient {
 	clientId: string
 }
 
-export const createTestClient = (id: string, serverSql: PgliteClient.PgliteClient) =>
+export const createTestClient = (
+	id: string,
+	serverSql: PgliteClient.PgliteClient,
+	config?: {
+		initialState?: Partial<TestNetworkState> | undefined
+		simulateDelay?: boolean
+	}
+) =>
 	Effect.gen(function* () {
 		// Get required services - getting these from the shared layers
 		const sql = yield* SqlClient.SqlClient
@@ -254,7 +261,7 @@ export const createTestClient = (id: string, serverSql: PgliteClient.PgliteClien
 			noteRepo,
 			clientId: id
 		} as TestClient
-	}).pipe(Effect.provide(makeTestLayers(id, serverSql)), Effect.annotateLogs("clientId", id))
+	}).pipe(Effect.provide(makeTestLayers(id, serverSql, config)), Effect.annotateLogs("clientId", id))
 export class NoteModel extends Model.Class<NoteModel>("notes")({
 	id: Schema.UUID,
 	title: Schema.String,

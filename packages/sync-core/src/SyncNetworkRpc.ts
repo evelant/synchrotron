@@ -23,6 +23,7 @@ export class FetchRemoteActions extends Schema.TaggedRequest<FetchRemoteActions>
 export class SendLocalActions extends Schema.TaggedRequest<SendLocalActions>()("SendLocalActions", {
 	payload: {
 		clientId: Schema.String,
+		basisServerIngestId: Schema.Number,
 		actions: Schema.Array(ActionRecord),
 		amrs: Schema.Array(ActionModifiedRow)
 	},

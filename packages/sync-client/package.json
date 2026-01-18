@@ -19,7 +19,7 @@
 		"dist"
 	],
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
+		"build": "tsc -b tsconfig.build.json",
 		"clean": "rm -rf .tsbuildinfo build dist",
 		"clean:node_modules": "rm -rf node_modules",
 		"dev": "vite build --watch",

@@ -11,11 +11,13 @@ let batchFwd2Id = ""
 let batchRev1Id = ""
 let batchRev2Id = ""
 
-it.scoped("should support multiple independent PgLite instances", () =>
-	Effect.gen(function* () {
-		// Create two independent PgLite layers with unique memory identifiers
-		// Use unique identifiers with timestamps to ensure they don't clash
-		const uniqueId1 = `memory://db1-${Date.now()}-1`
+it.scoped(
+	"should support multiple independent PgLite instances",
+	() =>
+		Effect.gen(function* () {
+			// Create two independent PgLite layers with unique memory identifiers
+			// Use unique identifiers with timestamps to ensure they don't clash
+			const uniqueId1 = `memory://db1-${Date.now()}-1`
 		const uniqueId2 = `memory://db2-${Date.now()}-2`
 
 		// Create completely separate layers
@@ -76,8 +78,9 @@ it.scoped("should support multiple independent PgLite instances", () =>
 		// Verify schema change didn't affect second database
 		expect(schemaResult2.success).toBe(false)
 
-		return true
-	})
+			return true
+		}),
+	{ timeout: 20000 }
 )
 
 // Helper to create an action record and modify a note

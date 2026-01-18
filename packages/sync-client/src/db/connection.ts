@@ -36,7 +36,11 @@ const createPgliteClientLayer = (config: SynchrotronClientConfigData["pglite"]) 
 export const PgliteClientLive = Layer.unwrapEffect(
 	Effect.gen(function* () {
 		const config = yield* SynchrotronClientConfig
-		yield* Effect.logInfo(`creating PgliteClient layer with config`, config)
+		yield* Effect.logInfo("db.pglite.clientLayer.create", {
+			dataDir: config.pglite.dataDir,
+			debug: config.pglite.debug,
+			relaxedDurability: config.pglite.relaxedDurability
+		})
 		const pgLayer = createPgliteClientLayer(config.pglite)
 		return pgLayer
 	})

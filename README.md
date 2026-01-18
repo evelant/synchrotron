@@ -8,7 +8,7 @@ It is designed to work with private data (Postgres RLS): actions can be conditio
 
 It also depends on a few simple but hard requirements (see Usage). They're not optional.
 
-Built with [Electric SQL](https://electric-sql.com/) (replication), [Effect](https://effect.website/), and `@effect/sql`.
+Built with [Effect](https://effect.website/) and `@effect/sql`. The demo transport uses [Electric SQL](https://electric-sql.com/) to replicate the sync metadata tables in real time, but the transport is intentionally pluggable (polling fetch, WebSocket/SSE, bespoke backends, etc).
 The reference client DB is [PGlite](https://pglite.dev/) (Postgres-in-WASM), and the client runtime also supports SQLite (WASM + React Native) via a small `ClientDbAdapter` interface.
 
 ## Why actions?
@@ -61,7 +61,8 @@ Synchrotron moves the merge boundary up a level:
 - Triggers capture per-row forward/reverse patches into `action_modified_rows`
 - `action_records` and `action_modified_rows` are delivered to clients either via Electric SQL shape streams (filtered by RLS) or via an RPC transport (`SyncNetworkService`)
 - Remote actions are fetched/streamed incrementally by a server-generated ingestion cursor (`server_ingest_id`) so clients don't miss late-arriving actions; replay order remains clock-based
-- Applying remote actions re-runs the action code; if produced patches don't match (usually due to private rows / conditionals), the client emits a SYNC action containing only the delta needed to converge
+- The server is authoritative: it materializes base tables by applying patches in canonical order (rollback+replay on late arrival) and can reject uploads from clients that are behind the server ingestion head (client must fetch+reconcile+retry)
+- Applying a remote batch re-runs the action code on the client; if replay produces _additional_ effects beyond the received patches (including any received SYNC patches), the client emits a new patch-only SYNC action at the end of the sync pass (clocked after the observed remote actions)
 - If remote history interleaves with local unsynced actions, the client rolls back to the common ancestor and replays everything in HLC order
 
 ## TODO
@@ -125,8 +126,13 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
 3.  **Action Determinism:** Actions must be deterministic aside from database operations. Capture any non-deterministic inputs (like current time, random values, user context not in the database, network call results, etc.) as arguments passed into the action. The `timestamp` argument (`Date.now()`) is automatically provided. You have full access to the database in actions, no restrictions on reads or writes.
     - Actions are defined via `ActionRegistry.defineAction(tag, argsSchema, fn)`.
     - `argsSchema` must include `timestamp: Schema.Number`, but the returned action creator accepts `timestamp` optionally; it is injected automatically when you create an action (and preserved for replay).
+    - Design note: “purity” means repeatable on the same snapshot. If running an action twice against the same DB state produces different writes, that’s a determinism bug (see `docs/planning/todo/0003-sync-action-semantics.md` for detection/mitigation ideas). Also treat “hidden/private state influencing writes to shared rows” as an application-level constraint: it can leak derived information, and competing SYNC overwrites on shared fields resolve via action order (last SYNC wins).
 4.  **Mutations via Actions:** All modifications (INSERT, UPDATE, DELETE) to synchronized tables _must_ be performed exclusively through actions executed via `SyncService.executeAction`. Patch-capture triggers will reject writes when no capture context is set (unless tracking is explicitly disabled for rollback / patch-apply).
 5.  **IDs are App-Provided (Required):** Inserts into synchronized tables must explicitly include `id`. Use `DeterministicId.forRow(tableName, row)` inside `SyncService`-executed actions to compute deterministic UUIDs scoped to the current action. Avoid relying on DB defaults/triggers for IDs; prefer removing `DEFAULT` clauses for `id` columns so missing IDs fail fast.
+6.  **Stable Client Identity:** Synchrotron persists a per-device `clientId` in Effect’s `KeyValueStore` under the key `sync_client_id`.
+    - Browser clients use `localStorage`.
+    - React Native (native) uses `react-native-mmkv` via `@synchrotron/sync-client/react-native` (install `react-native-mmkv` in your app).
+    - React Native (web) uses `localStorage`.
 
 ## Downsides and limitations
 

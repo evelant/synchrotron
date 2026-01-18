@@ -37,10 +37,19 @@ const syncConfig = {
 // The proper order matters for dependency resolution
 // Start with TodoRepo and other app services that require Synchrotron
 const AppLive = TodoRepo.Default.pipe(
+	Layer.provideMerge(
+		Layer.effectDiscard(
+			Effect.logInfo("todoAppWeb.runtime.start", {
+				electricSyncUrl: syncConfig.electricSyncUrl,
+				pgliteDataDir: syncConfig.pglite.dataDir,
+				pgliteDebug: syncConfig.pglite.debug,
+				relaxedDurability: syncConfig.pglite.relaxedDurability
+			})
+		)
+	),
 	Layer.provideMerge(TodoActions.Default),
 	Layer.provideMerge(Layer.effectDiscard(setupClientDatabase)),
 	Layer.provideMerge(makeSynchrotronClientLayer(syncConfig)),
-	Layer.provideMerge(Layer.effectDiscard(Effect.logInfo(`creating layers`))),
 	Layer.provideMerge(
 		Logger.replace(Logger.defaultLogger, Logger.prettyLoggerDefault.pipe(Logger.withLeveledConsole))
 	),

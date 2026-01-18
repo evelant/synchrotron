@@ -44,11 +44,16 @@ const assertOpfsWorkerSupport = (): void => {
 
 const makeOpfsWorker = (dbName: string) =>
 	Effect.acquireRelease(
-		Effect.sync(() => {
-			assertOpfsWorkerSupport()
+		Effect.gen(function* () {
+			yield* Effect.logInfo("db.sqlite.opfsWorker.acquire.start", { dbName })
+			yield* Effect.sync(() => assertOpfsWorkerSupport())
 			return new Worker(new URL("./sqlite-opfs.rn-web.worker", window.location.href), { name: dbName })
 		}),
-		(worker) => Effect.sync(() => worker.terminate())
+		(worker) =>
+			Effect.gen(function* () {
+				yield* Effect.logInfo("db.sqlite.opfsWorker.release", { dbName })
+				yield* Effect.sync(() => worker.terminate())
+			})
 	)
 
 /**

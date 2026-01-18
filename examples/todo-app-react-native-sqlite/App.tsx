@@ -1,9 +1,11 @@
 import { StatusBar } from "expo-status-bar"
 import { Clock, Effect } from "effect"
-import React, { useCallback, useEffect, useState } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import {
 	ActivityIndicator,
+	Alert,
 	FlatList,
+	Platform,
 	Pressable,
 	StyleSheet,
 	Text,
@@ -14,8 +16,11 @@ import { type ActionExecutionError, SyncService } from "@synchrotron/sync-core"
 import { TodoActions } from "./src/actions"
 import type { Todo } from "./src/db/schema"
 import { TodoRepo } from "./src/db/repositories"
-import { RuntimeProvider, useRuntime } from "./src/runtime"
+import { RuntimeProvider, sqliteFilename, useRuntime } from "./src/runtime"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
+import { deleteOpfsSqliteDbFiles } from "./src/resetLocalDb"
+
+const resetLocalDbFlagKey = "todo-app-react-native-sqlite:reset-local-db"
 
 function AppInner() {
 	const runtime = useRuntime()
@@ -23,8 +28,10 @@ function AppInner() {
 	const [todos, setTodos] = useState<readonly Todo[]>([])
 	const [isLoading, setIsLoading] = useState(true)
 	const [isSyncing, setIsSyncing] = useState(false)
+	const [isResetting, setIsResetting] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [newTodoText, setNewTodoText] = useState("")
+	const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
 	const loadTodos = useCallback(() => {
 		const effect = Effect.gen(function* () {
@@ -57,19 +64,101 @@ function AppInner() {
 	}, [runtime, loadTodos])
 
 	useEffect(() => {
-		setIsLoading(true)
-		setError(null)
+		let cancelled = false
 
-		loadTodos()
-			.then(() => syncOnce())
-			.finally(() => setIsLoading(false))
+		const boot = async () => {
+			setIsLoading(true)
+			setError(null)
 
-		const interval = setInterval(() => {
-			void syncOnce()
-		}, 4000)
+			try {
+				if (Platform.OS === "web") {
+					const pendingReset = window.localStorage.getItem(resetLocalDbFlagKey) === "1"
+						if (pendingReset) {
+							window.localStorage.removeItem(resetLocalDbFlagKey)
+							setIsResetting(true)
+							try {
+								const deleted = await deleteOpfsSqliteDbFiles(sqliteFilename)
+								if (deleted.length === 0) {
+									throw new Error("Reset did not delete any OPFS entries")
+								}
+								// Synchrotron client ids are persisted via the Effect KeyValueStore (localStorage on web).
+								// Resetting the DB should also reset the client identity.
+								window.localStorage.removeItem("sync_client_id")
+							} catch (e) {
+								console.error("Failed to delete OPFS sqlite db", e)
+								if (!cancelled) {
+									setError(
+										`Failed to delete local DB: ${String(e)}. Close other tabs for this origin and try again.`
+								)
+								setIsResetting(false)
+							}
+							return
+						}
 
-		return () => clearInterval(interval)
+						if (!cancelled) {
+							setIsResetting(false)
+						}
+					}
+				}
+
+				await loadTodos()
+				await syncOnce()
+
+				if (!cancelled) {
+					syncIntervalRef.current = setInterval(() => {
+						void syncOnce()
+					}, 4000)
+				}
+			} finally {
+				if (!cancelled) setIsLoading(false)
+			}
+		}
+
+		void boot()
+
+		return () => {
+			cancelled = true
+			if (syncIntervalRef.current) clearInterval(syncIntervalRef.current)
+		}
 	}, [loadTodos, syncOnce])
+
+	const resetLocalDb = useCallback(() => {
+		if (isResetting) return
+
+		if (Platform.OS === "web" && typeof window.confirm === "function") {
+			const confirmed = window.confirm(
+				"Delete the local database for this app? This removes all local data and reloads the page."
+			)
+			if (!confirmed) return
+			window.localStorage.setItem(resetLocalDbFlagKey, "1")
+			window.location.reload()
+			return
+		}
+
+		Alert.alert(
+			"Reset local database?",
+			"This deletes the local SQLite database for this app.",
+			[
+				{ text: "Cancel", style: "cancel" },
+				{
+					text: "Reset",
+					style: "destructive",
+					onPress: () => {
+						if (Platform.OS === "web") {
+							window.localStorage.setItem(resetLocalDbFlagKey, "1")
+							window.location.reload()
+							return
+						}
+
+						Alert.alert(
+							"Not supported",
+							"Reset is only implemented for web right now. On iOS/Android, uninstall the app or clear its storage to remove the SQLite database."
+						)
+					}
+				}
+			]
+		)
+	}, [isResetting])
 
 	const handleAddTodo = useCallback(() => {
 		const text = newTodoText.trim()
@@ -167,8 +256,19 @@ function AppInner() {
 		<SafeAreaView style={styles.container}>
 			<StatusBar style="light" />
 			<View style={styles.header}>
-				<Text style={styles.title}>Synchrotron To-Dos</Text>
-				<Text style={styles.subtitle}>{isSyncing ? "Syncing…" : " "}</Text>
+				<View style={styles.headerTopRow}>
+					<Text style={styles.title}>Synchrotron To-Dos</Text>
+					<Pressable
+						style={[styles.resetButton, isResetting ? styles.resetButtonDisabled : null]}
+						onPress={resetLocalDb}
+						disabled={isResetting}
+						accessibilityRole="button"
+						accessibilityLabel="Reset local database"
+					>
+						<Text style={styles.resetButtonText}>{isResetting ? "Resetting…" : "Reset DB"}</Text>
+					</Pressable>
+				</View>
+				<Text style={styles.subtitle}>{isResetting ? "Resetting…" : isSyncing ? "Syncing…" : " "}</Text>
 			</View>
 
 			{error ? <Text style={styles.error}>{error}</Text> : null}
@@ -264,9 +364,29 @@ const styles = StyleSheet.create({
 		gap: 4,
 		marginBottom: 12
 	},
+	headerTopRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: 12
+	},
 	title: {
 		color: "white",
 		fontSize: 28,
+		fontWeight: "700"
+	},
+	resetButton: {
+		borderRadius: 10,
+		paddingHorizontal: 10,
+		paddingVertical: 8,
+		backgroundColor: "#151821"
+	},
+	resetButtonDisabled: {
+		opacity: 0.4
+	},
+	resetButtonText: {
+		color: "#9aa0a6",
+		fontSize: 12,
 		fontWeight: "700"
 	},
 	subtitle: {

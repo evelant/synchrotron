@@ -55,30 +55,37 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 				Effect.withSpan("RpcHandler.FetchRemoteActions")
 			)
 
-		const SendLocalActionsHandler = (payload: SendLocalActions) =>
-			Effect.gen(function* (_) {
-				const clientId = payload.clientId
+			const SendLocalActionsHandler = (payload: SendLocalActions) =>
+				Effect.gen(function* (_) {
+					const clientId = payload.clientId
 
-				yield* Effect.logInfo("rpc.SendLocalActions.start", {
-					clientId,
-					actionCount: payload.actions.length,
-					amrCount: payload.amrs.length,
-					actionTags: payload.actions.reduce<Record<string, number>>((acc, a) => {
-						acc[a._tag] = (acc[a._tag] ?? 0) + 1
-						return acc
-					}, {}),
-					hasSyncDelta: payload.actions.some((a) => a._tag === "_InternalSyncApply")
-				})
+					yield* Effect.logInfo("rpc.SendLocalActions.start", {
+						clientId,
+						basisServerIngestId: payload.basisServerIngestId,
+						actionCount: payload.actions.length,
+						amrCount: payload.amrs.length,
+						actionTags: payload.actions.reduce<Record<string, number>>((acc, a) => {
+							acc[a._tag] = (acc[a._tag] ?? 0) + 1
+							return acc
+						}, {}),
+						hasSyncDelta: payload.actions.some((a) => a._tag === "_InternalSyncApply")
+					})
 
-				yield* serverService.receiveActions(clientId, payload.actions, payload.amrs)
+					yield* serverService.receiveActions(
+						clientId,
+						payload.basisServerIngestId,
+						payload.actions,
+						payload.amrs
+					)
 
-				yield* Effect.logInfo("rpc.SendLocalActions.success", {
-					clientId,
-					actionCount: payload.actions.length,
-					amrCount: payload.amrs.length
-				})
+					yield* Effect.logInfo("rpc.SendLocalActions.success", {
+						clientId,
+						basisServerIngestId: payload.basisServerIngestId,
+						actionCount: payload.actions.length,
+						amrCount: payload.amrs.length
+					})
 
-				return true
+					return true
 			}).pipe(
 				Effect.tapErrorCause((c) =>
 					Effect.logError("rpc.SendLocalActions.error", { cause: Cause.pretty(c) })

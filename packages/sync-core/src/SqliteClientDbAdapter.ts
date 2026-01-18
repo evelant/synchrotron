@@ -46,16 +46,64 @@ const SqliteClientDbAdapterLive = Layer.effect(
 		yield* ensureSqliteDialect(sql)
 		const dbDialect = "sqlite" as const
 
-		const initializeSyncSchema: Effect.Effect<void, SqlError.SqlError | Error> = Effect.logDebug(
-			"clientDbAdapter.initializeSyncSchema.start",
-			{ dbDialect }
-		).pipe(
-			Effect.zipRight(
-				Effect.gen(function* () {
-			// better-sqlite3 (used by @effect/sql-sqlite-node) cannot prepare multi-statement SQL.
-			// Execute the schema file one statement at a time.
-			for (const statement of createSyncTablesSqliteSQL
-				.split(";")
+			const initializeSyncSchema: Effect.Effect<void, SqlError.SqlError | Error> = Effect.logDebug(
+				"clientDbAdapter.initializeSyncSchema.start",
+				{ dbDialect }
+			).pipe(
+				Effect.zipRight(
+					Effect.gen(function* () {
+						const requiredSyncTables = [
+							"action_records",
+							"action_modified_rows",
+							"client_sync_status",
+							"local_applied_action_ids"
+						] as const
+
+						const boolFromExists = (value: unknown): boolean =>
+							value === true || value === 1 || value === "1"
+
+						const hasAnyTablesBefore = yield* sql<{ readonly present: unknown }>`
+							SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table') AS present
+						`.pipe(Effect.map((rows) => boolFromExists(rows[0]?.present)))
+
+						const existingBefore = yield* Effect.all(
+								requiredSyncTables.map((tableName) =>
+									sql<{ readonly present: unknown }>`
+										SELECT EXISTS (
+											SELECT 1 FROM sqlite_master
+											WHERE type = 'table'
+											AND name = ${tableName}
+										) AS present
+									`.pipe(Effect.map((rows) => [tableName, boolFromExists(rows[0]?.present)] as const))
+								),
+							{ concurrency: 1 }
+						)
+
+						const existingBeforeTables = existingBefore
+							.filter(([, exists]) => exists)
+							.map(([tableName]) => tableName)
+						const hadAllSyncTablesBefore = existingBeforeTables.length === requiredSyncTables.length
+
+						const tempContextExistsBefore = yield* sql<{ readonly present: unknown }>`
+							SELECT EXISTS (
+								SELECT 1 FROM sqlite_temp_master
+								WHERE type = 'table'
+								AND name = 'sync_context'
+							) AS present
+						`.pipe(Effect.map((rows) => boolFromExists(rows[0]?.present)))
+
+						yield* Effect.logInfo("db.sqlite.syncSchema.ensure.start", {
+							dbDialect,
+							hasAnyTablesBefore,
+							hadAllSyncTablesBefore,
+							existingSyncTablesBefore: existingBeforeTables,
+							tempContextExistsBefore
+						})
+
+				// better-sqlite3 (used by @effect/sql-sqlite-node) cannot prepare multi-statement SQL.
+				// Execute the schema file one statement at a time.
+				for (const statement of createSyncTablesSqliteSQL
+					.split(";")
 				.map((s) => s.trim())
 				.filter((s) => s.length > 0)) {
 				yield* sql.unsafe(statement).raw
@@ -72,16 +120,48 @@ const SqliteClientDbAdapterLive = Layer.effect(
 
 			// Ensure a single row exists.
 			yield* sql`DELETE FROM sync_context`.raw
-			yield* sql`
-				INSERT INTO sync_context (capture_action_record_id, sequence, disable_tracking)
-				VALUES (NULL, 0, 0)
-			`.raw
+				yield* sql`
+					INSERT INTO sync_context (capture_action_record_id, sequence, disable_tracking)
+					VALUES (NULL, 0, 0)
+				`.raw
 
-			yield* Effect.logInfo("clientDbAdapter.initializeSyncSchema.done", { dbDialect })
-				})
-			),
-			Effect.annotateLogs({ dbDialect }),
-			Effect.withSpan("ClientDbAdapter.initializeSyncSchema", { attributes: { dbDialect } })
+						const existingAfter = yield* Effect.all(
+							requiredSyncTables.map((tableName) =>
+								sql<{ readonly present: unknown }>`
+									SELECT EXISTS (
+										SELECT 1 FROM sqlite_master
+										WHERE type = 'table'
+										AND name = ${tableName}
+									) AS present
+								`.pipe(Effect.map((rows) => [tableName, boolFromExists(rows[0]?.present)] as const))
+							),
+							{ concurrency: 1 }
+						)
+
+						const existingAfterTables = existingAfter
+							.filter(([, exists]) => exists)
+							.map(([tableName]) => tableName)
+						const hasAllSyncTablesAfter = existingAfterTables.length === requiredSyncTables.length
+
+						const tempContextExistsAfter = yield* sql<{ readonly present: unknown }>`
+							SELECT EXISTS (
+								SELECT 1 FROM sqlite_temp_master
+								WHERE type = 'table'
+								AND name = 'sync_context'
+							) AS present
+						`.pipe(Effect.map((rows) => boolFromExists(rows[0]?.present)))
+
+						yield* Effect.logInfo("db.sqlite.syncSchema.ensure.done", {
+							dbDialect,
+							hadAllSyncTablesBefore,
+							hasAllSyncTablesAfter,
+							createdOrRepaired: !hadAllSyncTablesBefore && hasAllSyncTablesAfter,
+							tempContextExistsAfter
+						})
+					})
+				),
+				Effect.annotateLogs({ dbDialect }),
+				Effect.withSpan("ClientDbAdapter.initializeSyncSchema", { attributes: { dbDialect } })
 		)
 
 		const quoteSqliteIdentifier = (identifier: string) =>

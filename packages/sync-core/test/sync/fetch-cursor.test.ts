@@ -1,7 +1,8 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
+import type { ActionRecord } from "@synchrotron/sync-core/models"
 import { Effect } from "effect"
-import { createTestClient, makeTestLayers } from "./helpers/TestLayers"
+import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
 const waitForNextMillisecond = Effect.sync(() => {
 	const start = Date.now()
@@ -61,19 +62,34 @@ describe("Reliable fetch cursor (server_ingest_id)", () => {
 				const lastSyncedClock = yield* clientA.clockService.getLastSyncedClock
 				expect(actionBOld.clock.timestamp).toBeLessThan(lastSyncedClock.timestamp)
 
-				const compare = yield* serverSql<{ result: number }>`
-						SELECT compare_hlc(${serverSql.json(actionBOld.clock)}, ${serverSql.json(lastSyncedClock)}) as result
+					const compare = yield* serverSql<{ result: number }>`
+							SELECT compare_hlc(${serverSql.json(actionBOld.clock)}, ${serverSql.json(lastSyncedClock)}) as result
+						`
+					expect(compare[0]?.result).toBeLessThan(0)
+
+					// Upload the offline action late (server assigns a new server_ingest_id).
+					yield* clientB.syncService.performSync()
+
+					const serverRecordForBOld = yield* serverSql<ActionRecord>`
+						SELECT * FROM action_records WHERE id = ${actionBOld.id}
 					`
-				expect(compare[0]?.result).toBeLessThan(0)
+					expect(serverRecordForBOld.length).toBe(1)
+					const serverBOld = serverRecordForBOld[0]!
+					expect(serverBOld.server_ingest_id).toBeGreaterThan(lastSeenAfterC)
+					expect(serverBOld.clock.timestamp).toBe(actionBOld.clock.timestamp)
 
-				// Upload the offline action late (server assigns a new server_ingest_id).
-				yield* clientB.syncService.performSync()
+					const serverCompareAfterIngest = yield* serverSql<{ result: number }>`
+						SELECT compare_hlc(${serverSql.json(serverBOld.clock)}, ${serverSql.json(lastSyncedClock)}) as result
+					`
+					expect(serverCompareAfterIngest[0]?.result).toBeLessThan(0)
 
-				// ClientA should still fetch it (by server_ingest_id), even though its replay clock is older.
-				yield* clientA.syncService.performSync()
+					// ClientA should still fetch it (by server_ingest_id), even though its replay clock is older.
+					const appliedOnA = yield* clientA.syncService.performSync()
+					const fetchedBOld = appliedOnA.find((a) => a.id === actionBOld.id)
+					expect(fetchedBOld?.clock.timestamp).toBe(actionBOld.clock.timestamp)
 
-				const noteOnA = yield* clientA.noteRepo.findById(noteBOld.id)
-				expect(noteOnA._tag).toBe("Some")
+					const noteOnA = yield* clientA.noteRepo.findById(noteBOld.id)
+					expect(noteOnA._tag).toBe("Some")
 
 				const lastSeenAfterB = yield* clientA.clockService.getLastSeenServerIngestId
 				expect(lastSeenAfterB).toBeGreaterThan(lastSeenAfterC)

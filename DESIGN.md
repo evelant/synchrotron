@@ -34,6 +34,7 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
   - `vector`: map of `client_id -> counter` used for causality hints
   - local mutation increments the local counter
   - receiving remote clocks merges vectors by max; entries never reset
+  - uploads include `basisServerIngestId` (client's last seen `server_ingest_id` cursor); the server rejects uploads when the client is behind the server ingestion head (fetch+reconcile+retry)
 
 ## Data model
 
@@ -133,7 +134,7 @@ Result: replaying the same action record on different clients produces the same 
 2. Client applies incoming actions in HLC order.
 3. A placeholder SYNC action captures the patches produced by local replay of the incoming batch.
 4. The client computes a SYNC delta: `P_replay(batch) − P_known(batch)` where `P_known` includes the received base patches plus any received SYNC patches.
-5. If the delta is empty, the placeholder is deleted (no outgoing SYNC). If non-empty, the placeholder is kept as a new local SYNC action to be uploaded.
+5. If the delta is empty, the placeholder is deleted (no outgoing SYNC). If non-empty, the placeholder is kept as a new local SYNC action to be uploaded (clocked after all observed remote actions in that apply pass).
 
 ### SYNC actions (private data / conditional logic)
 
@@ -144,7 +145,7 @@ Replaying an action can legitimately produce different writes when:
 
 When patch comparison finds a mismatch, the client may emit a SYNC action record (patch-only) to reconcile outcomes. In the common case (private-data divergence), SYNC is intended to be additive: it adds missing row/field effects that were not present in the received patch set due to partial visibility. Incoming SYNC actions are applied directly as patches (no action code to run).
 
-The exact “monotonic/additive” semantics (and the edge cases when private state influences shared rows) need to be pinned down; see `docs/planning/todo/0003-sync-action-semantics.md`.
+However, reconciliation deltas are not guaranteed to be purely additive: late-arriving actions and rollback+replay can legitimately change what an earlier action “should have done” in canonical replay order, which can supersede previously-known effects (including prior SYNC patches). The key requirement is that replicas reach a fixed point once they have applied the same history; repeated non-convergence for the same basis indicates action impurity (nondeterminism) or an unsupported shared-row divergence case. See `docs/planning/todo/0003-sync-action-semantics.md`.
 
 ### Conflict detection
 
@@ -157,7 +158,7 @@ A conflict exists when incoming actions are not strictly after the client's loca
 
 1. Identify the common ancestor (latest fully-synced action before divergence).
 2. Start a transaction.
-3. Roll back to the ancestor by undoing `action_modified_rows` in reverse `sequence` order.
+3. Roll back to the ancestor by undoing `action_modified_rows` in reverse `sequence` order without recording patches.
 4. Insert a single ROLLBACK marker that references the ancestor action id.
 5. Replay all actions from that point to "now" in total HLC order, using the same apply+SYNC logic as the fast-forward case.
 6. Send any new actions (ROLLBACK marker + SYNC deltas) to the server.
@@ -178,11 +179,29 @@ Analogy: this is a bit like Git. Find the merge base (common ancestor), rewind t
 - Action records are append-only.
 - Server applies forward patches in total order to maintain materialized state.
 - If rollbacks exist, choose the rollback targeting the oldest state and roll back once, then continue applying forward patches (skip rollback markers).
-- Server may reject writes that are older than already-applied conflicting actions; client reconciles and retries.
+- Server accepts **late-arriving** actions (older replay key, newer `server_ingest_id`) and re-materializes via rollback+replay of patches so base tables match canonical replay order.
+- Server rejects uploads when the client is behind the server ingestion head (by `server_ingest_id` for actions visible to that client); clients must fetch+reconcile+retry.
+
+#### Historical note (Update 1)
+
+Synchrotron originally tried a different rollback/replay strategy:
+
+1. Rollback action recorded all rollback patches, then replayed actions were re-recorded as _new_ `action_records`.
+2. The server only applied forward patches (including rollback patches).
+3. `action_modified_rows` merged multiple modifications to the same row into a single record.
+
+This caused problems (especially on the server: rollback patches could reference state that never existed server-side until after the rollback), so the design changed:
+
+1. `RollbackAction` is a patch-less marker that references a target ancestor action id.
+2. Replay does **not** create new `action_records` or patches for existing actions; it re-applies existing history in canonical order and may emit new patch-only `_InternalSyncApply` (SYNC) deltas.
+3. The server handles rollbacks like the client: choose the rollback targeting the oldest state, roll back to it, then apply forward patches for actions in total order (skipping rollbacks).
+4. `action_modified_rows` records every mutation to a row with an incrementing `sequence` (no merging), so forward/reverse patch application is well-defined.
 
 ## Live sync and bootstrap
 
 - Fetch/stream remote actions by `action_records.server_ingest_id > client_sync_status.last_seen_server_ingest_id` (receipt cursor), then sort/apply by replay order key (`clock_time_ms`, `clock_counter`, `client_id`, `id`).
+- Remote ingress is transport-specific (Electric stream, RPC fetch, polling, etc) and populates local `action_records` / `action_modified_rows`. Applying those remotes is DB-driven: the client applies actions discovered in the local DB (`synced=true` and not present in `local_applied_action_ids`), not by trusting the transient fetch return value.
+- `last_seen_server_ingest_id` is treated as an **applied** watermark (not merely ingested): it is advanced only after incoming remote actions have been incorporated into the client’s materialized state (apply/reconcile). It is also used as `basisServerIngestId` for upload head-gating.
 - Use up-to-date signals to ensure the complete set of `action_modified_rows` for a transaction has arrived before applying.
 - This may use Electric's experimental `multishapestream` / `transactionmultishapestream` APIs, depending on how you stream the shapes.
 - Bootstrap without historical actions:
@@ -208,6 +227,8 @@ Private-data divergence example:
 - On rollback, Client B rolls back and replays with its full state, restoring shared + private rows.
 
 Note: if hidden/private state influences writes to shared rows, SYNC can become visible and may leak derived information via shared state; this is application-dependent and should be treated as a design constraint.
+
+If hidden/private state influences writes to shared rows, different user views can legitimately compute different values for the same shared `(table,row,column)`. When that happens, SYNC deltas can include visible overwrites and the system effectively becomes **last-writer-wins for that shared field** (the last SYNC in canonical HLC order wins). This should be treated as an application-level constraint and surfaced with loud diagnostics; repeated flips without any new non-SYNC inputs suggests action impurity (nondeterminism) or clock/time-travel bugs.
 
 Avoiding unintended writes:
 

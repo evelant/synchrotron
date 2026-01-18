@@ -13,7 +13,7 @@
         "types": [
             "node"
         ],
-        "outDir": "dist/src",
+        "outDir": "dist",
         "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
         "rootDir": "src"
     }

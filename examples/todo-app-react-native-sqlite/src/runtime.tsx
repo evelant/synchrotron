@@ -13,6 +13,8 @@ import { TodoActions } from "./actions"
 import { TodoRepo } from "./db/repositories"
 import { setupClientDatabase } from "./db/setup"
 
+export const sqliteFilename = "todo-app.db"
+
 const defaultSyncRpcUrl = Platform.select({
 	android: "http://localhost:3010/rpc",
 	default: "http://localhost:3010/rpc"
@@ -22,11 +24,20 @@ const syncRpcUrl =
 	process.env.EXPO_PUBLIC_SYNC_RPC_URL ?? defaultSyncRpcUrl ?? "http://localhost:3010/rpc"
 
 const AppLive = TodoRepo.Default.pipe(
+	Layer.provideMerge(
+		Layer.effectDiscard(
+			Effect.logInfo("todoApp.runtime.start", {
+				platform: Platform.OS,
+				syncRpcUrl,
+				sqliteFilename
+			})
+		)
+	),
 	Layer.provideMerge(TodoActions.Default),
 	Layer.provideMerge(Layer.effectDiscard(setupClientDatabase)),
 	Layer.provideMerge(
 		makeSynchrotronSqliteReactNativeClientLayer(
-			{ filename: "todo-app.db" },
+			{ filename: sqliteFilename },
 			{
 				syncRpcUrl
 			}

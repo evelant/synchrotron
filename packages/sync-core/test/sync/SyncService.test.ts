@@ -8,7 +8,7 @@ import { ActionRecord } from "@synchrotron/sync-core/models"
 import { ActionExecutionError, SyncService } from "@synchrotron/sync-core/SyncService" // Corrected import path
 import { Effect, Option, Schema } from "effect" // Import DateTime
 import { expect } from "vitest"
-import { createTestClient, makeTestLayers } from "./helpers/TestLayers" // Removed TestServices import
+import { createTestClient, makeTestLayers } from "../helpers/TestLayers" // Removed TestServices import
 
 // Use describe instead of it.layer
 describe("SyncService", () => {

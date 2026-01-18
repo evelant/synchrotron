@@ -64,19 +64,21 @@ export const SyncNetworkServiceLive = Layer.scoped(
 			return { countsByActionRecordId, countsByTable }
 		}
 
-		const sendLocalActions = (
-			actions: ReadonlyArray<ActionRecord>,
-			amrs: ReadonlyArray<ActionModifiedRow>
-		) =>
-			Effect.gen(function* () {
-				const amrSummary = summarizeAmrs(amrs)
-				yield* Effect.logInfo("sync.network.sendLocalActions.start", {
-					clientId,
-					actionCount: actions.length,
-					amrCount: amrs.length,
-					actionTags: actions.reduce<Record<string, number>>((acc, a) => {
-						acc[a._tag] = (acc[a._tag] ?? 0) + 1
-						return acc
+			const sendLocalActions = (
+				actions: ReadonlyArray<ActionRecord>,
+				amrs: ReadonlyArray<ActionModifiedRow>,
+				basisServerIngestId: number
+			) =>
+				Effect.gen(function* () {
+					const amrSummary = summarizeAmrs(amrs)
+					yield* Effect.logInfo("sync.network.sendLocalActions.start", {
+						clientId,
+						basisServerIngestId,
+						actionCount: actions.length,
+						amrCount: amrs.length,
+						actionTags: actions.reduce<Record<string, number>>((acc, a) => {
+							acc[a._tag] = (acc[a._tag] ?? 0) + 1
+							return acc
 					}, {}),
 					amrCountsByTable: amrSummary.countsByTable
 				})
@@ -106,16 +108,22 @@ export const SyncNetworkServiceLive = Layer.scoped(
 					amrs: {
 						countsByActionRecordId: amrSummary.countsByActionRecordId,
 						countsByTable: amrSummary.countsByTable
-					}
-				})
+						}
+					})
 
-				const result = yield* client.SendLocalActions({ actions, amrs, clientId })
-				yield* Effect.logInfo("sync.network.sendLocalActions.success", {
-					clientId,
-					actionCount: actions.length,
-					amrCount: amrs.length
-				})
-				return result
+					const result = yield* client.SendLocalActions({
+						actions,
+						amrs,
+						clientId,
+						basisServerIngestId
+					})
+					yield* Effect.logInfo("sync.network.sendLocalActions.success", {
+						clientId,
+						basisServerIngestId,
+						actionCount: actions.length,
+						amrCount: amrs.length
+					})
+					return result
 			}).pipe(
 				Effect.tapErrorCause((c) =>
 					Effect.logError(

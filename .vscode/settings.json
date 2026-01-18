@@ -5,10 +5,7 @@
 	"editor.codeActionsOnSave": {
 		"source.fixAll.eslint": "explicit"
 	},
-	"eslint.validate": [
-		"javascript",
-		"typescript"
-	],
+	"eslint.validate": ["javascript", "typescript"],
 	"typescript.tsdk": "node_modules/typescript/lib",
 	"[typescript]": {
 		"editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -30,5 +27,9 @@
 	"typescript.preferences.preferTypeOnlyAutoImports": true,
 	"typescript.updateImportsOnFileMove.enabled": "always",
 	"typescript.updateImportsOnPaste.enabled": true,
-	"vitest.disableWorkspaceWarning": true
+	"vitest.disableWorkspaceWarning": true,
+	"annotation.github.repository": "evelant/synchrotron",
+	"annotation.username": "evelant",
+	"llm.apiKeys": {},
+	"annotation.model": "gpt-5-mini"
 }

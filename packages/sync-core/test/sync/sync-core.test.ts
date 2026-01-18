@@ -2,7 +2,7 @@ import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest" // Import describe
 import { ActionRecord } from "@synchrotron/sync-core/models" // Import ActionRecord directly
 import { Effect, TestClock } from "effect"
-import { createTestClient, makeTestLayers } from "./helpers/TestLayers"
+import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
 // Use the specific NoteModel from TestLayers if it's defined there, otherwise import from models
 // Assuming NoteModel is defined in TestLayers or accessible globally for tests

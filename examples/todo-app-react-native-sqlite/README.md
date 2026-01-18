@@ -8,6 +8,7 @@ On web, it uses sqlite-wasm via `@effect/sql-sqlite-wasm` / `@effect/wa-sqlite` 
 
 - Run the shared backend (Postgres + Electric + Bun RPC server) from `examples/backend`.
 - This app is not compatible with Expo Go (it uses a native SQLite module). Use `expo prebuild` + a dev client.
+- Install `react-native-mmkv` (used by Synchrotron for persistent `KeyValueStore` on native).
 
 ## Run backend
 
@@ -44,6 +45,7 @@ Notes:
 - This app copies `@effect/wa-sqlite`’s wasm binaries into `examples/todo-app-react-native-sqlite/public/` on install (`postinstall`) so the web dev server can load them from `/wa-sqlite.wasm`.
   - If needed, run manually: `pnpm --filter todo-app-react-native-sqlite run sync:wa-sqlite-wasm`
 - Web uses OPFS persistence via a Web Worker; this app imports `@expo/metro-runtime` in `examples/todo-app-react-native-sqlite/index.ts` to enable Metro’s web worker bundling.
+- If you get “stuck” local data on web (OPFS), use the in-app `Reset DB` button (deletes the wa-sqlite OPFS directory, clears `sync_client_id`, and reloads).
 
 To point the app at a non-local backend (LAN / physical device without USB reverse), set:
 

@@ -46,12 +46,12 @@ BEGIN
 			END IF;
 		END IF;
 
-	ELSIF amr_record.operation = 'INSERT' THEN
-		-- Attempt direct INSERT. Let PK violation handle existing rows.
-		columns_list := ''; values_list := '';
-		IF NOT (amr_record.forward_patches ? 'id') THEN
-			columns_list := 'id'; values_list := quote_literal(target_id);
-		END IF;
+		ELSIF amr_record.operation = 'INSERT' THEN
+			-- Attempt direct INSERT. Let PK violation handle existing rows.
+			columns_list := ''; values_list := '';
+			IF NOT (amr_record.forward_patches ? 'id') THEN
+				columns_list := 'id'; values_list := quote_literal(target_id);
+			END IF;
 
 		FOR column_name, column_value IN SELECT * FROM jsonb_each(amr_record.forward_patches)
 		LOOP
@@ -67,16 +67,21 @@ BEGIN
 			ELSE
 				values_list := values_list || quote_nullable(column_value#>>'{}');
 			END IF;
-		END LOOP;
+			END LOOP;
 
-		IF columns_list <> '' THEN
-			sql_command := format('INSERT INTO %I (%s) VALUES (%s)', target_table, columns_list, values_list);
-			-- We expect this might fail if the row exists due to replay, which is the error we saw.
-			-- Let the calling batch function handle potential errors.
-			EXECUTE sql_command;
-		ELSE
-			RAISE EXCEPTION 'CRITICAL ERROR: Cannot apply INSERT operation - forward patches are empty. Table: %, ID: %', target_table, target_id;
-		END IF;
+			IF columns_list <> '' THEN
+				-- Idempotency: if the row already exists, do nothing.
+				-- This prevents duplicate-ingest or retry paths from failing on PK violations.
+				sql_command := format(
+					'INSERT INTO %I (%s) VALUES (%s) ON CONFLICT (id) DO NOTHING',
+					target_table,
+					columns_list,
+					values_list
+				);
+				EXECUTE sql_command;
+			ELSE
+				RAISE EXCEPTION 'CRITICAL ERROR: Cannot apply INSERT operation - forward patches are empty. Table: %, ID: %', target_table, target_id;
+			END IF;
 
 	ELSIF amr_record.operation = 'UPDATE' THEN
 		-- Attempt direct UPDATE. If row doesn't exist, it affects 0 rows.

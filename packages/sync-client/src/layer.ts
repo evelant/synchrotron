@@ -9,12 +9,17 @@ import {
 	SqliteClientDbAdapter,
 	SyncService
 } from "@synchrotron/sync-core"
-import { SynchrotronClientConfigData, createSynchrotronConfig } from "@synchrotron/sync-core/config"
+import {
+	SynchrotronClientConfig,
+	SynchrotronClientConfigData,
+	createSynchrotronConfig
+} from "@synchrotron/sync-core/config"
 import { Effect, Layer } from "effect"
 import { PgliteClientLive } from "./db/connection"
 import { SqliteWasmClientMemoryLive } from "./db/sqlite-wasm"
 import { ElectricSyncService } from "./electric/ElectricSyncService"
 import { SyncNetworkServiceLive } from "./SyncNetworkService"
+import { logInitialSyncDbState } from "./logInitialDbState"
 
 /**
  * Layer that automatically starts Electric sync after schema initialization
@@ -65,9 +70,23 @@ export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConf
 		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
 		Layer.provideMerge(PostgresClientDbAdapter),
 		Layer.provideMerge(PgliteClientLive),
-		Layer.provideMerge(configLayer)
-	)
-}
+		Layer.provideMerge(
+			Layer.effectDiscard(
+				Effect.gen(function* () {
+					const cfg = yield* SynchrotronClientConfig
+					yield* Effect.logInfo("synchrotron.client.start", {
+						platform: "browser-pglite",
+						electricSyncUrl: cfg.electricSyncUrl,
+						syncRpcUrl: cfg.syncRpcUrl,
+						pgliteDataDir: cfg.pglite.dataDir
+					})
+				})
+			)
+			),
+			Layer.provideMerge(configLayer),
+			Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
+		)
+	}
 
 /**
  * SQLite (WASM) client layer (no Electric integration).
@@ -88,9 +107,22 @@ export const makeSynchrotronSqliteWasmClientLayer = (
 		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
 		Layer.provideMerge(SqliteClientDbAdapter),
 		Layer.provideMerge(SqliteWasmClientMemoryLive),
-		Layer.provideMerge(configLayer)
-	)
-}
+		Layer.provideMerge(
+			Layer.effectDiscard(
+				Effect.gen(function* () {
+					const cfg = yield* SynchrotronClientConfig
+					yield* Effect.logInfo("synchrotron.client.start", {
+						platform: "browser-sqlite-wasm",
+						syncRpcUrl: cfg.syncRpcUrl,
+						electricSyncUrl: cfg.electricSyncUrl
+					})
+				})
+			)
+			),
+			Layer.provideMerge(configLayer),
+			Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
+		)
+	}
 
 /**
  * Default Synchrotron client layer with standard configuration

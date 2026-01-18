@@ -64,17 +64,19 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 					)
 				),
 
-			sendLocalActions: (
-				actions: readonly ActionRecord[],
-				amrs: readonly ActionModifiedRow[]
-			): Effect.Effect<boolean, NetworkRequestError | BadArgument, never> =>
-				Effect.gen(function* () {
-					// TODO: Implement actual network request to send actions to remote server
-					yield* Effect.logInfo(`Sending ${actions.length} local actions to server`)
+	sendLocalActions: (
+		actions: readonly ActionRecord[],
+		amrs: readonly ActionModifiedRow[],
+		basisServerIngestId: number
+	): Effect.Effect<boolean, NetworkRequestError | BadArgument, never> =>
+		Effect.gen(function* () {
+			// TODO: Implement actual network request to send actions to remote server
+			yield* Effect.logInfo(`Sending ${actions.length} local actions to server`)
+			yield* Effect.logDebug(`basisServerIngestId=${basisServerIngestId}`)
 
-					// For now just return true as placeholder
-					return true
-				}).pipe(
+			// For now just return true as placeholder
+			return true
+		}).pipe(
 					Effect.catchAll((error) =>
 						Effect.fail(
 							new NetworkRequestError({

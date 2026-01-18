@@ -1,0 +1,16 @@
+[
+  {
+    "id": "mkhj4hr9nbaxu0gi0ur",
+    "file": "packages/sync-core/src/ActionRecordRepo.ts",
+    "line": 7,
+    "message": "Effect service for accessing action_record rows",
+    "author": "Anonymous",
+    "timestamp": "2026-01-16T23:48:24.165Z",
+    "thread": [],
+    "tags": [],
+    "pinned": false,
+    "priority": 0,
+    "severity": "info",
+    "resolved": false
+  }
+]

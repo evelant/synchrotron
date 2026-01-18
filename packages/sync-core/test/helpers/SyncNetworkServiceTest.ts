@@ -26,12 +26,15 @@ export interface TestNetworkState {
 	/** Whether network operations should fail */
 	shouldFail: boolean
 	/** Mocked result for fetchRemoteActions */
-	fetchResult?: Effect.Effect<FetchResult, RemoteActionFetchError>
+	fetchResult: Effect.Effect<FetchResult, RemoteActionFetchError, never> | undefined
 }
 
 export interface SyncNetworkServiceTestHelpersService {
 	readonly setNetworkDelay: (delay: number) => Effect.Effect<void, never, never>
 	readonly setShouldFail: (fail: boolean) => Effect.Effect<void, never, never>
+	readonly setFetchResult: (
+		fetchResult: TestNetworkState["fetchResult"]
+	) => Effect.Effect<void, never, never>
 }
 
 export class SyncNetworkServiceTestHelpers extends Context.Tag("SyncNetworkServiceTestHelpers")<
@@ -71,6 +74,7 @@ export const createTestSyncNetworkServiceLayer = (
 			let state: TestNetworkState = {
 				networkDelay: 0,
 				shouldFail: false,
+				fetchResult: undefined,
 				...config.initialState // fetchResult will be included if provided in config
 			}
 
@@ -88,6 +92,14 @@ export const createTestSyncNetworkServiceLayer = (
 			const setShouldFail = (fail: boolean) =>
 				Effect.sync(() => {
 					state.shouldFail = fail
+				})
+
+			/**
+			 * Override fetchRemoteActions with a mocked result (or clear the override).
+			 */
+			const setFetchResult = (fetchResult: TestNetworkState["fetchResult"]) =>
+				Effect.sync(() => {
+					state.fetchResult = fetchResult
 				})
 
 			/**
@@ -120,272 +132,310 @@ export const createTestSyncNetworkServiceLayer = (
 						modifiedRows = yield* serverSql<ActionModifiedRow>`
               SELECT * FROM action_modified_rows
               WHERE action_record_id IN ${serverSql.in(actionIds)}
+							ORDER BY action_record_id, sequence ASC, id ASC
             `
 					}
 
 					return { actions, modifiedRows } // Return both
 				}).pipe(Effect.annotateLogs("clientId", `${clientId} (server simulation)`))
 
-			const insertActionsOnServer = (
-				incomingActions: readonly ActionRecord[],
-				amrs: readonly ActionModifiedRow[]
-			) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug(
-						`insertActionsOnServer called by ${clientId} with ${incomingActions.length} actions: ${JSON.stringify(incomingActions.map((a) => a.id))}`
-					)
-					if (incomingActions.length === 0) {
-						yield* Effect.logDebug("No incoming actions to insert on server.")
-						return // Nothing to insert
+				const insertActionsOnServer = (
+					incomingActions: readonly ActionRecord[],
+					amrs: readonly ActionModifiedRow[],
+					basisServerIngestId: number
+				) =>
+					Effect.gen(function* () {
+						if (incomingActions.length === 0) return
+
+					type ReplayKey = {
+						readonly timeMs: number
+						readonly counter: number
+						readonly clientId: string
+						readonly id: string
 					}
-					// Fetch ActionModifiedRows associated with the incoming actions
-					// --- PROBLEM: Fetching by action ID might fail due to transaction isolation ---
-					const incomingActionIds = incomingActions.map((a) => a.id)
 
-					yield* Effect.logDebug(`Checking conflicts for ${amrs.length} modified rows.`)
-					if (amrs.length > 0) {
-						const affectedRowKeys = amrs.map((r) => ({
-							table_name: r.table_name, // Use correct property name
-							row_id: r.row_id
-						}))
-						const rowConditions = affectedRowKeys.map(
-							(
-								key: { table_name: string; row_id: string } // Use correct property names
-							) => serverSql`(amr.table_name = ${key.table_name} AND amr.row_id = ${key.row_id})`
-						)
+					const toNumber = (value: unknown): number => {
+						if (typeof value === "number") return value
+						if (typeof value === "bigint") return Number(value)
+						if (typeof value === "string") return Number(value)
+						return Number(value)
+					}
 
-						// Find existing actions on the server that modify the same rows
-						// Find the action record with the latest clock among the incoming actions
-						const latestAction = incomingActions.reduce(
-							(latestActionSoFar, currentAction) => {
-								if (!latestActionSoFar) return currentAction // First item
-								// Construct arguments for compareClock explicitly
-								const latestArg = {
-									clock: latestActionSoFar.clock,
-									clientId: latestActionSoFar.client_id
-								}
-								const currentArg = { clock: currentAction.clock, clientId: currentAction.client_id }
-								// Use compareClock which needs objects with clock and client_id
-								return clockService.compareClock(currentArg, latestArg) > 0
-									? currentAction // currentAction is newer
-									: latestActionSoFar // latestActionSoFar is newer or concurrent/equal
-							},
-							null as ActionRecord | null
-						)
+					const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
+						if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
+						if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
+						if (a.clientId !== b.clientId) return a.clientId < b.clientId ? -1 : 1
+						if (a.id !== b.id) return a.id < b.id ? -1 : 1
+						return 0
+					}
 
-						const latestIncomingClock = latestAction?.clock // Extract the clock from the latest action
+					const replayKeyForAction = (action: ActionRecord): ReplayKey => ({
+						timeMs: toNumber(action.clock.timestamp ?? 0),
+						counter: toNumber(action.clock.vector?.[action.client_id] ?? 0),
+						clientId: action.client_id,
+						id: action.id
+					})
 
-						if (!latestIncomingClock) {
-							return yield* Effect.die("Incoming actions must have a clock")
-						}
-						yield* Effect.logDebug(
-							`Checking for server actions newer than latest incoming clock ${JSON.stringify(latestIncomingClock)} affecting rows: ${JSON.stringify(affectedRowKeys)}`
-						)
+						const serverJson = (value: unknown) =>
+							typeof value === "string" ? value : serverSql.json(value)
 
-						// --- BEGIN SERVER-SIDE ROLLBACK SIMULATION ---
-						const incomingRollbacks = incomingActions.filter((a) => a._tag === "RollbackAction")
-						if (incomingRollbacks.length > 0) {
-							yield* Effect.logInfo(
-								`Server Simulation: Received ${incomingRollbacks.length} RollbackAction(s). Determining oldest target.`
-							)
-							const rollbackTargets = incomingRollbacks.map((rb) => rb.args["target_action_id"])
-							const hasGenesisRollback = rollbackTargets.some((id) => id === null)
-							const targetActionIds = rollbackTargets.filter(
-								(id): id is string => typeof id === "string"
-							)
+						const incomingActionIdSet = new Set(incomingActions.map((a) => a.id))
 
-							if (hasGenesisRollback) {
-								yield* Effect.logInfo(
-									"Server Simulation: Received RollbackAction targeting genesis. Rolling back server state to genesis."
-								)
-								yield* serverSql`SELECT rollback_to_action(${null})`
-							} else if (targetActionIds.length > 0) {
-								// Fetch the target actions to compare their clocks
-								const targetActions = yield* serverSql<ActionRecord>`
-									SELECT * FROM action_records WHERE id IN ${serverSql.in(targetActionIds)}
-								`
-
-								if (targetActions.length > 0) {
-									// Sort targets by clock to find the oldest
-									const sortedTargets = targetActions
-										// Map to the structure expected by compareClock
-										.map((a) => ({ clock: a.clock, clientId: a.client_id, id: a.id }))
-										.sort((a, b) => clockService.compareClock(a, b)) // Sort ascending (oldest first)
-
-									const oldestTargetAction = sortedTargets[0]
-									if (oldestTargetAction) {
-										yield* Effect.logInfo(
-											`Server Simulation: Rolling back server state to target action: ${oldestTargetAction.id}`
-										)
-										// Call the rollback function on the server DB
-										yield* serverSql`SELECT rollback_to_action(${oldestTargetAction.id})`
-									} else {
-										// Should not happen if targetActions.length > 0
-										yield* Effect.logWarning(
-											"Server Simulation: Could not determine the oldest target action for rollback."
-										)
-									}
-								} else {
-									yield* Effect.logWarning(
-										`Server Simulation: Received RollbackAction(s) but could not find target action(s) with IDs: ${targetActionIds.join(", ")}`
-									)
-								}
-							} else {
-								yield* Effect.logWarning(
-									"Server Simulation: Received RollbackAction(s) without a valid target_action_id."
-								)
-							}
-						}
-						// --- END SERVER-SIDE ROLLBACK SIMULATION ---
-
-						// --- Original Conflict Check Logic (remains the same) ---
-						yield* Effect.logDebug(
-							`Checking for conflicting server actions newer than ${JSON.stringify(
-								latestIncomingClock // Use latest clock here
-							)} affecting rows: ${JSON.stringify(affectedRowKeys)}`
-						)
-
-						const conflictingServerActions = yield* serverSql<ActionRecord>`
-							WITH conflicting_rows AS (
-							SELECT DISTINCT amr.action_record_id
-								FROM action_modified_rows amr
-								WHERE ${serverSql.or(rowConditions)}
-							)
-								SELECT ar.*
-								FROM action_records ar
-								JOIN conflicting_rows cr ON ar.id = cr.action_record_id
-								WHERE compare_hlc(ar.clock, ${serverSql.json(
-									latestIncomingClock // Compare against latest clock
-								)}) > 0
-								ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
-							`
-
-						yield* Effect.logDebug(
-							`Found ${conflictingServerActions.length} conflicting server actions: ${JSON.stringify(conflictingServerActions.map((a) => a.id))}`
-						)
-						if (conflictingServerActions.length > 0) {
-							yield* Effect.logWarning(
-								`Conflict detected on server simulation: ${conflictingServerActions.length} newer actions affect the same rows.`
-							)
+						// Simplified correctness gate: only accept uploads when the client is at the current
+						// server ingestion head (for actions visible to it, excluding its own).
+						const unseen = yield* serverSql<{
+							readonly id: string
+							readonly server_ingest_id: number | string
+						}>`
+							SELECT id, server_ingest_id
+							FROM action_records
+							WHERE client_id != ${clientId}
+							AND server_ingest_id > ${basisServerIngestId}
+							ORDER BY server_ingest_id ASC, id ASC
+							LIMIT 1
+						`
+						if (unseen.length > 0) {
+							const first = unseen[0]
 							return yield* Effect.fail(
 								new NetworkRequestError({
-									message: `Conflict detected: ${conflictingServerActions.length} newer server actions affect the same rows.`,
-									cause: { conflictingActions: conflictingServerActions }
+									message:
+										"Client is behind the server ingestion head. Fetch remote actions, reconcile locally, then retry upload.",
+									cause: {
+										basisServerIngestId,
+										firstUnseenActionId: first?.id ?? null,
+										firstUnseenServerIngestId: first ? toNumber(first.server_ingest_id) : null
+									}
 								})
 							)
 						}
-					}
-					// --- End Conflict Check ---
 
-					// Wrap server-side inserts and patch application in a transaction
-					yield* Effect.gen(function* () {
-						// If no conflicts, insert ActionRecords
+						// Insert ActionRecords and AMRs idempotently.
 						for (const actionRecord of incomingActions) {
-							yield* Effect.logInfo(
-								`Inserting action ${actionRecord.id} into server schema, created_at: ${actionRecord.created_at}`
+						yield* serverSql`
+							INSERT INTO action_records (
+								server_ingest_id,
+								id,
+								client_id,
+								_tag,
+								args,
+								clock,
+								synced,
+								transaction_id,
+								created_at
+							) VALUES (
+								nextval('action_records_server_ingest_id_seq'),
+								${actionRecord.id},
+								${actionRecord.client_id},
+								${actionRecord._tag},
+								${serverJson(actionRecord.args)},
+								${serverJson(actionRecord.clock)},
+								1,
+								${actionRecord.transaction_id},
+								${new Date(actionRecord.created_at).toISOString()}
 							)
-							yield* serverSql`
-								INSERT INTO action_records (
-									server_ingest_id,
-									id,
-									client_id,
-									_tag,
-									args,
-									clock,
-									synced,
-									transaction_id,
-									created_at
-								)
-									VALUES (
-										nextval('action_records_server_ingest_id_seq'),
-										${actionRecord.id},
-										${actionRecord.client_id},
-										${actionRecord._tag},
-											${serverSql.json(actionRecord.args)},
-											${serverSql.json(actionRecord.clock)},
-											1,
-											${actionRecord.transaction_id},
-											${new Date(actionRecord.created_at).toISOString()}
-										)
-										ON CONFLICT (id) DO NOTHING
+							ON CONFLICT (id) DO NOTHING
+						`
+					}
+
+					for (const modifiedRow of amrs) {
+						if (incomingActionIdSet.has(modifiedRow.action_record_id) === false) continue
+						yield* serverSql`
+							INSERT INTO action_modified_rows (
+								id,
+								table_name,
+								row_id,
+								action_record_id,
+								operation,
+								forward_patches,
+								reverse_patches,
+								sequence
+							) VALUES (
+								${modifiedRow.id},
+								${modifiedRow.table_name},
+								${modifiedRow.row_id},
+								${modifiedRow.action_record_id},
+								${modifiedRow.operation},
+								${serverJson(modifiedRow.forward_patches)},
+								${serverJson(modifiedRow.reverse_patches)},
+								${modifiedRow.sequence}
+							)
+							ON CONFLICT (id) DO NOTHING
+						`
+					}
+
+					// Rollback markers are patch-less replay hints: roll back to the oldest target (or genesis).
+					const incomingRollbacks = incomingActions.filter((a) => a._tag === "RollbackAction")
+					let forcedRollbackTarget: string | null | undefined = undefined
+					if (incomingRollbacks.length > 0) {
+						const targets = incomingRollbacks.map((rb) => rb.args["target_action_id"] as string | null)
+						const hasGenesis = targets.some((t) => t === null)
+						if (hasGenesis) {
+							forcedRollbackTarget = null
+						} else {
+							const targetIds = targets.filter((t): t is string => typeof t === "string" && t.length > 0)
+							if (targetIds.length > 0) {
+								const targetRows = yield* serverSql<{
+									readonly id: string
+									readonly clock_time_ms: number | string
+									readonly clock_counter: number | string
+									readonly client_id: string
+								}>`
+									SELECT id, clock_time_ms, clock_counter, client_id
+									FROM action_records
+									WHERE id IN ${serverSql.in(targetIds)}
 								`
-						}
-
-						// Then insert the corresponding ActionModifiedRows
-						for (const modifiedRow of amrs) {
-							yield* Effect.logDebug(
-								`Inserting AMR ${modifiedRow.id} for action ${modifiedRow.action_record_id} into server schema.`
-							)
-							yield* serverSql`INSERT INTO action_modified_rows ${serverSql.insert({
-								...modifiedRow,
-								// Ensure patches are JSON
-								forward_patches: serverSql.json(modifiedRow.forward_patches),
-								reverse_patches: serverSql.json(modifiedRow.reverse_patches)
-							})}
-									ON CONFLICT (id) DO NOTHING
-									-- Or potentially ON CONFLICT (table_name, row_id, action_record_id) DO NOTHING depending on unique constraints`
-						}
-
-						// Apply forward patches on the server simulation
-						if (amrs.length > 0) {
-							// --- BEGIN LOGGING ---
-							// Filter out RollbackActions before applying forward patches
-							const nonRollbackActions = incomingActions.filter((a) => a._tag !== "RollbackAction")
-							const nonRollbackActionIds = nonRollbackActions.map((a) => a.id)
-
-							// Create a map of action IDs to their tags for efficient lookup
-							// const actionTagMap = new Map(incomingActions.map((action) => [action.id, action._tag]))
-
-							// Filter out AMRs associated with RollbackAction before applying forward patches
-							const amrsToApplyForward = amrs.filter(
-								// (amr) => actionTagMap.get(amr.action_record_id) !== "RollbackAction"
-								(amr) => nonRollbackActionIds.includes(amr.action_record_id) // Filter based on non-rollback action IDs
-							)
-
-							// Sort AMRs based on the HLC of their corresponding ActionRecord
-							const actionClockMap = new Map(
-								nonRollbackActions.map((action) => [action.id, action.clock]) // Use nonRollbackActions here
-							)
-							const sortedAmrs = [...amrsToApplyForward].sort((a, b) => {
-								// Sort only the AMRs to be applied
-								const clockA = actionClockMap.get(a.action_record_id)
-								const clockB = actionClockMap.get(b.action_record_id)
-								// Need client IDs for proper comparison, assume they are available on actions
-								// This might need adjustment if client_id isn't readily available here
-								// For simplicity, using only clock comparison; refine if needed.
-								if (!clockA || !clockB) return 0 // Should not happen if data is consistent
-								// Assuming compareHlc function is accessible or reimplement comparison logic
-								// For now, just comparing timestamps as a proxy for HLC order
-								return clockA.timestamp < clockB.timestamp
-									? -1
-									: clockA.timestamp > clockB.timestamp
-										? 1
-										: 0
-							})
-							const sortedAmrIdsToApply = sortedAmrs.map((amr) => amr.id) // Get IDs from the sorted list
-							// Log the exact order of AMR IDs being sent to the batch function
-							yield* Effect.logDebug(
-								`Server Simulation: Applying forward patches for ${sortedAmrIdsToApply.length} AMRs in HLC order.`
-							)
-							yield* Effect.logDebug(
-								`Server Simulation: Sorted AMR IDs to apply: ${JSON.stringify(sortedAmrIdsToApply)}`
-							)
-							// Use serverSql instance to apply patches to the server schema
-							// Disable trigger for this session using set_config
-							yield* serverSql`SELECT set_config('sync.disable_trigger', 'true', false)`
-							try {
-								yield* serverSql`SELECT apply_forward_amr_batch(${serverSql.json(sortedAmrIdsToApply)})`
-							} finally {
-								// Ensure trigger is re-enabled even if batch fails
-								yield* serverSql`SELECT set_config('sync.disable_trigger', 'false', false)`
+								if (targetRows.length !== targetIds.length) {
+									return yield* Effect.die(
+										`Rollback target action(s) not found on server: ${targetIds.join(", ")}`
+									)
+								}
+								const oldest = [...targetRows].sort((a, b) =>
+									compareReplayKey(
+										{
+											timeMs: toNumber(a.clock_time_ms),
+											counter: toNumber(a.clock_counter),
+											clientId: a.client_id,
+											id: a.id
+										},
+										{
+											timeMs: toNumber(b.clock_time_ms),
+											counter: toNumber(b.clock_counter),
+											clientId: b.client_id,
+											id: b.id
+										}
+									)
+								)[0]
+								forcedRollbackTarget = oldest?.id
 							}
 						}
-					}).pipe(serverSql.withTransaction) // Wrap server operations in a transaction
+					}
 
-					yield* Effect.logInfo(
-						`Successfully inserted ${incomingActions.length} actions and ${amrs.length} modified rows into server schema.`
-					)
-				}).pipe(Effect.annotateLogs("clientId", `${clientId} (server simulation)`))
+					const getLatestApplied = () =>
+						serverSql<{
+							readonly id: string
+							readonly clock_time_ms: number | string
+							readonly clock_counter: number | string
+							readonly client_id: string
+						}>`
+							SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
+							FROM action_records ar
+							JOIN local_applied_action_ids la ON la.action_record_id = ar.id
+							ORDER BY ar.clock_time_ms DESC, ar.clock_counter DESC, ar.client_id DESC, ar.id DESC
+							LIMIT 1
+						`.pipe(Effect.map((rows) => rows[0] ?? null))
+
+					const getEarliestUnappliedWithPatches = () =>
+						serverSql<{
+							readonly id: string
+							readonly clock_time_ms: number | string
+							readonly clock_counter: number | string
+							readonly client_id: string
+						}>`
+							SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
+							FROM action_records ar
+							JOIN action_modified_rows amr ON amr.action_record_id = ar.id
+							LEFT JOIN local_applied_action_ids la ON la.action_record_id = ar.id
+							WHERE la.action_record_id IS NULL
+							AND ar._tag != 'RollbackAction'
+							GROUP BY ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
+							ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
+							LIMIT 1
+						`.pipe(Effect.map((rows) => rows[0] ?? null))
+
+					const findPredecessorId = (key: ReplayKey) =>
+						serverSql<{ readonly id: string }>`
+							SELECT id
+							FROM action_records
+							WHERE (clock_time_ms, clock_counter, client_id, id) < (${key.timeMs}, ${key.counter}, ${key.clientId}, ${key.id})
+							ORDER BY clock_time_ms DESC, clock_counter DESC, client_id DESC, id DESC
+							LIMIT 1
+						`.pipe(Effect.map((rows) => rows[0]?.id ?? null))
+
+					const applyAllUnapplied = () =>
+						Effect.acquireUseRelease(
+							serverSql`SELECT set_config('sync.disable_trigger', 'true', true)`,
+							() =>
+								Effect.gen(function* () {
+									const unappliedActions = yield* serverSql<{
+										readonly id: string
+										readonly clock_time_ms: number | string
+										readonly clock_counter: number | string
+										readonly client_id: string
+									}>`
+										SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
+										FROM action_records ar
+										JOIN action_modified_rows amr ON amr.action_record_id = ar.id
+										LEFT JOIN local_applied_action_ids la ON la.action_record_id = ar.id
+										WHERE la.action_record_id IS NULL
+										AND ar._tag != 'RollbackAction'
+										GROUP BY ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
+										ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
+									`
+
+									for (const actionRow of unappliedActions) {
+										const actionId = actionRow.id
+										const amrIds = yield* serverSql<{ readonly id: string }>`
+											SELECT id
+											FROM action_modified_rows
+											WHERE action_record_id = ${actionId}
+											ORDER BY sequence ASC, id ASC
+										`.pipe(Effect.map((rows) => rows.map((r) => r.id)))
+
+										if (amrIds.length === 0) {
+											yield* serverSql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionId}) ON CONFLICT DO NOTHING`
+											continue
+										}
+
+										yield* serverSql`SELECT apply_forward_amr_batch(${serverSql.array(amrIds)})`
+										yield* serverSql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionId}) ON CONFLICT DO NOTHING`
+									}
+								}),
+							() =>
+								serverSql`SELECT set_config('sync.disable_trigger', 'false', true)`.pipe(
+									Effect.catchAll(Effect.logError)
+								)
+						)
+
+					const materialize = (initialRollbackTarget: string | null | undefined) =>
+						Effect.gen(function* () {
+							if (initialRollbackTarget !== undefined) {
+								yield* serverSql`SELECT rollback_to_action(${initialRollbackTarget})`
+							}
+
+							while (true) {
+								const earliest = yield* getEarliestUnappliedWithPatches()
+								if (!earliest) return
+								const latestApplied = yield* getLatestApplied()
+								if (!latestApplied) {
+									yield* applyAllUnapplied()
+									return
+								}
+
+								const earliestKey: ReplayKey = {
+									timeMs: toNumber(earliest.clock_time_ms),
+									counter: toNumber(earliest.clock_counter),
+									clientId: earliest.client_id,
+									id: earliest.id
+								}
+								const latestKey: ReplayKey = {
+									timeMs: toNumber(latestApplied.clock_time_ms),
+									counter: toNumber(latestApplied.clock_counter),
+									clientId: latestApplied.client_id,
+									id: latestApplied.id
+								}
+
+								if (compareReplayKey(earliestKey, latestKey) > 0) {
+									yield* applyAllUnapplied()
+									return
+								}
+
+								const predecessorId = yield* findPredecessorId(earliestKey)
+								yield* serverSql`SELECT rollback_to_action(${predecessorId})`
+							}
+						})
+
+					yield* materialize(forcedRollbackTarget)
+				}).pipe(serverSql.withTransaction, Effect.annotateLogs("clientId", `${clientId} (server simulation)`))
 
 			// Define the service implementation INSIDE the Effect.gen scope
 			const service: SyncNetworkService = SyncNetworkService.of({
@@ -478,23 +528,27 @@ export const createTestSyncNetworkServiceLayer = (
 						Effect.withLogSpan("test fetchRemoteActions")
 					),
 
-				sendLocalActions: (actions: readonly ActionRecord[], amrs: readonly ActionModifiedRow[]) =>
-					Effect.gen(function* () {
-						if (state.shouldFail) {
-							return yield* Effect.fail(
-								new NetworkRequestError({
-									message: "Simulated network failure"
-								})
-							)
-						}
+					sendLocalActions: (
+						actions: readonly ActionRecord[],
+						amrs: readonly ActionModifiedRow[],
+						basisServerIngestId: number
+					) =>
+						Effect.gen(function* () {
+							if (state.shouldFail) {
+								return yield* Effect.fail(
+									new NetworkRequestError({
+										message: "Simulated network failure"
+									})
+								)
+							}
 
 						if (state.networkDelay > 0) {
 							yield* TestClock.adjust(state.networkDelay)
 						}
 
-						yield* Effect.logInfo(
-							`Sending ${actions.length} local actions to server ${JSON.stringify(actions)}`
-						)
+							yield* Effect.logInfo(
+								`Sending ${actions.length} local actions to server (basisServerIngestId=${basisServerIngestId}) ${JSON.stringify(actions)}`
+							)
 
 						// Check if we have any actions to process
 						if (actions.length === 0) {
@@ -502,10 +556,10 @@ export const createTestSyncNetworkServiceLayer = (
 							return true
 						}
 
-						yield* insertActionsOnServer(actions, amrs)
-						yield* Effect.logInfo(`Sent ${actions.length} local actions to server`)
-						return true
-					}).pipe(
+							yield* insertActionsOnServer(actions, amrs, basisServerIngestId)
+							yield* Effect.logInfo(`Sent ${actions.length} local actions to server`)
+							return true
+						}).pipe(
 						// Convert SqlError to NetworkRequestError to match the expected error
 						Effect.catchTags({
 							SqlError: (error: SqlError) =>
@@ -524,7 +578,8 @@ export const createTestSyncNetworkServiceLayer = (
 			// Test helper methods
 			const testHelpers = SyncNetworkServiceTestHelpers.of({
 				setNetworkDelay,
-				setShouldFail
+				setShouldFail,
+				setFetchResult
 			})
 			return Layer.merge(
 				Layer.succeed(SyncNetworkService, service),

@@ -26,11 +26,14 @@ export * from "./schema"
  * - `apply_forward_amr_batch` / `apply_reverse_amr_batch`
  */
 export const initializeClientDatabaseSchema = Effect.gen(function* () {
+	yield* Effect.logInfo("db.clientSchema.initialize.start")
 	// Create tables first
 	yield* createSyncTables
 
 	// Create patch generation / trigger functions (client-side patch capture)
+	yield* Effect.logInfo("db.clientSchema.patchFunctions.start")
 	yield* createPatchFunctions
+	yield* Effect.logInfo("db.clientSchema.triggerFunctions.start")
 	yield* createTriggerFunctions
 
 	yield* Effect.logInfo("Client database schema initialization complete")
@@ -42,14 +45,20 @@ export const initializeClientDatabaseSchema = Effect.gen(function* () {
  * This is currently intended for the Postgres backend (and test server simulation).
  */
 export const initializeDatabaseSchema = Effect.gen(function* () {
+	yield* Effect.logInfo("db.schema.initialize.start")
 	// Create tables first
 	yield* createSyncTables
 
 	// Create all SQL functions
+	yield* Effect.logInfo("db.schema.patchFunctions.start")
 	yield* createPatchFunctions
+	yield* Effect.logInfo("db.schema.triggerFunctions.start")
 	yield* createTriggerFunctions
+	yield* Effect.logInfo("db.schema.clockFunctions.start")
 	yield* createClockFunctions
+	yield* Effect.logInfo("db.schema.actionFunctions.start")
 	yield* createActionFunctions
+	yield* Effect.logInfo("db.schema.amrFunctions.start")
 	yield* createAmrFunctions
 
 	yield* Effect.logInfo("Database schema initialization complete")

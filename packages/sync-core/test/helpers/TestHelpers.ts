@@ -58,6 +58,39 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 				})
 		)
 
+		const createNoteWithIdAction = actionRegistry.defineAction(
+			"test-create-note-with-id",
+			Schema.Struct({
+				id: Schema.String,
+				title: Schema.String,
+				content: Schema.String,
+				user_id: Schema.String,
+				tags: Schema.optional(Schema.Array(Schema.String)),
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const row: {
+						id: string
+						title: string
+						content: string
+						user_id: string
+						updated_at: Date
+						tags?: string[] | undefined
+					} = {
+						id: args.id,
+						title: args.title,
+						content: args.content,
+						user_id: args.user_id,
+						updated_at: new Date(args.timestamp)
+					}
+
+					if (args.tags) row.tags = Array.from(args.tags)
+
+					return yield* noteRepo.insert(row)
+				})
+		)
+
 		const updateTagsAction = actionRegistry.defineAction(
 			"test-update-tags",
 			Schema.Struct({
@@ -136,58 +169,82 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 						})
 					}
 				})
-		)
+			)
 
-		const conditionalUpdateWithClientCExtraAction = actionRegistry.defineAction(
-			"test-conditional-update-clientc-extra",
-			Schema.Struct({
-				id: Schema.String,
-				baseContent: Schema.String,
-				conditionalSuffix: Schema.optional(Schema.String),
-				clientCTags: Schema.Array(Schema.String),
-				timestamp: Schema.Number
-			}),
-			(args) =>
-				Effect.gen(function* () {
-					const clientId = yield* clockService.getNodeId
-					const noteOpt = yield* noteRepo.findById(args.id)
-					if (Option.isSome(noteOpt)) {
-						const note = noteOpt.value
-						const newContent =
-							clientId === "clientA"
-								? args.baseContent + (args.conditionalSuffix ?? "")
-								: args.baseContent
-						const nextTags =
-							clientId === "clientC" ? Array.from(args.clientCTags) : Array.from(note.tags ?? [])
+			const conditionalUpdateWithClientCExtraAction = actionRegistry.defineAction(
+				"test-conditional-update-clientc-extra",
+				Schema.Struct({
+					id: Schema.String,
+					baseContent: Schema.String,
+					conditionalSuffix: Schema.optional(Schema.String),
+					clientCTags: Schema.Array(Schema.String),
+					timestamp: Schema.Number
+				}),
+				(args) =>
+					Effect.gen(function* () {
+						const clientId = yield* clockService.getNodeId
+						const noteOpt = yield* noteRepo.findById(args.id)
+						if (Option.isSome(noteOpt)) {
+							const note = noteOpt.value
+							const newContent =
+								clientId === "clientA"
+									? args.baseContent + (args.conditionalSuffix ?? "")
+									: args.baseContent
+							const nextTags =
+								clientId === "clientC" ? Array.from(args.clientCTags) : Array.from(note.tags ?? [])
 
-						yield* noteRepo.updateVoid({
-							...note,
-							content: newContent,
-							tags: nextTags,
-							updated_at: new Date(args.timestamp)
-						})
-					}
-				})
-		)
+							yield* noteRepo.updateVoid({
+								...note,
+								content: newContent,
+								tags: nextTags,
+								updated_at: new Date(args.timestamp)
+							})
+						}
+					})
+			)
 
-		const deleteContentAction = actionRegistry.defineAction(
-			"test-delete-content",
-			Schema.Struct({ id: Schema.String, user_id: Schema.String, timestamp: Schema.Number }),
-			(args) =>
-				Effect.gen(function* () {
-					yield* noteRepo.delete(args.id)
-				})
-		)
+			const clientSpecificContentAction = actionRegistry.defineAction(
+				"test-client-specific-content",
+				Schema.Struct({
+					id: Schema.String,
+					baseContent: Schema.String,
+					timestamp: Schema.Number
+				}),
+				(args) =>
+					Effect.gen(function* () {
+						const clientId = yield* clockService.getNodeId
+						const noteOpt = yield* noteRepo.findById(args.id)
+						if (Option.isSome(noteOpt)) {
+							const note = noteOpt.value
+							yield* noteRepo.updateVoid({
+								...note,
+								content: `${args.baseContent}-${clientId}`,
+								updated_at: new Date(args.timestamp)
+							})
+						}
+					})
+			)
 
-		return {
-			createNoteAction,
-			updateTagsAction,
-			updateContentAction,
-			updateTitleAction,
-			conditionalUpdateAction,
-			conditionalUpdateWithClientCExtraAction,
-			deleteContentAction,
-			noteRepo
-		}
-	})
-}) {}
+			const deleteContentAction = actionRegistry.defineAction(
+				"test-delete-content",
+				Schema.Struct({ id: Schema.String, user_id: Schema.String, timestamp: Schema.Number }),
+				(args) =>
+					Effect.gen(function* () {
+						yield* noteRepo.delete(args.id)
+					})
+			)
+
+			return {
+				createNoteAction,
+				createNoteWithIdAction,
+				updateTagsAction,
+				updateContentAction,
+				updateTitleAction,
+				conditionalUpdateAction,
+				conditionalUpdateWithClientCExtraAction,
+				clientSpecificContentAction,
+				deleteContentAction,
+				noteRepo
+			}
+		})
+	}) {}
