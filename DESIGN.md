@@ -202,7 +202,7 @@ This caused problems (especially on the server: rollback patches could reference
 - Fetch/stream remote actions by `action_records.server_ingest_id > client_sync_status.last_seen_server_ingest_id` (receipt cursor), then sort/apply by replay order key (`clock_time_ms`, `clock_counter`, `client_id`, `id`).
 - Remote ingress is transport-specific (Electric stream, RPC fetch, polling, etc) and populates local `action_records` / `action_modified_rows`. Applying those remotes is DB-driven: the client applies actions discovered in the local DB (`synced=true` and not present in `local_applied_action_ids`), not by trusting the transient fetch return value.
 - `last_seen_server_ingest_id` is treated as an **applied** watermark (not merely ingested): it is advanced only after incoming remote actions have been incorporated into the client’s materialized state (apply/reconcile). It is also used as `basisServerIngestId` for upload head-gating.
-- Use up-to-date signals to ensure the complete set of `action_modified_rows` for a transaction has arrived before applying.
+- Use up-to-date signals to ensure the complete set of `action_modified_rows` for a transaction has arrived before applying. The sync loop will not apply remote actions until their patches are present, to preserve rollback correctness and avoid spurious outgoing SYNC deltas.
 - This may use Electric's experimental `multishapestream` / `transactionmultishapestream` APIs, depending on how you stream the shapes.
 - Bootstrap without historical actions:
   1. Fetch current server ingestion cursor (max `server_ingest_id`).

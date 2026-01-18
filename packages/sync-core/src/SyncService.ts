@@ -287,13 +287,17 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		 */
 		const performSync = () =>
 			newTraceId.pipe(
-				Effect.flatMap((syncSessionId) =>
-					Effect.gen(function* () {
-						yield* Effect.logInfo("performSync.start", { syncSessionId })
-						// 1. Get pending local actions
-						const pendingActions = yield* actionRecordRepo.findBySynced(false)
-						yield* Effect.logDebug("performSync.pendingActions", {
-							count: pendingActions.length,
+					Effect.flatMap((syncSessionId) =>
+						Effect.gen(function* () {
+							yield* Effect.logInfo("performSync.start", { syncSessionId })
+							// Ensure `client_sync_status` exists before any DB-driven remote queries that depend on it
+							// (e.g. `ActionRecordRepo.findSyncedButUnapplied` excludes local actions via this table).
+							const lastSeenServerIngestId = yield* clockService.getLastSeenServerIngestId
+							yield* Effect.logDebug("performSync.cursor", { lastSeenServerIngestId })
+							// 1. Get pending local actions
+							const pendingActions = yield* actionRecordRepo.findBySynced(false)
+							yield* Effect.logDebug("performSync.pendingActions", {
+								count: pendingActions.length,
 							actions: pendingActions.map((a) => ({ id: a.id, _tag: a._tag, client_id: a.client_id }))
 						})
 
@@ -312,22 +316,49 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							// Remote apply is DB-driven: treat `action_records` as the authoritative ingress queue.
 							// This enables Electric/custom transports to populate the tables without relying on
 							// the RPC fetch return value.
-							const remoteActions = yield* actionRecordRepo.findSyncedButUnapplied()
-							yield* Effect.logInfo("performSync.remoteUnapplied", {
-								count: remoteActions.length,
-								actions: remoteActions.map((a) => ({
-									id: a.id,
-									_tag: a._tag,
-									client_id: a.client_id,
-									server_ingest_id: a.server_ingest_id
-								}))
-							})
+								const remoteActions = yield* actionRecordRepo.findSyncedButUnapplied()
+								yield* Effect.logInfo("performSync.remoteUnapplied", {
+									count: remoteActions.length,
+									actions: remoteActions.map((a) => ({
+										id: a.id,
+										_tag: a._tag,
+										client_id: a.client_id,
+										server_ingest_id: a.server_ingest_id
+									}))
+								})
 
-						const hasPending = pendingActions.length > 0
-							const hasRemote = remoteActions.length > 0
-							if (!hasPending && !hasRemote) {
-								yield* Effect.logInfo("performSync.noop")
-								yield* advanceAppliedRemoteServerIngestCursor()
+								// Remote actions must have their patches ingested before we can safely apply:
+								// - rollback correctness requires reverse patches for applied actions
+								// - divergence detection requires comparing replay patches vs. original patches
+								// If ingress is mid-flight (e.g. action_records arrived before action_modified_rows),
+								// bail out and retry later rather than creating spurious outgoing SYNC deltas.
+								const remoteIdsNeedingPatches = remoteActions
+									.filter((a) => a._tag !== "RollbackAction")
+									.map((a) => a.id)
+								if (remoteIdsNeedingPatches.length > 0) {
+									const idsWithPatches = yield* sqlClient<{ readonly action_record_id: string }>`
+										SELECT DISTINCT action_record_id
+										FROM action_modified_rows
+										WHERE action_record_id IN ${sqlClient.in(remoteIdsNeedingPatches)}
+									`
+									const havePatches = new Set(idsWithPatches.map((r) => r.action_record_id))
+									const missingPatchActionIds = remoteIdsNeedingPatches.filter(
+										(id) => havePatches.has(id) === false
+									)
+									if (missingPatchActionIds.length > 0) {
+										yield* Effect.logInfo("performSync.remoteNotReady.missingPatches", {
+											missingPatchActionCount: missingPatchActionIds.length,
+											missingPatchActionIds: missingPatchActionIds.slice(0, 20)
+										})
+										return [] as const
+									}
+								}
+
+							const hasPending = pendingActions.length > 0
+								const hasRemote = remoteActions.length > 0
+								if (!hasPending && !hasRemote) {
+									yield* Effect.logInfo("performSync.noop")
+									yield* advanceAppliedRemoteServerIngestCursor()
 								return [] as const // Return readonly empty array
 							}
 								if (!hasPending && hasRemote) {

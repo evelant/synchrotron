@@ -64,50 +64,50 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 				`
 		})
 
-		/**
-		 * Retrieve the current client clock state (including last synced)
-		 */
-		const getClientClockState = Effect.gen(function* () {
-			const clientId = yield* getNodeId
-			const clientStatus = yield* findClientClock(clientId)
+			/**
+			 * Retrieve the current client clock state (including last synced)
+			 */
+			const getClientClockState = Effect.gen(function* () {
+				const clientId = yield* getNodeId
+				const clientStatus = yield* findClientClock(clientId)
 
-			if (clientStatus._tag === "Some") {
-				return clientStatus.value
-			}
+				if (clientStatus._tag === "Some") {
+					return clientStatus.value
+				}
 
-			yield* Effect.logInfo(`No client sync status found for client ${clientId}, creating.`)
-			const initialClock = HLC.make()
-			const initialStatus = ClientSyncStatusModel.make({
-				client_id: clientId,
-				current_clock: initialClock,
-				last_synced_clock: initialClock,
-				last_seen_server_ingest_id: 0
-			})
+				yield* Effect.logInfo(`No client sync status found for client ${clientId}, creating.`)
+				const initialClock = HLC.make()
+				const initialStatus = ClientSyncStatusModel.make({
+					client_id: clientId,
+					current_clock: initialClock,
+					last_synced_clock: initialClock,
+					last_seen_server_ingest_id: 0
+				})
 
-			yield* sql`
-				INSERT INTO client_sync_status (
-					client_id,
-					current_clock,
-					last_synced_clock,
-					last_seen_server_ingest_id
-				) VALUES (
-					${initialStatus.client_id},
-					${JSON.stringify(initialStatus.current_clock)},
-					${JSON.stringify(initialStatus.last_synced_clock)},
-					${initialStatus.last_seen_server_ingest_id}
-				)
-				ON CONFLICT (client_id)
-				DO NOTHING
-			`
-			const finalStatus = yield* findClientClock(clientId)
-			if (finalStatus._tag === "Some") return finalStatus.value
-			return yield* Effect.die("Failed to create or fetch initial client sync status")
-		}).pipe(Effect.annotateLogs("clientId", clientId))
+				yield* sql`
+					INSERT INTO client_sync_status (
+						client_id,
+						current_clock,
+						last_synced_clock,
+						last_seen_server_ingest_id
+					) VALUES (
+						${initialStatus.client_id},
+						${JSON.stringify(initialStatus.current_clock)},
+						${JSON.stringify(initialStatus.last_synced_clock)},
+						${initialStatus.last_seen_server_ingest_id}
+					)
+					ON CONFLICT (client_id)
+					DO NOTHING
+				`
+				const finalStatus = yield* findClientClock(clientId)
+				if (finalStatus._tag === "Some") return finalStatus.value
+				return yield* Effect.die("Failed to create or fetch initial client sync status")
+			}).pipe(Effect.annotateLogs("clientId", clientId))
 
-		/**
-		 * Retrieve the current client clock (latest state, potentially unsynced)
-		 */
-		const getClientClock = Effect.map(getClientClockState, (state) => state.current_clock)
+			/**
+			 * Retrieve the current client clock (latest state, potentially unsynced)
+			 */
+			const getClientClock = Effect.map(getClientClockState, (state) => state.current_clock)
 
 		/**
 		 * Increment the client's current clock for a new local action

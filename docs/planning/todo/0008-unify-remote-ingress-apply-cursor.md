@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned
+Implemented (core); follow-ups planned
 
 ## Summary
 
@@ -11,13 +11,18 @@ Today, remote actions/patches can enter a client DB through **two independent in
 - **RPC fetch**: `SyncNetworkServiceLive.fetchRemoteActions` fetches from the sync server and inserts into `action_records` / `action_modified_rows` (`packages/sync-client/src/SyncNetworkService.ts:149`).
 - **Electric stream**: `ElectricSyncService` subscribes to Electric shapes and inserts into the same tables (`packages/sync-client/src/electric/ElectricSyncService.ts:185`), then triggers `SyncService.performSync()` (`packages/sync-client/src/electric/ElectricSyncService.ts:254`).
 
-But **apply** and **cursor advancement** are currently driven by the *RPC fetch return value* inside `SyncService.performSync` (`packages/sync-core/src/SyncService.ts:266`), not by the authoritative DB state.
+Remote **apply** and **cursor advancement** are now DB-driven:
 
-This creates redundant work today, and will break correctness when we evolve toward “Electric-only ingress” (or even just stop double-fetching): remote rows can be present locally yet never applied / never advance `last_seen_server_ingest_id`, causing upload rejections and ambiguous behavior.
+- `SyncService.performSync` treats remote ingress as transport-specific, but discovers remote work via `ActionRecordRepo.findSyncedButUnapplied()` (not by trusting the transient fetch return value).
+- `client_sync_status.last_seen_server_ingest_id` is treated as an **applied watermark**: it advances only after remote actions have been incorporated into the client’s materialized state.
 
-This doc proposes making the client’s local DB (`action_records` + `local_applied_action_ids`) the single source of truth for:
+This makes “Electric-only ingress” viable (correctness-wise) even if RPC fetch returns `[]` (or is later disabled), and it makes the “single cursor” model workable under the “honest client” assumption.
 
-1) which remote actions exist locally, 2) which are unapplied, and 3) which ingestion cursor the client can safely claim as “seen”.
+This doc remains as the design rationale and tracks follow-ups (reducing redundant fetch, transport abstraction).
+
+The client’s local DB (`action_records` + `local_applied_action_ids`) is the single source of truth for:
+
+1. which remote actions exist locally, 2) which are unapplied, and 3) which ingestion cursor the client can safely claim as “seen”.
 
 ## Problem Statement
 
@@ -34,22 +39,15 @@ Inserts are idempotent via `ON CONFLICT DO NOTHING`, so this is “safe”, but 
 - increases complexity (harder to reason about the canonical ingress source)
 - creates race windows where code paths disagree about “what remote actions exist”
 
-### 2) `performSync` currently trusts “what fetch returned”, not “what is in the DB”
+### 2) Previously, `performSync` trusted “what fetch returned”, not “what is in the DB” (fixed)
 
-`SyncService.performSync` decides whether “remote exists”, and how far to advance `last_seen_server_ingest_id`, based on:
+`SyncService.performSync` no longer uses the fetch return payload to decide whether remote work exists. Instead it queries the DB for:
 
-- `const { actions: remoteActions } = yield* syncNetworkService.fetchRemoteActions()` (`packages/sync-core/src/SyncService.ts:266`)
+- `synced=1` remote actions not present in `local_applied_action_ids`
 
-This is fine in “RPC-only” mode (fetch both ingests and returns the batch), but in “Electric ingress” mode the authoritative remote batch is often **already present** in local tables before `performSync` runs.
+This ensures remote rows that arrived via Electric/custom transports are applied even if RPC fetch returns empty.
 
-If we later make `fetchRemoteActions` a no-op under Electric (which is the natural next step to remove redundant fetch), then:
-
-- `remoteActions` becomes empty
-- `performSync` may treat the world as “no remote”
-- `last_seen_server_ingest_id` may not advance (basis uploads can be rejected)
-- remote rows can remain “synced but unapplied” indefinitely
-
-### 3) We already have the missing primitive, but it’s unused
+### 3) We already had the missing primitive; it is now used
 
 `ActionRecordRepo.findSyncedButUnapplied()` exists (`packages/sync-core/src/ActionRecordRepo.ts:135`) and expresses the right idea:
 
@@ -57,7 +55,7 @@ If we later make `fetchRemoteActions` a no-op under Electric (which is the natur
 - “applied” is tracked separately (via `local_applied_action_ids`)
 - the apply loop should process “synced but unapplied” regardless of how those rows arrived
 
-But `SyncService.performSync` does not use it today.
+`SyncService.performSync` now uses it.
 
 ## Goals / Non-goals
 
@@ -86,7 +84,7 @@ Electric was chosen for demo convenience (real-time replication out of Postgres)
 
 ### What “transport” should mean in Synchrotron
 
-Transport is the *delivery mechanism* for the sync metadata tables:
+Transport is the _delivery mechanism_ for the sync metadata tables:
 
 - **Remote ingress**: “bring remote action log rows + AMRs into the client DB”
   - examples: RPC polling, SSE/WebSocket stream, Electric shape replication, offline batch import
@@ -101,11 +99,11 @@ Today `SyncNetworkService` mixes “network” with “ingest into local tables�
 
 Two viable directions (we can choose later; Option A works with either):
 
-1) **Split the service** (clean separation):
+1. **Split the service** (clean separation):
    - `RemoteIngressService`: fetch/stream remote rows into local DB
    - `LocalEgressService`: upload local rows to the server
 
-2) **Keep one service but formalize its contract**:
+2. **Keep one service but formalize its contract**:
    - rename `SyncNetworkService` → `SyncTransportService`
    - document whether its methods are responsible for inserting into the local DB or only returning payloads
 
@@ -115,7 +113,7 @@ Conceptually, the core should depend on “ingest happened” and “upload happ
 
 Option A makes “apply” DB-driven (`findSyncedButUnapplied`), which means:
 
-- Remote ingress can be implemented by *anything* that writes into `action_records` / `action_modified_rows` with `synced=1`.
+- Remote ingress can be implemented by _anything_ that writes into `action_records` / `action_modified_rows` with `synced=1`.
 - `SyncService.performSync` can converge even if `fetchRemoteActions()` is a no-op (Electric-only) or a polling call (RPC-only).
 
 That is the key enabler for making Electric optional without fragmenting correctness logic.
@@ -142,7 +140,7 @@ Make the local DB the single “remote queue”:
 3. Apply/reconcile based on the DB-derived remote set.
 4. Advance `last_seen_server_ingest_id` based on the DB-derived remote head that the client has actually ingested and applied.
 
-Implementation detail: keep `SyncNetworkService.fetchRemoteActions()` for RPC ingress, but treat its return value as *optional* and not authoritative for apply decisions.
+Implementation detail: keep `SyncNetworkService.fetchRemoteActions()` for RPC ingress, but treat its return value as _optional_ and not authoritative for apply decisions.
 
 This is the minimal change that makes Electric-only ingress viable.
 
@@ -206,27 +204,26 @@ Note: PGlite provides an official `electric.syncShapesToTables(...)` API for syn
 
 ## Implementation Plan
 
-1. **Refactor `SyncService.performSync` remote detection**:
-   - call `syncNetworkService.fetchRemoteActions()` as an ingress step (keep behavior for RPC mode)
-   - compute `remoteActions` from `ActionRecordRepo.findSyncedButUnapplied()` instead of the fetch return value
-2. **Add a helper to compute “remote head ingest id” from the DB** (excluding local client id):
-   - use it to advance `last_seen_server_ingest_id` after apply/reconcile
-3. **Adjust Electric integration**:
-   - ensure `ElectricSyncService` continues to trigger `performSync()` when up-to-date
-   - (later) add a config switch so RPC fetch is disabled in Electric mode
-4. **Update docs**:
-   - `DESIGN.md`: define “remote ingress vs apply vs cursor” responsibilities
-   - `README.md`: describe recommended deployment modes (RPC-only vs Electric-ingress)
+Implemented:
+
+1. `SyncService.performSync` calls `fetchRemoteActions()` as an ingress step (transport-specific), then queries `ActionRecordRepo.findSyncedButUnapplied()` as the authoritative remote work queue.
+2. Cursor advancement is DB-derived and tied to applied completion (single applied cursor).
+
+Follow-ups:
+
+1. Add a config switch to disable RPC fetch in Electric-enabled clients (avoid redundant fetch).
+2. Clarify/strengthen the transport boundary (`SyncNetworkService` split or renamed; see below).
 
 ## Testing Plan
 
-Add a regression test that proves DB-driven apply works when fetch returns nothing:
+Implemented regressions:
 
-- Arrange: insert remote action_records + action_modified_rows directly into client DB as `synced=1` (simulating Electric ingestion), but stub `fetchRemoteActions()` to return `[]`.
-- Act: call `SyncService.performSync()`.
-- Assert:
-  - the remote actions are applied (base tables match expected state)
-  - `last_seen_server_ingest_id` advances to the remote head
+- DB-driven remote apply when fetch returns `[]`: `packages/sync-core/test/sync/remote-ingest.test.ts`
+- Applied cursor semantics (does not advance on ingress alone; advances after apply): `packages/sync-core/test/sync/remote-ingest.test.ts`
+- Duplicate ingress idempotency (Electric + fetch): `packages/sync-core/test/sync/remote-ingest.test.ts`
+- Do not apply remote actions until their patches are present (prevents spurious outgoing SYNC): `packages/sync-core/test/sync/remote-ingest.test.ts`
+- Electric-only mode: ingest+apply via Electric even when `fetchRemoteActions` is a no-op: `packages/sync-client/test/electric/ElectricSyncService.test.ts`
+- Electric up-to-date gating: only trigger `performSync` once both shapes report `last=true`: `packages/sync-client/test/electric/ElectricSyncService.test.ts`
 
 Follow-ups:
 
@@ -234,32 +231,8 @@ Follow-ups:
 
 ## Open Questions
 
-### Cursor semantics (ingested vs applied)
-
-Today we have one persisted ingestion watermark: `client_sync_status.last_seen_server_ingest_id` (used for “fetch since” and also used as `basisServerIngestId` when uploading).
-
-When remote ingress and remote apply are decoupled (especially under Electric), there are really two distinct moments:
-
-1) **Ingested**: remote rows exist locally in `action_records` / `action_modified_rows` (e.g. inserted by Electric or by RPC fetch).
-2) **Applied**: those ingested rows have actually been incorporated into the client’s materialized base tables via apply/reconcile (and `local_applied_action_ids` reflects that), so it’s valid to claim “I’m caught up to X” as an upload basis.
-
-If we keep a **single cursor**, we must pick which meaning it has:
-
-- If it means **applied**, we only advance it after apply/reconcile succeeds. This is simplest and safest: `basisServerIngestId` remains a meaningful “I incorporated everything up to here” proof (under honest clients). Downsides: after a crash between ingest and apply, the client may re-fetch already-ingested rows (safe, due to idempotent inserts), and we can’t easily see “ingest backlog” vs “apply backlog”.
-- If it means **ingested**, we can advance it as soon as rows arrive, which avoids re-fetch on restart — but then it is *not* safe to reuse as `basisServerIngestId` unless we add another guard, because we’d be claiming up-to-date before reconciliation is reflected in base tables.
-
-Splitting into **two cursors** makes this explicit:
-
-- `last_ingested_server_ingest_id`: max remote `server_ingest_id` present locally (ingress progress; used only to avoid re-fetching / to resume streams).
-- `last_applied_server_ingest_id`: max remote `server_ingest_id` whose effects are incorporated into local state (apply progress; used as `basisServerIngestId` for uploads).
-
-This is more “provable” (and easier to debug), but it requires schema + logic changes.
-
-Initial recommendation: keep a **single cursor with “applied” semantics** until we see real-world pressure to optimize re-fetch or to expose progress UI.
-
-### Electric ingress completion signal
-
-Do we want an explicit “ingress completed” signal from Electric (per-shape) before we allow upload, or is the existing “fully synced” signal sufficient?
+- Should we split cursor state into two numbers (ingested vs applied) to make this provable, or keep a single cursor under the “honest client” assumption?
+- Do we want an explicit “ingress completed” signal from Electric (per-shape) before we allow upload, or is the existing “fully synced” signal sufficient?
 
 ## Related
 
