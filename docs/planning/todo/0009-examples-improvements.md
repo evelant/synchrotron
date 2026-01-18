@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned
+Implemented (core)
 
 ## Summary
 
@@ -102,3 +102,8 @@ This demonstrates that transports are a choice, not a requirement, and provides 
 - The UI displays enough state to explain why an upload is rejected (cursor behind head) without digging through logs.
 - Reset works reliably and predictably on RN-web and native.
 
+## Notes (what changed)
+
+- `examples/todo-app-web-pglite` now renders two isolated clients in one page (Client A / Client B), each with its own PGlite `dataDir` and `KeyValueStore` namespace, plus a compact debug panel and reset controls.
+- The web example supports both **RPC polling** and **Electric ingress** modes via a UI toggle.
+- `examples/todo-app-react-native-sqlite` reset no longer attempts to delete OPFS files; it resets by dropping tables and re-initializing schema (identity reset remains explicit and reloads the app).

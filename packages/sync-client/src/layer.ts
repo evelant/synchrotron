@@ -1,3 +1,4 @@
+import { KeyValueStore } from "@effect/platform"
 import { BrowserKeyValueStore } from "@effect/platform-browser"
 import {
 	ActionModifiedRowRepo,
@@ -22,21 +23,23 @@ import { SyncNetworkServiceLive } from "./SyncNetworkService"
 import { logInitialSyncDbState } from "./logInitialDbState"
 
 /**
- * Layer that automatically starts Electric sync after schema initialization
+ * Layer that initializes the sync schema and starts Electric ingress.
+ *
+ * This is intentionally **not** included in `makeSynchrotronClientLayer` by default,
+ * so apps can opt into Electric explicitly (and demos can implement "offline" mode
+ * by simply not wiring Electric at all).
  */
-export const ElectricSyncLive = Layer.scopedDiscard(
+export const ElectricSyncLive = Layer.unwrapEffect(
 	Effect.gen(function* () {
-		yield* Effect.logInfo(`Starting electric sync setup`)
+		yield* Effect.logInfo("electric.sync.setup.start")
 		const clientDbAdapter = yield* ClientDbAdapter
 
+		// Electric ingress may write into `action_records` / `action_modified_rows`,
+		// so ensure the sync schema exists before starting the stream.
 		yield* clientDbAdapter.initializeSyncSchema
-		yield* Effect.logInfo("Database schema initialized, starting Electric sync")
+		yield* Effect.logInfo("electric.sync.setup.schemaReady")
 
-		// Electric sync may attempt to write into `action_records` / `action_modified_rows`,
-		// so ensure schema exists before acquiring the service.
-		const service = yield* ElectricSyncService
-
-		return service
+		return ElectricSyncService.Default
 	}).pipe(Effect.withSpan("ElectricSyncLive"))
 )
 
@@ -54,20 +57,28 @@ export const ElectricSyncLive = Layer.scopedDiscard(
  * })
  * ```
  */
-export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConfigData> = {}) => {
+export const makeSynchrotronClientLayer = (
+	config: Partial<SynchrotronClientConfigData> = {},
+	options?: {
+		readonly keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore>
+	}
+) => {
 	// Create the config layer with custom config merged with defaults
 	const configLayer = createSynchrotronConfig(config)
+	const keyValueStoreLayer = options?.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
 
-	return ElectricSyncService.Default.pipe(
+	// Note: Electric is intentionally optional. Do not start Electric replication
+	// unless the consumer explicitly adds `ElectricSyncLive` (preferred) to their app layer.
+	// (If you wire `ElectricSyncService.Default` directly, ensure the sync schema is initialized first.)
+	return SyncService.Default.pipe(
 		// Highest-level services first, core dependencies last.
 		// `Layer.provideMerge` wraps previously-added layers, so later layers are available to earlier ones.
-		Layer.provideMerge(SyncService.Default),
 		Layer.provideMerge(SyncNetworkServiceLive),
 		Layer.provideMerge(ActionRegistry.Default),
 		Layer.provideMerge(ClockService.Default),
 		Layer.provideMerge(ActionRecordRepo.Default),
 		Layer.provideMerge(ActionModifiedRowRepo.Default),
-		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
+		Layer.provideMerge(keyValueStoreLayer),
 		Layer.provideMerge(PostgresClientDbAdapter),
 		Layer.provideMerge(PgliteClientLive),
 		Layer.provideMerge(
@@ -82,11 +93,11 @@ export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConf
 					})
 				})
 			)
-			),
-			Layer.provideMerge(configLayer),
-			Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
-		)
-	}
+		),
+		Layer.provideMerge(configLayer),
+		Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
+	)
+}
 
 /**
  * SQLite (WASM) client layer (no Electric integration).
@@ -94,9 +105,13 @@ export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConf
  * Intended for environments where PGlite is unavailable (or undesirable) and a stable SQLite engine is preferred.
  */
 export const makeSynchrotronSqliteWasmClientLayer = (
-	config: Partial<SynchrotronClientConfigData> = {}
+	config: Partial<SynchrotronClientConfigData> = {},
+	options?: {
+		readonly keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore>
+	}
 ) => {
 	const configLayer = createSynchrotronConfig(config)
+	const keyValueStoreLayer = options?.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
 
 	return SyncService.Default.pipe(
 		Layer.provideMerge(SyncNetworkServiceLive),
@@ -104,7 +119,7 @@ export const makeSynchrotronSqliteWasmClientLayer = (
 		Layer.provideMerge(ClockService.Default),
 		Layer.provideMerge(ActionRecordRepo.Default),
 		Layer.provideMerge(ActionModifiedRowRepo.Default),
-		Layer.provideMerge(BrowserKeyValueStore.layerLocalStorage),
+		Layer.provideMerge(keyValueStoreLayer),
 		Layer.provideMerge(SqliteClientDbAdapter),
 		Layer.provideMerge(SqliteWasmClientMemoryLive),
 		Layer.provideMerge(
@@ -118,11 +133,11 @@ export const makeSynchrotronSqliteWasmClientLayer = (
 					})
 				})
 			)
-			),
-			Layer.provideMerge(configLayer),
-			Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
-		)
-	}
+		),
+		Layer.provideMerge(configLayer),
+		Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
+	)
+}
 
 /**
  * Default Synchrotron client layer with standard configuration

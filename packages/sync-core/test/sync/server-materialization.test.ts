@@ -1,6 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
 const waitForNextMillisecond = Effect.sync(() => {
@@ -118,6 +118,101 @@ describe("Server materialization", () => {
 					SELECT id, title FROM notes WHERE id = ${note.id}
 				`
 				expect(serverNoteAfter[0]?.title).toBe("Title-new")
+			}).pipe(Effect.provide(makeTestLayers("server"))),
+		{ timeout: 30000 }
+	)
+
+	it.scoped(
+		"late-arriving multi-AMR action is replayed correctly on the server (sequence-sensitive patches)",
+		() =>
+			Effect.gen(function* () {
+				const serverSql = yield* PgliteClient.PgliteClient
+
+				const clientOld = yield* createTestClient("clientOld", serverSql).pipe(Effect.orDie)
+				const clientNew = yield* createTestClient("clientNew", serverSql).pipe(Effect.orDie)
+
+				const { result: note } = yield* clientNew.syncService.executeAction(
+					clientNew.testHelpers.createNoteAction({
+						title: "Base",
+						content: "",
+						user_id: "user-1",
+						timestamp: 1000
+					})
+				)
+				yield* clientNew.syncService.performSync()
+
+				// Ensure clientOld has the base note so it can create an offline multi-step update.
+				yield* clientOld.syncService.performSync()
+
+				const clientOldSql = clientOld.rawSql
+				const multiUpdateTitleAction = clientOld.actionRegistry.defineAction(
+					"test-multi-update-title",
+					Schema.Struct({
+						id: Schema.String,
+						firstTitle: Schema.String,
+						secondTitle: Schema.String,
+						timestamp: Schema.Number
+					}),
+					(args) =>
+						Effect.gen(function* () {
+							yield* clientOldSql`
+								UPDATE notes
+								SET title = ${args.firstTitle}, updated_at = ${new Date(
+									args.timestamp
+								).toISOString()}
+								WHERE id = ${args.id}
+							`
+							yield* clientOldSql`
+								UPDATE notes
+								SET title = ${args.secondTitle}, updated_at = ${new Date(
+									args.timestamp + 1
+								).toISOString()}
+								WHERE id = ${args.id}
+							`
+						})
+				)
+
+				const { actionRecord: multiAction } = yield* clientOld.syncService.executeAction(
+					multiUpdateTitleAction({
+						id: note.id,
+						firstTitle: "Title-old-1",
+						secondTitle: "Title-old-2",
+						timestamp: 1100
+					})
+				)
+
+				yield* waitForNextMillisecond
+
+				yield* clientNew.syncService.executeAction(
+					clientNew.testHelpers.updateTitleAction({
+						id: note.id,
+						title: "Title-new",
+						timestamp: 1200
+					})
+				)
+				yield* clientNew.syncService.performSync()
+
+				const serverNoteBefore = yield* serverSql<{ title: string }>`
+					SELECT title FROM notes WHERE id = ${note.id}
+				`
+				expect(serverNoteBefore[0]?.title).toBe("Title-new")
+
+				// Upload late-arriving multi-step update (older in replay order). Server must rewind + replay
+				// and still converge to the correct final state.
+				yield* clientOld.syncService.performSync()
+
+				const serverNoteAfter = yield* serverSql<{ title: string }>`
+					SELECT title FROM notes WHERE id = ${note.id}
+				`
+				expect(serverNoteAfter[0]?.title).toBe("Title-new")
+
+				const amrs = yield* serverSql<{ sequence: number }>`
+					SELECT sequence
+					FROM action_modified_rows
+					WHERE action_record_id = ${multiAction.id}
+					ORDER BY sequence ASC, id ASC
+				`
+				expect(amrs.map((r) => r.sequence)).toEqual([0, 1])
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30000 }
 	)

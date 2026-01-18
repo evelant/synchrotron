@@ -14,6 +14,7 @@ export const makeSqliteReactNativeClientLayer = (config: SqliteReactNativeClient
 	SqliteClient.layer(config).pipe(
 		Layer.tap(() =>
 			Effect.logInfo("db.sqlite.client.ready", {
+				backend: "op-sqlite",
 				filename: config.filename,
 				location: config.location ?? null
 			})

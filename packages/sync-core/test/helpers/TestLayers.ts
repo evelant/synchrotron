@@ -35,32 +35,32 @@ import {
 import { TestHelpers } from "./TestHelpers"
 
 // Important note: PgLite only supports a single exclusive database connection
-// All tests must share the same PgLite instance to avoid "PGlite is closed" errors
+// All clients within a single test must share the same PgLite instance.
 
 /**
- * Layer that sets up the database schema
- * This depends on PgLiteSyncLayer to provide SqlClient
+ * Initialize the database schema for tests.
+ *
+ * This depends on `SqlClient` being available in the environment.
  */
-export const makeDbInitLayer = (schema: string) =>
-	Layer.effectDiscard(
-		Effect.gen(function* () {
-			yield* Effect.logInfo(`${schema}: Setting up database schema for tests...`)
+export const initializeDbForTests = (schema: string) =>
+	Effect.gen(function* () {
+		yield* Effect.logInfo(`${schema}: Setting up database schema for tests...`)
 
-			// Get SQL client
-			const sql = yield* SqlClient.SqlClient
-			yield* sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+		// Get SQL client
+		const sql = yield* SqlClient.SqlClient
+		yield* sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
 
-			// Drop tables if they exist to ensure clean state
-			yield* Effect.logInfo("Cleaning up existing tables...")
-			yield* sql`DROP TABLE IF EXISTS action_modified_rows`
-			yield* sql`DROP TABLE IF EXISTS action_records`
-			yield* sql`DROP TABLE IF EXISTS client_sync_status`
-			yield* sql`DROP TABLE IF EXISTS test_patches`
-			yield* sql`DROP TABLE IF EXISTS notes`
-			yield* sql`DROP TABLE IF EXISTS local_applied_action_ids` // Drop new table too
+		// Drop tables if they exist to ensure clean state
+		yield* Effect.logInfo("Cleaning up existing tables...")
+		yield* sql`DROP TABLE IF EXISTS action_modified_rows`
+		yield* sql`DROP TABLE IF EXISTS action_records`
+		yield* sql`DROP TABLE IF EXISTS client_sync_status`
+		yield* sql`DROP TABLE IF EXISTS test_patches`
+		yield* sql`DROP TABLE IF EXISTS notes`
+		yield* sql`DROP TABLE IF EXISTS local_applied_action_ids` // Drop new table too
 
-			// Create the notes table (Removed DEFAULT NOW() from updated_at)
-			yield* sql`
+		// Create the notes table (Removed DEFAULT NOW() from updated_at)
+		yield* sql`
 		CREATE TABLE IF NOT EXISTS notes (
 			id TEXT PRIMARY KEY, -- Removed DEFAULT gen_random_uuid() or similar
 			title TEXT NOT NULL,
@@ -71,38 +71,16 @@ export const makeDbInitLayer = (schema: string) =>
 		);
 	`
 
-			// Initialize schema
-			yield* schema === "server" ? initializeDatabaseSchema : initializeClientDatabaseSchema
+		// Initialize schema
+		yield* schema === "server" ? initializeDatabaseSchema : initializeClientDatabaseSchema
 
-			// Apply sync patch-capture triggers to the notes table
-			yield* applySyncTriggers(["notes"])
+		// Apply sync patch-capture triggers to the notes table
+		yield* applySyncTriggers(["notes"])
 
-			// 			// Check current schema
-			// 			const currentSchema = yield* sql<{ current_schema: string }>`SELECT current_schema()`
-			// 			yield* Effect.logInfo(`Current schema: ${currentSchema[0]?.current_schema}`)
+		yield* Effect.logInfo("Database schema setup complete for tests")
+	}).pipe(Effect.annotateLogs("clientId", schema))
 
-			// 			// List all schemas
-			// 			const schemas = yield* sql<{ schema_name: string }>`
-			//     SELECT schema_name
-			//     FROM information_schema.schemata
-			//     ORDER BY schema_name
-			// `
-			// 			yield* Effect.logInfo(
-			// 				`Available schemas: ${JSON.stringify(schemas.map((s) => s.schema_name))}`
-			// 			)
-
-			// 			// Fetch all tables in the current schema for debugging
-			// 			const tables = yield* sql<{ table_name: string }>`
-			//     SELECT table_name
-			//     FROM information_schema.tables
-			//     WHERE table_schema = current_schema()
-			//     ORDER BY table_name
-			// `
-			// 			yield* Effect.logInfo(`Tables: ${JSON.stringify(tables.map((t) => t.table_name))}`)
-
-			yield* Effect.logInfo("Database schema setup complete for tests")
-		}).pipe(Effect.annotateLogs("clientId", schema))
-	)
+export const makeDbInitLayer = (schema: string) => Layer.effectDiscard(initializeDbForTests(schema))
 export const testConfig: SynchrotronClientConfigData = {
 	electricSyncUrl: "http://localhost:5133",
 	syncRpcUrl: "http://localhost:3010/rpc",
@@ -123,7 +101,7 @@ export const PgliteClientLive = PgliteClient.layer({
 	extensions: {
 		uuid_ossp
 	}
-})
+}).pipe(Layer.fresh)
 
 const logger = Logger.prettyLogger({ mode: "tty", colors: true })
 
@@ -144,7 +122,9 @@ export const makeTestLayers = (
 		Layer.succeed(SynchrotronClientConfig, testConfig)
 	)
 
-	const baseWithDbInit = makeDbInitLayer(clientId).pipe(Layer.provideMerge(baseLayer))
+	const baseWithDbInit = baseLayer.pipe(
+		Layer.tap((context) => initializeDbForTests(clientId).pipe(Effect.provide(context)))
+	)
 
 	const layer = SyncService.DefaultWithoutDependencies.pipe(
 		Layer.provideMerge(TestHelpers.Default),

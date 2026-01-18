@@ -21,6 +21,26 @@ import * as Stream from "effect/Stream"
 const truncateForLog = (value: string, maxLength = 2000) =>
 	value.length <= maxLength ? value : `${value.slice(0, maxLength)}…`
 
+const isBrowserRuntime = () =>
+	typeof window !== "undefined" && typeof document !== "undefined" && typeof fetch === "function"
+
+let cachedBrowserWasmModule: Promise<WebAssembly.Module> | undefined
+
+const loadBrowserWasmModule = (url = "/pglite.wasm") => {
+	if (cachedBrowserWasmModule) return cachedBrowserWasmModule
+
+	cachedBrowserWasmModule = (async () => {
+		const response = await fetch(url)
+		if (!response.ok) {
+			throw new Error(`Failed to fetch PGlite wasm (${response.status}): ${url}`)
+		}
+		const bytes = await response.arrayBuffer()
+		return WebAssembly.compile(bytes)
+	})()
+
+	return cachedBrowserWasmModule
+}
+
 /**
  * @category type ids
  * @since 1.0.0
@@ -109,10 +129,49 @@ export const make = <TExtensions extends Extensions = Extensions>(
 			? Statement.defaultTransforms(options.transformResultNames, options.transformJson).array
 			: undefined
 
-		const client: PGlite = yield* Effect.tryPromise({
-			try: () => PGlite.create(options.dataDir || "", options),
-			catch: (cause) => new SqlError({ cause, message: "PgliteClient: Failed to connect" })
-		})
+		const effectiveOptions =
+			options.wasmModule || !isBrowserRuntime()
+				? options
+				: yield* Effect.tryPromise({
+						try: async () => ({
+							...options,
+							wasmModule: await loadBrowserWasmModule()
+						}),
+						catch: (cause) =>
+							new SqlError({
+								cause,
+								message: "PgliteClient: Failed to precompile wasm module"
+							})
+					}).pipe(
+						Effect.tapError((error) =>
+							Effect.logWarning("pglite.wasmModule.precompile.failed", {
+								error
+							})
+						),
+						Effect.catchAll(() => Effect.succeed(options))
+					)
+
+		const client: PGlite = yield* Effect.acquireRelease(
+			Effect.tryPromise({
+				try: () => PGlite.create(effectiveOptions.dataDir || "", effectiveOptions),
+				catch: (cause) => new SqlError({ cause, message: "PgliteClient: Failed to connect" })
+			}),
+			(client) => {
+				const dataDir = effectiveOptions.dataDir ?? ""
+				if (dataDir.startsWith("memory://")) return Effect.void
+				return Effect.tryPromise({
+					try: () => client.close(),
+					catch: (cause) => new SqlError({ cause, message: "PgliteClient: Failed to close" })
+				}).pipe(
+					Effect.catchAll((error) =>
+						Effect.logError("pglite.client.close.error", {
+							dataDir,
+							error
+						}).pipe(Effect.asVoid)
+					)
+				)
+			}
+		)
 
 		yield* Effect.tryPromise({
 			try: () => client.query("SELECT 1"),

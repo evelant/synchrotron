@@ -13,7 +13,14 @@ export class FetchRemoteActions extends Schema.TaggedRequest<FetchRemoteActions>
 	{
 		payload: {
 			clientId: Schema.String,
-			sinceServerIngestId: Schema.Number
+			sinceServerIngestId: Schema.Number,
+			/**
+			 * When true, include actions authored by `clientId` in the response.
+			 *
+			 * This is primarily used for bootstrap / local DB restore when the client has lost its local
+			 * action log but retained its identity, and needs to re-ingest its own canonical history.
+			 */
+			includeSelf: Schema.optional(Schema.Boolean)
 		},
 		success: FetchResultSchema,
 		failure: RemoteActionFetchError

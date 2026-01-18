@@ -22,9 +22,14 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 
 				yield* Effect.logInfo("rpc.FetchRemoteActions.start", {
 					clientId,
-					sinceServerIngestId: payload.sinceServerIngestId
+					sinceServerIngestId: payload.sinceServerIngestId,
+					includeSelf: payload.includeSelf ?? false
 				})
-				const result = yield* serverService.getActionsSince(clientId, payload.sinceServerIngestId)
+				const result = yield* serverService.getActionsSince(
+					clientId,
+					payload.sinceServerIngestId,
+					payload.includeSelf ?? false
+				)
 
 				yield* Effect.logDebug("rpc.FetchRemoteActions.result", {
 					clientId,

@@ -141,7 +141,6 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 				LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
 				WHERE la.action_record_id IS NULL
 				AND ar.synced = 1
-				AND ar.client_id != (SELECT client_id FROM client_sync_status LIMIT 1)
 				ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
 			`
 		})

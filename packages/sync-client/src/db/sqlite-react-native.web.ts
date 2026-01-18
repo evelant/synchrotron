@@ -1,5 +1,5 @@
 import { SqliteClient } from "@effect/sql-sqlite-wasm"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import type { SqliteReactNativeClientConfig } from "./sqlite-react-native-config"
 
 export type { SqliteReactNativeClientConfig } from "./sqlite-react-native-config"
@@ -67,4 +67,11 @@ export const makeSqliteReactNativeClientLayer = (config: SqliteReactNativeClient
 		...(config.spanAttributes ? { spanAttributes: config.spanAttributes } : {}),
 		...(config.transformResultNames ? { transformResultNames: config.transformResultNames } : {}),
 		...(config.transformQueryNames ? { transformQueryNames: config.transformQueryNames } : {})
-	})
+	}).pipe(
+		Layer.tap(() =>
+			Effect.logInfo("db.sqlite.client.ready", {
+				backend: "sqlite-wasm-opfs",
+				filename: config.filename
+			})
+		)
+	)

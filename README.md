@@ -33,6 +33,7 @@ Synchrotron moves the merge boundary up a level:
     - `pnpm docker:up` (requires Docker)
     - `pnpm dev:backend` (starts docker + server)
   - **Web + PGlite**: `examples/todo-app-web-pglite` (Bun build --watch + Bun static server; works online/offline; does not yet handle multiple tabs in the same window).
+    - Includes a built-in “two clients” harness (Client A / Client B) with transport toggle (RPC polling vs Electric ingress) and a per-client debug panel.
     - `pnpm dev:web`
     - Open http://localhost:5173 in your browser
   - **React Native + SQLite (+ Web)**: `examples/todo-app-react-native-sqlite` (native uses `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web uses `@effect/sql-sqlite-wasm` via a `.web.ts` module).
@@ -133,6 +134,7 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
     - Browser clients use `localStorage`.
     - React Native (native) uses `react-native-mmkv` via `@synchrotron/sync-client/react-native` (install `react-native-mmkv` in your app).
     - React Native (web) uses `localStorage`.
+    - If the local database is cleared but the `clientId` is retained, the client will bootstrap by fetching its own previously-synced action history from the server (one-time, when `action_records` is empty) and replaying it to rebuild local state.
 
 ## Downsides and limitations
 

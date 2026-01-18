@@ -120,7 +120,8 @@ Server:
 
 - `packages/sync-server/src/SyncServerService.ts`
   - `getActionsSince(...)` should accept a `since_ingest_id` and query:
-    - `WHERE server_ingest_id > $since AND client_id != $clientId`
+    - default: `WHERE server_ingest_id > $since AND client_id != $clientId` (avoid echoing the caller’s own actions)
+    - bootstrap/restore: `WHERE server_ingest_id > $since` when `includeSelf=true` (used when a client has lost its local action log but retained its `clientId` and needs to re-ingest its own canonical history)
     - `ORDER BY server_ingest_id ASC` (fetch order)
   - The server can still return actions ordered by replay key, but it’s usually cheaper to fetch by ingestion and let the client sort for replay.
 
@@ -128,7 +129,7 @@ Client/core:
 
 - Store `last_seen_server_ingest_id` in `client_sync_status` and expose accessors (implemented in `ClockService`).
 - Update network fetch to pass `sinceServerIngestId` and have the server filter by `server_ingest_id`.
-- After a successful remote apply, advance the watermark to the max `server_ingest_id` seen in that fetch batch.
+- After a successful remote apply, advance the watermark to the max `server_ingest_id` among remote (other-client) actions that are already marked as locally applied (i.e. incorporated into materialized state).
 
 Tests:
 

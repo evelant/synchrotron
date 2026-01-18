@@ -290,8 +290,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					Effect.flatMap((syncSessionId) =>
 						Effect.gen(function* () {
 							yield* Effect.logInfo("performSync.start", { syncSessionId })
-							// Ensure `client_sync_status` exists before any DB-driven remote queries that depend on it
-							// (e.g. `ActionRecordRepo.findSyncedButUnapplied` excludes local actions via this table).
+							// Ensure `client_sync_status` exists before reading cursor state (last_seen_server_ingest_id, etc).
 							const lastSeenServerIngestId = yield* clockService.getLastSeenServerIngestId
 							yield* Effect.logDebug("performSync.cursor", { lastSeenServerIngestId })
 							// 1. Get pending local actions

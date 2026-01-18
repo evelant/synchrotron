@@ -45,7 +45,10 @@ Notes:
 - This app copies `@effect/wa-sqlite`’s wasm binaries into `examples/todo-app-react-native-sqlite/public/` on install (`postinstall`) so the web dev server can load them from `/wa-sqlite.wasm`.
   - If needed, run manually: `pnpm --filter todo-app-react-native-sqlite run sync:wa-sqlite-wasm`
 - Web uses OPFS persistence via a Web Worker; this app imports `@expo/metro-runtime` in `examples/todo-app-react-native-sqlite/index.ts` to enable Metro’s web worker bundling.
-- If you get “stuck” local data on web (OPFS), use the in-app `Reset DB` button (deletes the wa-sqlite OPFS directory, clears `sync_client_id`, and reloads).
+- If you get “stuck” local data on web (OPFS), use the in-app `Reset DB` / `Reset ID` buttons.
+  - `Reset DB` clears the local schema by dropping tables and re-initializing (no OPFS deletion required).
+  - `Reset ID` also clears the persisted `sync_client_id` and reloads the app.
+  - Note: this only resets **local** state; if the backend still has action history, it will be re-fetched and re-applied on the next sync.
 
 To point the app at a non-local backend (LAN / physical device without USB reverse), set:
 

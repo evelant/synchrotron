@@ -35,14 +35,17 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 		const findActionsSince = SqlSchema.findAll({
 			Request: Schema.Struct({
 				clientId: Schema.String,
-				sinceServerIngestId: Schema.Number
+				sinceServerIngestId: Schema.Number,
+				includeSelf: Schema.optional(Schema.Boolean)
 			}),
 			Result: ActionRecord,
-			execute: ({ clientId, sinceServerIngestId }) => {
+			execute: ({ clientId, sinceServerIngestId, includeSelf }) => {
 				const whereClauses = [
-					sql`client_id != ${clientId}`,
 					sql`server_ingest_id > ${sinceServerIngestId}`
 				]
+				if (includeSelf !== true) {
+					whereClauses.unshift(sql`client_id != ${clientId}`)
+				}
 
 				return sql`
 						SELECT * FROM action_records
@@ -423,10 +426,22 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					})
 				)
 
-			const getActionsSince = (clientId: string, sinceServerIngestId: number) =>
+			const getActionsSince = (
+				clientId: string,
+				sinceServerIngestId: number,
+				includeSelf: boolean = false
+			) =>
 				Effect.gen(function* () {
-					yield* Effect.logDebug("server.getActionsSince.start", { clientId, sinceServerIngestId })
-					const actions = yield* findActionsSince({ clientId, sinceServerIngestId }).pipe(
+					yield* Effect.logDebug("server.getActionsSince.start", {
+						clientId,
+						sinceServerIngestId,
+						includeSelf
+					})
+					const actions = yield* findActionsSince({
+						clientId,
+						sinceServerIngestId,
+						includeSelf
+					}).pipe(
 						Effect.mapError(
 							(error) =>
 								new ServerInternalError({
@@ -439,6 +454,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					yield* Effect.logDebug("server.getActionsSince.actions", {
 						clientId,
 						sinceServerIngestId,
+						includeSelf,
 						actionCount: actions.length
 					})
 
@@ -475,7 +491,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				}).pipe(
 					Effect.annotateLogs({ serverOperation: "getActionsSince", requestingClientId: clientId }),
 					Effect.withSpan("SyncServerService.getActionsSince", {
-						attributes: { clientId, sinceServerIngestId }
+						attributes: { clientId, sinceServerIngestId, includeSelf }
 					}),
 					Effect.catchAll((error) => {
 						const unknownError = error as unknown

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react"
 import {
 	ActivityIndicator,
 	Alert,
+	DevSettings,
 	FlatList,
 	Platform,
 	Pressable,
@@ -13,14 +14,14 @@ import {
 	View
 } from "react-native"
 import { type ActionExecutionError, SyncService } from "@synchrotron/sync-core"
+import { KeyValueStore } from "@effect/platform"
+import { SqlClient } from "@effect/sql"
 import { TodoActions } from "./src/actions"
 import type { Todo } from "./src/db/schema"
 import { TodoRepo } from "./src/db/repositories"
+import { setupClientDatabase } from "./src/db/setup"
 import { RuntimeProvider, sqliteFilename, useRuntime } from "./src/runtime"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
-import { deleteOpfsSqliteDbFiles } from "./src/resetLocalDb"
-
-const resetLocalDbFlagKey = "todo-app-react-native-sqlite:reset-local-db"
 
 function AppInner() {
 	const runtime = useRuntime()
@@ -32,6 +33,45 @@ function AppInner() {
 	const [error, setError] = useState<string | null>(null)
 	const [newTodoText, setNewTodoText] = useState("")
 	const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+	const syncingRef = useRef(false)
+	const resettingRef = useRef(false)
+
+	const resetDatabaseEffect = useCallback(
+		(options: { readonly resetIdentity: boolean }) =>
+			Effect.gen(function* () {
+				yield* Effect.logInfo("todoApp.reset.start", {
+					platform: Platform.OS,
+					sqliteFilename,
+					resetIdentity: options.resetIdentity
+				})
+				const sql = yield* SqlClient.SqlClient
+
+				yield* Effect.gen(function* () {
+					yield* sql`DROP TABLE IF EXISTS action_modified_rows`.raw
+					yield* sql`DROP TABLE IF EXISTS action_records`.raw
+					yield* sql`DROP TABLE IF EXISTS client_sync_status`.raw
+					yield* sql`DROP TABLE IF EXISTS local_applied_action_ids`.raw
+					yield* sql`DROP TABLE IF EXISTS todos`.raw
+				}).pipe(sql.withTransaction)
+
+				if (options.resetIdentity) {
+					const kv = yield* KeyValueStore.KeyValueStore
+					yield* kv.remove("sync_client_id")
+					yield* Effect.logInfo("todoApp.reset.identityCleared")
+				}
+
+				if (!options.resetIdentity) {
+					yield* Effect.logInfo("todoApp.reset.schemaReinit.start")
+					// The runtime layer includes `setupClientDatabase`, but we call it again here to ensure
+					// the DB is immediately usable without requiring an app reload.
+					yield* setupClientDatabase
+					yield* Effect.logInfo("todoApp.reset.schemaReinit.done")
+				}
+
+				yield* Effect.logInfo("todoApp.reset.done")
+			}).pipe(Effect.withSpan("todoApp.reset")),
+		[]
+	)
 
 	const loadTodos = useCallback(() => {
 		const effect = Effect.gen(function* () {
@@ -49,6 +89,9 @@ function AppInner() {
 	}, [runtime])
 
 	const syncOnce = useCallback(() => {
+		if (resettingRef.current) return Promise.resolve()
+		if (syncingRef.current) return Promise.resolve()
+		syncingRef.current = true
 		setIsSyncing(true)
 
 		const effect = Effect.gen(function* () {
@@ -59,9 +102,26 @@ function AppInner() {
 		return runtime
 			.runPromise(effect)
 			.catch((e) => console.warn("Sync failed", e))
-			.finally(() => setIsSyncing(false))
+			.finally(() => {
+				syncingRef.current = false
+				setIsSyncing(false)
+			})
 			.then(() => loadTodos())
 	}, [runtime, loadTodos])
+
+	const stopSyncInterval = useCallback(() => {
+		if (syncIntervalRef.current) {
+			clearInterval(syncIntervalRef.current)
+			syncIntervalRef.current = null
+		}
+	}, [])
+
+	const startSyncInterval = useCallback(() => {
+		stopSyncInterval()
+		syncIntervalRef.current = setInterval(() => {
+			void syncOnce()
+		}, 4000)
+	}, [stopSyncInterval, syncOnce])
 
 	useEffect(() => {
 		let cancelled = false
@@ -71,43 +131,11 @@ function AppInner() {
 			setError(null)
 
 			try {
-				if (Platform.OS === "web") {
-					const pendingReset = window.localStorage.getItem(resetLocalDbFlagKey) === "1"
-						if (pendingReset) {
-							window.localStorage.removeItem(resetLocalDbFlagKey)
-							setIsResetting(true)
-							try {
-								const deleted = await deleteOpfsSqliteDbFiles(sqliteFilename)
-								if (deleted.length === 0) {
-									throw new Error("Reset did not delete any OPFS entries")
-								}
-								// Synchrotron client ids are persisted via the Effect KeyValueStore (localStorage on web).
-								// Resetting the DB should also reset the client identity.
-								window.localStorage.removeItem("sync_client_id")
-							} catch (e) {
-								console.error("Failed to delete OPFS sqlite db", e)
-								if (!cancelled) {
-									setError(
-										`Failed to delete local DB: ${String(e)}. Close other tabs for this origin and try again.`
-								)
-								setIsResetting(false)
-							}
-							return
-						}
-
-						if (!cancelled) {
-							setIsResetting(false)
-						}
-					}
-				}
-
 				await loadTodos()
 				await syncOnce()
 
 				if (!cancelled) {
-					syncIntervalRef.current = setInterval(() => {
-						void syncOnce()
-					}, 4000)
+					startSyncInterval()
 				}
 			} finally {
 				if (!cancelled) setIsLoading(false)
@@ -118,47 +146,75 @@ function AppInner() {
 
 		return () => {
 			cancelled = true
-			if (syncIntervalRef.current) clearInterval(syncIntervalRef.current)
+			stopSyncInterval()
 		}
-	}, [loadTodos, syncOnce])
+	}, [loadTodos, syncOnce, startSyncInterval, stopSyncInterval])
 
-	const resetLocalDb = useCallback(() => {
-		if (isResetting) return
+	const runReset = useCallback(
+		(options: { readonly resetIdentity: boolean }) => {
+			if (isResetting) return
+			resettingRef.current = true
+			setIsResetting(true)
+			setError(null)
+			stopSyncInterval()
 
-		if (Platform.OS === "web" && typeof window.confirm === "function") {
-			const confirmed = window.confirm(
-				"Delete the local database for this app? This removes all local data and reloads the page."
-			)
-			if (!confirmed) return
-			window.localStorage.setItem(resetLocalDbFlagKey, "1")
-			window.location.reload()
-			return
-		}
-
-		Alert.alert(
-			"Reset local database?",
-			"This deletes the local SQLite database for this app.",
-			[
-				{ text: "Cancel", style: "cancel" },
-				{
-					text: "Reset",
-					style: "destructive",
-					onPress: () => {
+			runtime
+				.runPromise(resetDatabaseEffect(options))
+				.then(() => {
+					if (options.resetIdentity) {
 						if (Platform.OS === "web") {
-							window.localStorage.setItem(resetLocalDbFlagKey, "1")
 							window.location.reload()
 							return
 						}
-
-						Alert.alert(
-							"Not supported",
-							"Reset is only implemented for web right now. On iOS/Android, uninstall the app or clear its storage to remove the SQLite database."
-						)
+						if (typeof DevSettings.reload === "function") {
+							DevSettings.reload()
+							return
+						}
+						Alert.alert("Reload required", "Please restart the app to finish resetting the identity.")
+						return
 					}
-				}
+
+					return loadTodos()
+						.then(() => syncOnce())
+						.then(() => startSyncInterval())
+				})
+				.catch((e) => {
+					console.error("Reset failed", e)
+					setError(String(e))
+				})
+				.finally(() => {
+					resettingRef.current = false
+					setIsResetting(false)
+				})
+		},
+		[
+			isResetting,
+			loadTodos,
+			resetDatabaseEffect,
+			runtime,
+			startSyncInterval,
+			stopSyncInterval,
+			syncOnce
+		]
+	)
+
+	const resetLocalDb = useCallback(() => {
+		Alert.alert("Reset local database?", "This clears all local data for this app.", [
+			{ text: "Cancel", style: "cancel" },
+			{ text: "Reset", style: "destructive", onPress: () => runReset({ resetIdentity: false }) }
+		])
+	}, [runReset])
+
+	const resetIdentity = useCallback(() => {
+		Alert.alert(
+			"Reset identity?",
+			"This clears the persisted client id and resets the local database. The app will reload.",
+			[
+				{ text: "Cancel", style: "cancel" },
+				{ text: "Reset", style: "destructive", onPress: () => runReset({ resetIdentity: true }) }
 			]
 		)
-	}, [isResetting])
+	}, [runReset])
 
 	const handleAddTodo = useCallback(() => {
 		const text = newTodoText.trim()
@@ -258,15 +314,26 @@ function AppInner() {
 			<View style={styles.header}>
 				<View style={styles.headerTopRow}>
 					<Text style={styles.title}>Synchrotron To-Dos</Text>
-					<Pressable
-						style={[styles.resetButton, isResetting ? styles.resetButtonDisabled : null]}
-						onPress={resetLocalDb}
-						disabled={isResetting}
-						accessibilityRole="button"
-						accessibilityLabel="Reset local database"
-					>
-						<Text style={styles.resetButtonText}>{isResetting ? "Resetting…" : "Reset DB"}</Text>
-					</Pressable>
+					<View style={styles.headerButtons}>
+						<Pressable
+							style={[styles.resetButton, isResetting ? styles.resetButtonDisabled : null]}
+							onPress={resetLocalDb}
+							disabled={isResetting}
+							accessibilityRole="button"
+							accessibilityLabel="Reset local database"
+						>
+							<Text style={styles.resetButtonText}>{isResetting ? "Resetting…" : "Reset DB"}</Text>
+						</Pressable>
+						<Pressable
+							style={[styles.resetButton, isResetting ? styles.resetButtonDisabled : null]}
+							onPress={resetIdentity}
+							disabled={isResetting}
+							accessibilityRole="button"
+							accessibilityLabel="Reset identity"
+						>
+							<Text style={styles.resetButtonText}>Reset ID</Text>
+						</Pressable>
+					</View>
 				</View>
 				<Text style={styles.subtitle}>{isResetting ? "Resetting…" : isSyncing ? "Syncing…" : " "}</Text>
 			</View>
@@ -369,6 +436,10 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		justifyContent: "space-between",
 		gap: 12
+	},
+	headerButtons: {
+		flexDirection: "row",
+		gap: 8
 	},
 	title: {
 		color: "white",

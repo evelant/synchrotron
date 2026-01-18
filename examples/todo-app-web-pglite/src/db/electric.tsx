@@ -1,6 +1,6 @@
 import { type LiveQuery, type LiveQueryResults } from "@electric-sql/pglite/live"
 import { PgLiteSyncTag } from "@synchrotron/sync-client"
-import { useService } from "../main"
+import { useService } from "../runtime"
 import { useEffect, useState } from "react"
 import { Todo } from "./schema"
 

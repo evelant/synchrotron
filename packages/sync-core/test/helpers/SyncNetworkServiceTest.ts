@@ -106,20 +106,29 @@ export const createTestSyncNetworkServiceLayer = (
 			 * Get all actions AND their modified rows from the server schema
 			 */
 			const getServerData = (
-				sinceServerIngestId: number
+				sinceServerIngestId: number,
+				includeSelf: boolean = false
 			): Effect.Effect<FetchResult, SqlError> => // Updated return type
 				Effect.gen(function* () {
 					// Log the database path being queried
 					// @ts-expect-error - Accessing private property for debugging
 					const dbPath = serverSql.client?.db?.path ?? "unknown"
-					yield* Effect.logDebug(`getServerData: Querying server DB at ${dbPath}`)
+					yield* Effect.logDebug(
+						`getServerData: Querying server DB at ${dbPath} (since=${sinceServerIngestId}, includeSelf=${includeSelf})`
+					)
 
-					const actions = yield* serverSql<ActionRecord>`
-							SELECT * FROM action_records
-							WHERE client_id != ${clientId}
-							AND server_ingest_id > ${sinceServerIngestId}
-							ORDER BY server_ingest_id ASC, id ASC
-	          			`
+					const actions = yield* (includeSelf
+						? serverSql<ActionRecord>`
+								SELECT * FROM action_records
+								WHERE server_ingest_id > ${sinceServerIngestId}
+								ORDER BY server_ingest_id ASC, id ASC
+							`
+						: serverSql<ActionRecord>`
+								SELECT * FROM action_records
+								WHERE client_id != ${clientId}
+								AND server_ingest_id > ${sinceServerIngestId}
+								ORDER BY server_ingest_id ASC, id ASC
+							`)
 
 					yield* Effect.logDebug(
 						`getServerData for ${clientId}: Found ${actions.length} actions on server. Raw result: ${JSON.stringify(actions)}`
@@ -443,10 +452,20 @@ export const createTestSyncNetworkServiceLayer = (
 				fetchRemoteActions: () =>
 					// Interface expects only RemoteActionFetchError
 					Effect.gen(function* () {
-						const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
-						yield* Effect.logInfo(
-							`Fetching remote data since server_ingest_id=${sinceServerIngestId} for client ${clientId}`
-						)
+							const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
+
+							const [localState] = yield* sql<{ readonly has_any_action_records: boolean | 0 | 1 }>`
+								SELECT EXISTS (SELECT 1 FROM action_records LIMIT 1) as has_any_action_records
+							`
+							const hasAnyActionRecords =
+								typeof localState?.has_any_action_records === "boolean"
+									? localState.has_any_action_records
+									: localState?.has_any_action_records === 1
+							const includeSelf = !hasAnyActionRecords
+							const effectiveSinceServerIngestId = includeSelf ? 0 : sinceServerIngestId
+							yield* Effect.logInfo(
+								`Fetching remote data since server_ingest_id=${effectiveSinceServerIngestId} for client ${clientId} (includeSelf=${includeSelf})`
+							)
 						if (state.shouldFail && !state.fetchResult) {
 							// Only fail if no mock result provided
 							return yield* Effect.fail(
@@ -461,10 +480,10 @@ export const createTestSyncNetworkServiceLayer = (
 							yield* TestClock.adjust(state.networkDelay)
 						}
 
-						// Use mocked result if provided, otherwise fetch from server
-						const fetchedData = state.fetchResult
-							? yield* state.fetchResult
-							: yield* getServerData(sinceServerIngestId)
+							// Use mocked result if provided, otherwise fetch from server
+							const fetchedData = state.fetchResult
+								? yield* state.fetchResult
+								: yield* getServerData(effectiveSinceServerIngestId, includeSelf)
 
 						// Simulate ElectricSQL sync: Insert fetched actions AND modified rows directly into the client's DB
 						// Wrap inserts in an effect to catch SqlError

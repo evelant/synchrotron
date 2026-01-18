@@ -9,7 +9,7 @@ import type { SqlError } from "@effect/sql/SqlError"
 import { pgDump } from "@electric-sql/pglite-tools/pg_dump"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import { PgliteClient } from "./PgliteClient.js"
+import { PgliteClient } from "./PgLiteClient.js"
 
 /**
  * @since 1.0.0

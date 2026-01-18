@@ -150,11 +150,30 @@ export const SyncNetworkServiceLive = Layer.scoped(
 			Effect.gen(function* () {
 				yield* Effect.logInfo("sync.network.fetchRemoteActions.start", { clientId })
 				const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
+
+				const [localState] = yield* sql<{ readonly has_any_action_records: boolean | 0 | 1 }>`
+					SELECT EXISTS (SELECT 1 FROM action_records LIMIT 1) as has_any_action_records
+				`
+				const hasAnyActionRecords =
+					typeof localState?.has_any_action_records === "boolean"
+						? localState.has_any_action_records
+						: localState?.has_any_action_records === 1
+
+				const includeSelf = !hasAnyActionRecords
+				const effectiveSinceServerIngestId = includeSelf ? 0 : sinceServerIngestId
+
 				yield* Effect.logInfo("sync.network.fetchRemoteActions.cursor", {
 					clientId,
-					sinceServerIngestId
+					sinceServerIngestId,
+					effectiveSinceServerIngestId,
+					includeSelf
 				})
-				const actions = yield* client.FetchRemoteActions({ clientId, sinceServerIngestId })
+
+				const actions = yield* client.FetchRemoteActions({
+					clientId,
+					sinceServerIngestId: effectiveSinceServerIngestId,
+					includeSelf
+				})
 				yield* Effect.logInfo("sync.network.fetchRemoteActions.result", {
 					clientId,
 					actionCount: actions.actions.length,
