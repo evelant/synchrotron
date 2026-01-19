@@ -23,11 +23,17 @@ const defaultSyncRpcUrl = Platform.select({
 const syncRpcUrl =
 	process.env.EXPO_PUBLIC_SYNC_RPC_URL ?? defaultSyncRpcUrl ?? "http://localhost:3010/rpc"
 
+const syncRpcAuthToken = process.env.EXPO_PUBLIC_SYNC_RPC_AUTH_TOKEN
+
+const userId = process.env.EXPO_PUBLIC_SYNC_USER_ID ?? "user1"
+
 const AppLive = TodoRepo.Default.pipe(
 	Layer.provideMerge(
 		Layer.effectDiscard(
 			Effect.logInfo("todoApp.runtime.start", {
 				platform: Platform.OS,
+				userId,
+				hasSyncRpcAuthToken: typeof syncRpcAuthToken === "string" && syncRpcAuthToken.length > 0,
 				syncRpcUrl,
 				sqliteFilename
 			})
@@ -39,7 +45,9 @@ const AppLive = TodoRepo.Default.pipe(
 		makeSynchrotronSqliteReactNativeClientLayer(
 			{ filename: sqliteFilename },
 			{
-				syncRpcUrl
+				syncRpcUrl,
+				syncRpcAuthToken,
+				userId
 			}
 		)
 	),

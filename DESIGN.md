@@ -213,6 +213,10 @@ This caused problems (especially on the server: rollback patches could reference
 
 - Convergence is defined per-user view (as determined by RLS): for a given user, the user’s visible state converges (different users can legitimately see different overall DB contents).
 - PostgreSQL RLS must protect both application tables and the sync tables (`action_records`, `action_modified_rows`) on reads and writes.
+- `action_records.user_id` is the server-side scoping column for sync metadata. The server must derive `user_id` from auth and set `synchrotron.user_id` (e.g. `set_config('synchrotron.user_id', <user_id>, true)`) for each request/transaction before reading/writing/applying patches.
+- The RPC server derives the per-request RLS identity (`user_id`) from verified auth:
+  - Preferred: `Authorization: Bearer <jwt>` (HS256 demo verifier; `sub` → `user_id`, optional `aud`/`iss` checks).
+  - Dev-only fallback: `x-synchrotron-user-id` when no JWT secret is configured (do not use in real apps).
 - Synchrotron does not generate RLS policies; the application must define them for its own data tables.
 - Trust model: clients are assumed honest; the server never runs action logic and largely relies on Postgres constraints + RLS for safety.
 - Clients must not receive patches that touch rows they cannot see; this implies `action_modified_rows` must be filtered by policies that track underlying row visibility (this is currently underspecified; see `docs/planning/todo/0004-rls-policies.md`).

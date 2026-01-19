@@ -87,6 +87,9 @@ export const makeSynchrotronClientLayer = (
 					const cfg = yield* SynchrotronClientConfig
 					yield* Effect.logInfo("synchrotron.client.start", {
 						platform: "browser-pglite",
+						userId: cfg.userId ?? null,
+						hasSyncRpcAuthToken:
+							typeof cfg.syncRpcAuthToken === "string" && cfg.syncRpcAuthToken.length > 0,
 						electricSyncUrl: cfg.electricSyncUrl,
 						syncRpcUrl: cfg.syncRpcUrl,
 						pgliteDataDir: cfg.pglite.dataDir
@@ -128,6 +131,7 @@ export const makeSynchrotronSqliteWasmClientLayer = (
 					const cfg = yield* SynchrotronClientConfig
 					yield* Effect.logInfo("synchrotron.client.start", {
 						platform: "browser-sqlite-wasm",
+						userId: cfg.userId ?? null,
 						syncRpcUrl: cfg.syncRpcUrl,
 						electricSyncUrl: cfg.electricSyncUrl
 					})

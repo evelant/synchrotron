@@ -36,6 +36,14 @@ const defaults = {
 		metaEnv?.VITE_SERVER_URL ??
 		(typeof process !== "undefined" ? process.env.VITE_SERVER_URL : undefined) ??
 		"http://localhost:3010",
+	syncRpcAuthToken:
+		metaEnv?.VITE_SYNC_RPC_AUTH_TOKEN ??
+		(typeof process !== "undefined" ? process.env.VITE_SYNC_RPC_AUTH_TOKEN : undefined) ??
+		undefined,
+	userId:
+		metaEnv?.VITE_SYNC_USER_ID ??
+		(typeof process !== "undefined" ? process.env.VITE_SYNC_USER_ID : undefined) ??
+		"user1",
 	electricUrl:
 		metaEnv?.VITE_ELECTRIC_URL ??
 		(typeof process !== "undefined" ? process.env.VITE_ELECTRIC_URL : undefined) ??
@@ -225,11 +233,15 @@ const makeClientLayer = (options: {
 		Layer.provideMerge(TodoActions.Default),
 		Layer.provideMerge(Layer.effectDiscard(setupClientDatabase)),
 		Layer.provideMerge(
-			makeSynchrotronClientLayer(
-				{
-					syncRpcUrl,
-					electricSyncUrl: defaults.electricUrl,
-					pglite: {
+				makeSynchrotronClientLayer(
+					{
+						...(typeof defaults.syncRpcAuthToken === "string"
+							? { syncRpcAuthToken: defaults.syncRpcAuthToken }
+							: {}),
+						userId: defaults.userId,
+						syncRpcUrl,
+						electricSyncUrl: defaults.electricUrl,
+						pglite: {
 						dataDir,
 						debug: 0,
 						relaxedDurability: true
@@ -336,6 +348,10 @@ function ClientRuntimePanel(props: {
 
 		return () => {
 			const timerId = setTimeout(() => {
+				console.info("todoAppWeb.runtime.dispose", {
+					clientKey: props.clientKey,
+					transportMode: props.transportMode
+				})
 				void runtime.dispose()
 			}, 0)
 			pendingDisposeRef.current = { runtime, timerId }
@@ -401,48 +417,64 @@ function ClientRuntimePanel(props: {
 	)
 }
 
-function ClientPanel(props: {
-	readonly label: string
-	readonly transportMode: TransportMode
-	readonly isResetting: boolean
-	readonly onResetDb: () => void
-	readonly onResetIdentity: () => void
-}) {
-	const runtime = useRuntime()
+	function ClientPanel(props: {
+		readonly label: string
+		readonly transportMode: TransportMode
+		readonly isResetting: boolean
+		readonly onResetDb: () => void
+		readonly onResetIdentity: () => void
+	}) {
+		const runtime = useRuntime()
 
-	const { todos, isLoading } = useReactiveTodos()
-	const [newTodoText, setNewTodoText] = useState("")
-	const [offline, setOffline] = useState(false)
-	const [isSyncing, setIsSyncing] = useState(false)
-	const syncingRef = useRef(false)
-	const offlineSupported = props.transportMode === "rpc-poll"
+		const { todos, isLoading } = useReactiveTodos()
+		const [newTodoText, setNewTodoText] = useState("")
+		const [offline, setOffline] = useState(false)
+		const offlineRef = useRef(false)
+		const [isSyncing, setIsSyncing] = useState(false)
+		const syncingRef = useRef(false)
+		const offlineSupported = props.transportMode === "rpc-poll"
 
-	useEffect(() => {
-		if (!offlineSupported && offline) setOffline(false)
-	}, [offline, offlineSupported])
+		useEffect(() => {
+			if (!offlineSupported && offline) {
+				offlineRef.current = false
+				setOffline(false)
+			}
+		}, [offline, offlineSupported])
 
-	const runSync = useCallback(() => {
-		if (offline) return Promise.resolve()
-		if (syncingRef.current) return Promise.resolve()
-		syncingRef.current = true
-		setIsSyncing(true)
+		useEffect(() => {
+			offlineRef.current = offline
+		}, [offline])
+
+		const toggleOffline = useCallback(() => {
+			setOffline((prev) => {
+				const next = !prev
+				offlineRef.current = next
+				return next
+			})
+		}, [])
+
+		const runSync = useCallback(() => {
+			if (offlineRef.current) return Promise.resolve()
+			if (syncingRef.current) return Promise.resolve()
+			syncingRef.current = true
+			setIsSyncing(true)
 
 		const effect = Effect.gen(function* () {
 			const syncService = yield* SyncService
 			yield* syncService.performSync()
 		})
 
-		return runtime
-			.runPromise(effect)
-			.catch((e) => {
-				if (String(e).includes("ManagedRuntime disposed")) return
-				console.warn(`${props.label}: sync failed`, e)
-			})
-			.finally(() => {
-				syncingRef.current = false
-				setIsSyncing(false)
-			})
-	}, [offline, props.label, runtime])
+			return runtime
+				.runPromise(effect)
+				.catch((e) => {
+					if (String(e).includes("ManagedRuntime disposed")) return
+					console.warn(`${props.label}: sync failed`, e)
+				})
+				.finally(() => {
+					syncingRef.current = false
+					setIsSyncing(false)
+				})
+		}, [props.label, runtime])
 
 	useEffect(() => {
 		if (props.transportMode !== "rpc-poll") return
@@ -529,14 +561,14 @@ function ClientPanel(props: {
 						<Badge color={offline ? "red" : "green"} variant="soft">
 							{offline ? "Offline" : "Online"}
 						</Badge>
-						<Button
-							size="2"
-							variant="soft"
-							disabled={!offlineSupported}
-							onClick={() => setOffline((v) => !v)}
-						>
-							{offlineSupported ? (offline ? "Go online" : "Go offline") : "Offline (RPC only)"}
-						</Button>
+							<Button
+								size="2"
+								variant="soft"
+								disabled={!offlineSupported}
+								onClick={toggleOffline}
+							>
+								{offlineSupported ? (offline ? "Go online" : "Go offline") : "Offline (RPC only)"}
+							</Button>
 						<Button size="2" onClick={() => void runSync()} disabled={offline || isSyncing}>
 							{isSyncing ? "Syncing…" : "Sync now"}
 						</Button>
@@ -602,13 +634,13 @@ function ClientPanel(props: {
 						color="red"
 						disabled={props.isResetting}
 						onClick={() => {
-							if (
-								!confirm(
-									`Reset local DB for ${props.label}?\n\nThis keeps the client identity. Any history previously written by this client id will NOT be fetched back from the server, so this client may appear empty.\n\nUse “Reset DB + identity” for a full resync.`
+								if (
+									!confirm(
+										`Reset local DB for ${props.label}?\n\nThis keeps the client identity. If the backend still has action history, the next sync will restore this client by re-fetching and replaying its own history.\n\nUse “Reset DB + identity” if you want a brand new client id.`
+									)
 								)
-							)
-								return
-							props.onResetDb()
+									return
+								props.onResetDb()
 						}}
 					>
 						Reset DB (keep id)
@@ -682,14 +714,13 @@ function ClientDebugPanel(props: { readonly transportMode: TransportMode }) {
 				const actionSynced = yield* readCount(
 					sql<{ readonly count: number | string }>`SELECT count(*)::int as count FROM action_records WHERE synced = 1`
 				)
-				const syncedButUnapplied = yield* readCount(sql<{ readonly count: number | string }>`
-					SELECT count(*)::int as count
-					FROM action_records ar
-					LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
-					WHERE la.action_record_id IS NULL
-					AND ar.synced = 1
-					AND ar.client_id != (SELECT client_id FROM client_sync_status LIMIT 1)
-				`)
+					const syncedButUnapplied = yield* readCount(sql<{ readonly count: number | string }>`
+						SELECT count(*)::int as count
+						FROM action_records ar
+						LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
+						WHERE la.action_record_id IS NULL
+						AND ar.synced = 1
+					`)
 
 				const amrTotal = yield* readCount(
 					sql<{ readonly count: number | string }>`SELECT count(*)::int as count FROM action_modified_rows`

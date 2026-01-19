@@ -1,4 +1,4 @@
-import { FetchHttpClient } from "@effect/platform"
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform"
 import { RpcClient, RpcSerialization } from "@effect/rpc"
 import { SqlClient } from "@effect/sql"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
@@ -21,7 +21,24 @@ const valuePreview = (value: unknown, maxLength = 500) => {
 const ProtocolLive = Layer.unwrapEffect(
 	Effect.gen(function* () {
 		const config = yield* SynchrotronClientConfig
-		return RpcClient.layerProtocolHttp({ url: config.syncRpcUrl }).pipe(
+		const transformClient = <E, R>(client: HttpClient.HttpClient.With<E, R>) => {
+			let transformed = client
+			if (config.syncRpcAuthToken) {
+				transformed = HttpClient.mapRequest(
+					transformed,
+					HttpClientRequest.setHeader("authorization", `Bearer ${config.syncRpcAuthToken}`)
+				)
+			}
+			if (config.userId) {
+				transformed = HttpClient.mapRequest(
+					transformed,
+					HttpClientRequest.setHeader("x-synchrotron-user-id", config.userId)
+				)
+			}
+			return transformed
+		}
+
+		return RpcClient.layerProtocolHttp({ url: config.syncRpcUrl, transformClient }).pipe(
 			Layer.provide([
 				// use fetch for http requests
 				FetchHttpClient.layer,

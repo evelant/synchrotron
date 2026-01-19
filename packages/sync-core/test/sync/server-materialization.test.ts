@@ -61,6 +61,59 @@ describe("Server materialization", () => {
 				`
 				expect(amrCountAfter[0]?.count).toBe(amrCountBefore[0]?.count)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
+			{ timeout: 30000 }
+	)
+
+	it.scoped(
+		"materializes SYNC corrections (server reflects last canonical SYNC overwrite)",
+		() =>
+			Effect.gen(function* () {
+				const serverSql = yield* PgliteClient.PgliteClient
+
+				const source = yield* createTestClient("source", serverSql).pipe(Effect.orDie)
+				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
+				const clientB = yield* createTestClient("clientB", serverSql).pipe(Effect.orDie)
+
+				const { result: note } = yield* source.syncService.executeAction(
+					source.testHelpers.createNoteAction({
+						title: "SYNC materialization",
+						content: "Initial",
+						user_id: "user-1",
+						timestamp: 1000
+					})
+				)
+
+				yield* source.syncService.performSync()
+				yield* clientA.syncService.performSync()
+				yield* clientB.syncService.performSync()
+
+				yield* source.syncService.executeAction(
+					source.testHelpers.clientSpecificContentAction({
+						id: note.id,
+						baseContent: "Base",
+						timestamp: 2000
+					})
+				)
+				yield* source.syncService.performSync()
+
+				// Client A emits a SYNC overwrite (Base-clientA) and uploads it.
+				yield* clientA.syncService.performSync()
+				yield* clientA.syncService.performSync()
+
+				yield* waitForNextMillisecond
+
+				// Client B receives base + A's SYNC, emits its own SYNC overwrite (Base-clientB), and uploads it.
+				yield* clientB.syncService.performSync()
+				yield* clientB.syncService.performSync()
+
+				// Server materialization should match the last SYNC overwrite in canonical order.
+				const serverNote = yield* serverSql<{ readonly content: string }>`
+					SELECT content
+					FROM notes
+					WHERE id = ${note.id}
+				`
+				expect(serverNote[0]?.content).toBe("Base-clientB")
+			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30000 }
 	)
 

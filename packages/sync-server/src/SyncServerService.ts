@@ -1,12 +1,12 @@
 import { KeyValueStore } from "@effect/platform"
-import { SqlSchema } from "@effect/sql"
-import { PgClient } from "@effect/sql-pg"
+import { SqlClient, SqlSchema } from "@effect/sql"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import { Cause, Data, Effect, Schema } from "effect"
+import { SyncUserId } from "./SyncUserId"
 
 export class ServerConflictError extends Data.TaggedError("ServerConflictError")<{
 	readonly message: string
@@ -26,7 +26,7 @@ export interface FetchActionsResult {
 
 export class SyncServerService extends Effect.Service<SyncServerService>()("SyncServerService", {
 	effect: Effect.gen(function* () {
-		const sql = yield* PgClient.PgClient
+		const sql = yield* SqlClient.SqlClient
 		const clockService = yield* ClockService
 		const actionRecordRepo = yield* ActionRecordRepo
 		const actionModifiedRowRepo = yield* ActionModifiedRowRepo
@@ -76,7 +76,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				amrs: readonly ActionModifiedRow[]
 			) =>
 				Effect.gen(function* () {
-					const sql = yield* PgClient.PgClient
+					const userId = yield* SyncUserId
+					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
 
 					const actionTags = actions.reduce<Record<string, number>>((acc, action) => {
 						acc[action._tag] = (acc[action._tag] ?? 0) + 1
@@ -85,6 +86,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					const hasSyncDelta = actions.some((a) => a._tag === "_InternalSyncApply")
 
 					yield* Effect.logInfo("server.receiveActions.start", {
+						userId,
 						clientId,
 						basisServerIngestId,
 						actionCount: actions.length,
@@ -171,10 +173,13 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 
 					// Insert ActionRecords and AMRs idempotently.
 					for (const actionRecord of actions) {
+						const argsJson = JSON.stringify(actionRecord.args)
+						const clockJson = JSON.stringify(actionRecord.clock)
 						yield* sql`
 							INSERT INTO action_records (
 								server_ingest_id,
 								id,
+								user_id,
 								client_id,
 								_tag,
 								args,
@@ -185,10 +190,11 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							) VALUES (
 								nextval('action_records_server_ingest_id_seq'),
 								${actionRecord.id},
+								${userId},
 								${actionRecord.client_id},
 								${actionRecord._tag},
-								${sql.json(actionRecord.args)},
-								${sql.json(actionRecord.clock)},
+								${argsJson}::jsonb,
+								${clockJson}::jsonb,
 								1,
 								${actionRecord.transaction_id},
 								${new Date(actionRecord.created_at).toISOString()}
@@ -198,6 +204,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					}
 
 					for (const modifiedRow of amrs) {
+						const forwardJson = JSON.stringify(modifiedRow.forward_patches)
+						const reverseJson = JSON.stringify(modifiedRow.reverse_patches)
 						yield* sql`
 							INSERT INTO action_modified_rows (
 								id,
@@ -214,8 +222,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 								${modifiedRow.row_id},
 								${modifiedRow.action_record_id},
 								${modifiedRow.operation},
-								${sql.json(modifiedRow.forward_patches)},
-								${sql.json(modifiedRow.reverse_patches)},
+								${forwardJson}::jsonb,
+								${reverseJson}::jsonb,
 								${modifiedRow.sequence}
 							)
 							ON CONFLICT (id) DO NOTHING
@@ -346,7 +354,9 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 											continue
 										}
 
-										yield* sql`SELECT apply_forward_amr_batch(${sql.array(amrIds)})`
+										for (const amrId of amrIds) {
+											yield* sql`SELECT apply_forward_amr(${amrId})`
+										}
 										yield* sql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionId}) ON CONFLICT DO NOTHING`
 									}
 								}),
@@ -398,6 +408,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					yield* materialize(forcedRollbackTarget)
 
 					yield* Effect.logInfo("server.receiveActions.success", {
+						userId,
 						clientId,
 						actionCount: actions.length,
 						amrCount: amrs.length,
@@ -432,7 +443,10 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				includeSelf: boolean = false
 			) =>
 				Effect.gen(function* () {
+					const userId = yield* SyncUserId
+					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
 					yield* Effect.logDebug("server.getActionsSince.start", {
+						userId,
 						clientId,
 						sinceServerIngestId,
 						includeSelf
@@ -452,6 +466,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					)
 
 					yield* Effect.logDebug("server.getActionsSince.actions", {
+						userId,
 						clientId,
 						sinceServerIngestId,
 						includeSelf,
@@ -471,6 +486,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							)
 						)
 						yield* Effect.logDebug("server.getActionsSince.modifiedRows", {
+							userId,
 							clientId,
 							actionCount: actions.length,
 							amrCount: modifiedRows.length
@@ -489,6 +505,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 
 					return { actions, modifiedRows, serverClock }
 				}).pipe(
+					sql.withTransaction,
 					Effect.annotateLogs({ serverOperation: "getActionsSince", requestingClientId: clientId }),
 					Effect.withSpan("SyncServerService.getActionsSince", {
 						attributes: { clientId, sinceServerIngestId, includeSelf }

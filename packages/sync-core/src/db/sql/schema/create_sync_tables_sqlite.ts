@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS action_records (
 	-- Nullable so clients can store local-only actions without a server cursor.
 	server_ingest_id INTEGER,
 	_tag TEXT NOT NULL,
+	-- Application principal identity (used for server-side RLS scoping).
+	-- Nullable so existing/local-only client actions can be stored without auth context.
+	user_id TEXT,
 	client_id TEXT NOT NULL,
 	transaction_id REAL NOT NULL,
 	clock TEXT NOT NULL,
@@ -39,6 +42,7 @@ WHERE server_ingest_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS action_records_synced_idx ON action_records(synced);
 CREATE INDEX IF NOT EXISTS action_records_client_id_idx ON action_records(client_id);
+CREATE INDEX IF NOT EXISTS action_records_user_id_idx ON action_records(user_id);
 CREATE INDEX IF NOT EXISTS action_records_transaction_id_idx ON action_records(transaction_id);
 
 CREATE TABLE IF NOT EXISTS action_modified_rows (

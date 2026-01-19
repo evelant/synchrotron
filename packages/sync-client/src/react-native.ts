@@ -29,6 +29,9 @@ export const makeSynchrotronSqliteReactNativeClientLayer = (
 			Layer.effectDiscard(
 				Effect.logInfo("synchrotron.client.start", {
 					platform: "react-native",
+					userId: config.userId ?? null,
+					hasSyncRpcAuthToken:
+						typeof config.syncRpcAuthToken === "string" && config.syncRpcAuthToken.length > 0,
 					sqliteFilename: sqliteConfig.filename,
 					syncRpcUrl: config.syncRpcUrl ?? null,
 					electricSyncUrl: config.electricSyncUrl ?? null

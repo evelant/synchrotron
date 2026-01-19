@@ -1,4 +1,5 @@
 import { KeyValueStore } from "@effect/platform"
+import type { Headers as PlatformHeaders } from "@effect/platform/Headers"
 import { HLC } from "@synchrotron/sync-core/HLC"
 import {
 	FetchRemoteActions,
@@ -10,17 +11,30 @@ import {
 	RemoteActionFetchError
 } from "@synchrotron/sync-core/SyncNetworkService"
 import { Cause, Effect, Layer } from "effect"
+import { SyncAuthService } from "./SyncAuthService"
 import { ServerConflictError, ServerInternalError, SyncServerService } from "./SyncServerService"
+import { SyncUserId, type UserId } from "./SyncUserId"
 
 export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 	Effect.gen(function* () {
 		const serverService = yield* SyncServerService
+		const auth = yield* SyncAuthService
 
-		const FetchRemoteActionsHandler = (payload: FetchRemoteActions) =>
+		const FetchRemoteActionsHandler = (payload: FetchRemoteActions, options: { readonly headers: PlatformHeaders }) =>
 			Effect.gen(function* (_) {
 				const clientId = payload.clientId
+				const userId = (yield* auth.requireUserId(options.headers).pipe(
+					Effect.mapError(
+						(e) =>
+							new RemoteActionFetchError({
+								message: e.message,
+								cause: e.cause
+			})
+					)
+			)) as UserId
 
 				yield* Effect.logInfo("rpc.FetchRemoteActions.start", {
+					userId,
 					clientId,
 					sinceServerIngestId: payload.sinceServerIngestId,
 					includeSelf: payload.includeSelf ?? false
@@ -29,9 +43,10 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					clientId,
 					payload.sinceServerIngestId,
 					payload.includeSelf ?? false
-				)
+				).pipe(Effect.provideService(SyncUserId, userId))
 
 				yield* Effect.logDebug("rpc.FetchRemoteActions.result", {
+					userId,
 					clientId,
 					actionCount: result.actions.length,
 					amrCount: result.modifiedRows.length,
@@ -39,15 +54,15 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 				})
 
 				// return { actions: [], modifiedRows: [] }
-				return {
-					actions: result.actions.map((a) => ({ ...a, clock: HLC.make(a.clock) })),
-					// actions: [],
-					modifiedRows: result.modifiedRows
-				}
-			}).pipe(
-				Effect.tapErrorCause((c) =>
-					Effect.logError("rpc.FetchRemoteActions.error", { cause: Cause.pretty(c) })
-				),
+			return {
+				actions: result.actions.map((a) => ({ ...a, clock: HLC.make(a.clock) })),
+				// actions: [],
+				modifiedRows: result.modifiedRows
+			}
+		}).pipe(
+			Effect.tapErrorCause((c) =>
+				Effect.logError("rpc.FetchRemoteActions.error", { cause: Cause.pretty(c) })
+			),
 				Effect.catchTag("ServerInternalError", (e: ServerInternalError) =>
 					Effect.fail(
 						new RemoteActionFetchError({
@@ -60,11 +75,21 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 				Effect.withSpan("RpcHandler.FetchRemoteActions")
 			)
 
-			const SendLocalActionsHandler = (payload: SendLocalActions) =>
+			const SendLocalActionsHandler = (payload: SendLocalActions, options: { readonly headers: PlatformHeaders }) =>
 				Effect.gen(function* (_) {
 					const clientId = payload.clientId
+					const userId = (yield* auth.requireUserId(options.headers).pipe(
+						Effect.mapError(
+							(e) =>
+								new NetworkRequestError({
+									message: e.message,
+									cause: e.cause
+								})
+						)
+					)) as UserId
 
 					yield* Effect.logInfo("rpc.SendLocalActions.start", {
+						userId,
 						clientId,
 						basisServerIngestId: payload.basisServerIngestId,
 						actionCount: payload.actions.length,
@@ -81,9 +106,10 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 						payload.basisServerIngestId,
 						payload.actions,
 						payload.amrs
-					)
+					).pipe(Effect.provideService(SyncUserId, userId))
 
 					yield* Effect.logInfo("rpc.SendLocalActions.success", {
+						userId,
 						clientId,
 						basisServerIngestId: payload.basisServerIngestId,
 						actionCount: payload.actions.length,
@@ -123,6 +149,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 ).pipe(
 	Layer.tapErrorCause((e) => Effect.logError(`error in SyncNetworkRpcHandlersLive`, e)),
 	Layer.provideMerge(SyncServerService.Default),
+	Layer.provideMerge(SyncAuthService.Default),
 	Layer.provideMerge(KeyValueStore.layerMemory)
 )
 

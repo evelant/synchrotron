@@ -36,9 +36,13 @@
 		"@effect/sql": "catalog:",
 		"@effect/sql-pg": "^0.34.6",
 		"@synchrotron/sync-core": "workspace:*",
-		"effect": "catalog:"
+		"effect": "catalog:",
+		"jose": "6.1.3"
 	},
 	"devDependencies": {
+		"@effect/sql-pglite": "workspace:*",
+		"@effect/vitest": "catalog:",
+		"@electric-sql/pglite": "catalog:",
 		"@types/node": "catalog:",
 		"typescript": "catalog:",
 		"vite": "catalog:",

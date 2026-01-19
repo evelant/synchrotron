@@ -68,7 +68,7 @@ Synchrotron moves the merge boundary up a level:
 
 ## TODO
 
-- Add tests for RLS (row level security). The system should work with RLS as-is but it's not tested yet. The design relies on RLS to filter out `action_modified_rows` affecting private data, which prevents unauthorized data from being sent to clients.
+- RLS hardening: expand policies + tests beyond the v1 demo (`packages/sync-server/test/rls-filtering.test.ts` and `docs/planning/todo/0004-rls-policies.md`).
 - Formalize SYNC semantics (monotonic/additive deltas) and document recommended RLS policies for `action_records` / `action_modified_rows` (see `docs/planning/todo/0003-sync-action-semantics.md` and `docs/planning/todo/0004-rls-policies.md`).
 - Add end-to-end tests with the example app
 - Add pruning for old action records to prevent unbounded growth. Add a "rebase" function for clients that are offline long enough that they would need pruned actions to catch up.
@@ -99,6 +99,10 @@ Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlit
 `SyncService` depends on a `SyncNetworkService` implementation. The default client implementation is `SyncNetworkServiceLive` (HTTP RPC via `@effect/rpc`).
 
 - Configure the RPC endpoint with `makeSynchrotronClientLayer({ syncRpcUrl: "http://..." })` or `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
+- Auth for RLS:
+  - Preferred: `Authorization: Bearer <jwt>` (server verifies and derives `user_id` from `sub`).
+  - Dev-only fallback: `x-synchrotron-user-id` (used only when no JWT secret is configured on the server).
+  - Client-side: set `SynchrotronClientConfig.syncRpcAuthToken` to send the bearer token; `SynchrotronClientConfig.userId` sets the dev header.
 
 ## Observability
 
@@ -135,6 +139,8 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
     - React Native (native) uses `react-native-mmkv` via `@synchrotron/sync-client/react-native` (install `react-native-mmkv` in your app).
     - React Native (web) uses `localStorage`.
     - If the local database is cleared but the `clientId` is retained, the client will bootstrap by fetching its own previously-synced action history from the server (one-time, when `action_records` is empty) and replaying it to rebuild local state.
+7.  **RLS User Context (Server):** To enforce Postgres RLS on both app tables and sync tables, the server must run requests under a non-bypass DB role and set `synchrotron.user_id` (e.g. via `set_config('synchrotron.user_id', <user_id>, true)` inside a transaction). The demo RPC transport uses `x-synchrotron-user-id` and stores it on `action_records.user_id`.
+    - Real apps should use verified auth (JWT) and have the server derive `user_id` from the token (see `docs/planning/todo/0010-jwt-auth.md`).
 
 ## Downsides and limitations
 

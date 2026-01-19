@@ -94,6 +94,7 @@ export class ActionRecord extends Model.Class<ActionRecord>("action_records")({
 	id: Model.GeneratedByApp(Schema.UUID),
 	server_ingest_id: Model.Generated(Schema.NullOr(DbInt64AsNumber)),
 	_tag: Schema.String,
+	user_id: Schema.NullOr(Schema.String).pipe(Schema.optionalWith({ default: () => null })),
 	client_id: Schema.String,
 	transaction_id: Schema.Number,
 	clock: JsonColumn(HLC),
