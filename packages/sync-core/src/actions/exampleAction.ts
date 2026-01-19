@@ -98,7 +98,8 @@ export const createNote = Effect.gen(function* () {
  * })
  *
  * // Execute the action
- * const result = yield* SyncService.executeAction(myNote, persistence)
+ * const sync = yield* SyncService
+ * const result = yield* sync.executeAction(myNote)
  */
 
 // TODO: Create example for action with more complex operations

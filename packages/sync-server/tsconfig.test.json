@@ -6,6 +6,9 @@
     "references": [
         {
             "path": "./tsconfig.src.json"
+        },
+        {
+            "path": "../sync-client/tsconfig.src.json"
         }
     ],
     "compilerOptions": {
