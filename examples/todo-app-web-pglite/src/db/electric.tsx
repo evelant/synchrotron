@@ -20,11 +20,11 @@ export function useReactiveTodos() {
 		db.extensions.live
 			.query<Todo>("select * from todos order by text")
 			.then((query) => {
-				liveQuery = query
-				if (cancelled) {
-					void query.unsubscribe()
-					return
-				}
+					liveQuery = query
+					if (cancelled) {
+						void query.unsubscribe().catch(() => {})
+						return
+					}
 
 				const handleResults = (results: LiveQueryResults<Todo>) => {
 					if (cancelled) return
@@ -41,13 +41,13 @@ export function useReactiveTodos() {
 				setIsLoading(false)
 			})
 
-		return () => {
-			cancelled = true
-			if (liveQuery) {
-				void liveQuery.unsubscribe()
+			return () => {
+				cancelled = true
+				if (liveQuery) {
+					void liveQuery.unsubscribe().catch(() => {})
+				}
 			}
-		}
-	}, [db])
+		}, [db])
 
 	return {
 		todos,

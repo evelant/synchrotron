@@ -42,15 +42,20 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
       }),
       (args) =>
         Effect.gen(function* () {
-          const result =
-            yield* sql<Todo>`SELECT * FROM todos WHERE id = ${args.id}`
+          const result = yield* sql<{ readonly completed: boolean }>`
+            SELECT completed FROM todos WHERE id = ${args.id}
+          `
           const todo = Array.head(result)
 
           yield* Option.match(todo, {
-            onNone: () =>
-              Effect.logWarning(`Todo not found for toggle: ${args.id}`),
-            onSome: (t: Todo) =>
-              todoRepo.update({ ...t, completed: !t.completed }),
+            onNone: () => Effect.logWarning(`Todo not found for toggle: ${args.id}`),
+            onSome: (t) =>
+              sql<{ readonly id: string }>`
+                UPDATE todos
+                SET completed = ${!t.completed}
+                WHERE id = ${args.id}
+                RETURNING id
+              `,
           })
         })
     )
@@ -64,14 +69,20 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
       }),
       (args) =>
         Effect.gen(function* () {
-          const result =
-            yield* sql<Todo>`SELECT * FROM todos WHERE id = ${args.id}`
+          const result = yield* sql<{ readonly id: string }>`
+            SELECT id FROM todos WHERE id = ${args.id}
+          `
           const todo = Array.head(result)
 
           yield* Option.match(todo, {
-            onNone: () =>
-              Effect.logWarning(`Todo not found for text update: ${args.id}`),
-            onSome: (t: Todo) => todoRepo.update({ ...t, text: args.text }),
+            onNone: () => Effect.logWarning(`Todo not found for text update: ${args.id}`),
+            onSome: () =>
+              sql<{ readonly id: string }>`
+                UPDATE todos
+                SET text = ${args.text}
+                WHERE id = ${args.id}
+                RETURNING id
+              `,
           })
         })
     )

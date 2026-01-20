@@ -234,23 +234,35 @@ export const make = <TExtensions extends Extensions = Extensions>(
 				transformRows?: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined,
 				unprepared?: boolean
 			) {
-				const method = unprepared ? "exec" : "query"
+				// PGlite `exec()` does not support parameters. Use it only for parameterless,
+				// intentionally-unprepared statements (typically DDL / multi-statement scripts).
+				const canUseExec = unprepared === true && params.length === 0
+				const method = canUseExec ? "exec" : "query"
 
 				const effect = transformRows
 					? Effect.map(
 							this.run(
-								unprepared ? this.pg.exec(sql, params as any) : this.pg.query(sql, params as any)
+								canUseExec ? this.pg.exec(sql) : this.pg.query(sql, params as any)
 							),
 							transformRows
 						)
 					: unprepared
-						? this.run(this.pg.exec(sql, params as any))
+						? this.run(canUseExec ? this.pg.exec(sql) : this.pg.query(sql, params as any))
 						: this.run(this.pg.query(sql, params as any))
 
 				return this.loggedStatement(method, sql, params, effect)
 			}
 			executeRaw(sql: string, params: ReadonlyArray<unknown>) {
-				return this.loggedStatement("exec", sql, params, this.run(this.pg.exec(sql, params as any)))
+				// `executeRaw` is used by `Statement.raw`. Some callers still pass parameters.
+				// PGlite `exec()` doesn't support params, so fallback to `query()` in that case.
+				const canUseExec = params.length === 0
+				const method = canUseExec ? "exec" : "query"
+				return this.loggedStatement(
+					method,
+					sql,
+					params,
+					this.run(canUseExec ? this.pg.exec(sql) : this.pg.query(sql, params as any))
+				)
 			}
 			executeWithoutTransform(sql: string, params: ReadonlyArray<unknown>) {
 				return this.loggedStatement("query", sql, params, this.run(this.pg.query(sql, params as any)))

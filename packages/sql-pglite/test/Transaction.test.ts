@@ -30,6 +30,32 @@ describe("PgLite Transaction", () => {
 					expect(rows.length).toBe(0)
 				})
 			)
+
+			it.effect("raw statements support parameters", () =>
+				Effect.gen(function* () {
+					const sql = yield* PgliteClient.PgliteClient
+
+					yield* sql`
+						CREATE TABLE IF NOT EXISTS test_raw_params (
+							id INTEGER PRIMARY KEY,
+							value TEXT NOT NULL
+						)
+					`
+
+					yield* sql`
+						INSERT INTO test_raw_params (id, value)
+						VALUES (1, 'before')
+						ON CONFLICT (id) DO UPDATE SET value = 'before'
+					`
+
+					yield* sql`UPDATE test_raw_params SET value = ${"after"} WHERE id = ${1}`.raw
+
+					const rows = yield* sql<{ readonly value: string }>`
+						SELECT value FROM test_raw_params WHERE id = 1
+					`
+					expect(rows[0]?.value).toBe("after")
+				})
+			)
 		}
 	)
 })

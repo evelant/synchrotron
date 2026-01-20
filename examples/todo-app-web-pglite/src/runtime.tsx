@@ -27,7 +27,19 @@ export const useRuntime = (): AppRuntime => {
 export function useService<U>(tag: Context.Tag<any, U>): U | undefined {
 	const runtime = useRuntime()
 	const svc = useRef<U | undefined>(undefined)
-	const [_, set] = useState(false)
+	const last = useRef<{
+		readonly runtime: AppRuntime
+		readonly tag: Context.Tag<any, U>
+	} | null>(null)
+	const [_, forceRender] = useState(0)
+
+	// If the runtime/tag changes, do not keep returning a service from the previous runtime.
+	// This prevents hooks from holding onto resources (e.g. PGlite live queries) after the
+	// old runtime is disposed.
+	if (last.current === null || last.current.runtime !== runtime || last.current.tag !== tag) {
+		last.current = { runtime, tag }
+		svc.current = undefined
+	}
 
 	useEffect(() => {
 		let cancelled = false
@@ -37,7 +49,7 @@ export function useService<U>(tag: Context.Tag<any, U>): U | undefined {
 			.then((s) => {
 				if (cancelled) return
 				svc.current = s
-				set(true)
+				forceRender((n) => n + 1)
 			})
 			.catch((e) => {
 				if (cancelled) return
