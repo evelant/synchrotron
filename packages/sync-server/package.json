@@ -24,6 +24,7 @@
 		"clean:node_modules": "rm -rf node_modules",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"test": "vitest run",
+		"test:e2e:postgres": "vitest run -c vitest.postgres.config.ts",
 		"test:watch": "vitest",
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write ."

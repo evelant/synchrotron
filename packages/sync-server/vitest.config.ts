@@ -6,7 +6,9 @@ const config: ViteUserConfig = {
 	plugins: [wasm()],
 	test: {
 		maxConcurrency: 1,
-		setupFiles: ["./vitest-setup.ts"]
+		setupFiles: ["./vitest-setup.ts"],
+		// Postgres E2E runs are opt-in and have their own config/scripts.
+		exclude: ["test/e2e-postgres/**"]
 	}
 }
 

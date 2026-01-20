@@ -21,6 +21,7 @@
 		"dev:web": "pnpm --filter @synchrotron-examples/todo-app-web-pglite run dev",
 		"dev:react-native": "pnpm --filter todo-app-react-native-sqlite run dev",
 		"dev:backend": "pnpm --filter @synchrotron-examples/backend run dev",
+		"test:e2e:postgres": "bun scripts/test-e2e-postgres.ts",
 		"docker:up": "pnpm --filter @synchrotron-examples/backend run docker:up",
 		"docker:down": "pnpm --filter @synchrotron-examples/backend run docker:down",
 		"docker:reset": "pnpm --filter @synchrotron-examples/backend run docker:reset",

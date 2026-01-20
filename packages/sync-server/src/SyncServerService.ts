@@ -115,6 +115,9 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					return Number(value)
 				}
 
+				const toJsonbString = (value: unknown): string =>
+					typeof value === "string" ? value : JSON.stringify(value)
+
 				const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
 					if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
 					if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
@@ -179,8 +182,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 
 				// Insert ActionRecords and AMRs idempotently.
 				for (const actionRecord of actions) {
-					const argsJson = JSON.stringify(actionRecord.args)
-					const clockJson = JSON.stringify(actionRecord.clock)
+					const argsJson = toJsonbString(actionRecord.args)
+					const clockJson = toJsonbString(actionRecord.clock)
 					yield* sql`
 						INSERT INTO action_records (
 							server_ingest_id,
@@ -210,8 +213,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				}
 
 				for (const modifiedRow of amrs) {
-					const forwardJson = JSON.stringify(modifiedRow.forward_patches)
-					const reverseJson = JSON.stringify(modifiedRow.reverse_patches)
+					const forwardJson = toJsonbString(modifiedRow.forward_patches)
+					const reverseJson = toJsonbString(modifiedRow.reverse_patches)
 					yield* sql`
 						INSERT INTO action_modified_rows (
 							id,

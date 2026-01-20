@@ -46,6 +46,28 @@ const enableExampleRlsPolicies = Effect.gen(function* () {
 	yield* sql`ALTER TABLE action_records ENABLE ROW LEVEL SECURITY`.raw
 	yield* sql`ALTER TABLE action_modified_rows ENABLE ROW LEVEL SECURITY`.raw
 
+	// Avoid RLS recursion when a sync-table policy needs to verify action_record ownership.
+	// (SELECT policy on action_records references action_modified_rows; an insert policy on
+	// action_modified_rows must not SELECT action_records through RLS.)
+	yield* sql`
+		CREATE OR REPLACE FUNCTION synchrotron.action_record_belongs_to_user(action_record_id TEXT, user_id TEXT)
+		RETURNS BOOLEAN
+		LANGUAGE sql
+		STABLE
+		SECURITY DEFINER
+		SET search_path = public
+		AS $$
+			SELECT EXISTS (
+				SELECT 1
+				FROM action_records ar
+				WHERE ar.id = $1
+				AND ar.user_id = $2
+			);
+		$$;
+	`.raw
+	yield* sql`REVOKE ALL ON FUNCTION synchrotron.action_record_belongs_to_user(TEXT, TEXT) FROM PUBLIC`.raw
+	yield* sql`GRANT EXECUTE ON FUNCTION synchrotron.action_record_belongs_to_user(TEXT, TEXT) TO synchrotron_app`.raw
+
 	yield* sql`DROP POLICY IF EXISTS synchrotron_action_records_select ON action_records`.raw
 	yield* sql`DROP POLICY IF EXISTS synchrotron_action_records_insert ON action_records`.raw
 	yield* sql`
@@ -98,11 +120,15 @@ const enableExampleRlsPolicies = Effect.gen(function* () {
 		CREATE POLICY synchrotron_action_modified_rows_insert ON action_modified_rows
 			FOR INSERT
 			WITH CHECK (
-				EXISTS (
+				synchrotron.action_record_belongs_to_user(
+					action_modified_rows.action_record_id,
+					current_setting('synchrotron.user_id', true)
+				)
+				AND EXISTS (
 					SELECT 1
-					FROM action_records ar
-					WHERE ar.id = action_modified_rows.action_record_id
-					AND ar.user_id = current_setting('synchrotron.user_id', true)
+					FROM synchrotron.user_audiences a
+					WHERE a.user_id = current_setting('synchrotron.user_id', true)
+					AND a.audience_key = action_modified_rows.audience_key
 				)
 			)
 	`.raw

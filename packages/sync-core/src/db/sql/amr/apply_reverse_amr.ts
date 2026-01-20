@@ -9,6 +9,7 @@ DECLARE
 	values_list TEXT DEFAULT '';
 	target_table TEXT;
 	target_id TEXT;
+	reverse_patches_obj JSONB;
 BEGIN
 	-- Get the action_modified_rows entry
 	SELECT * INTO amr_record FROM action_modified_rows WHERE id = p_amr_id;
@@ -30,6 +31,16 @@ BEGIN
 	target_table := amr_record.table_name;
 	target_id := amr_record.row_id;
 
+	-- Normalize reverse_patches for DELETE/UPDATE. We expect a JSON object, but defensive
+	-- parsing helps if something double-encoded JSON into a JSONB string.
+	reverse_patches_obj := amr_record.reverse_patches;
+	IF reverse_patches_obj IS NULL OR reverse_patches_obj = 'null'::jsonb THEN
+		reverse_patches_obj := '{}'::jsonb;
+	END IF;
+	IF jsonb_typeof(reverse_patches_obj) = 'string' THEN
+		reverse_patches_obj := (reverse_patches_obj #>> '{}')::jsonb;
+	END IF;
+
 	-- Handle operation type (note: we're considering the inverted operation)
 	IF amr_record.operation = 'INSERT' THEN
 		-- Reverse of INSERT is DELETE - delete the row entirely
@@ -37,15 +48,20 @@ BEGIN
 		EXECUTE format('DELETE FROM %I WHERE id = %L', target_table, target_id);
 
 	ELSIF amr_record.operation = 'DELETE' THEN
+		IF jsonb_typeof(reverse_patches_obj) IS DISTINCT FROM 'object' THEN
+			RAISE EXCEPTION 'apply_reverse_amr: reverse_patches must be a JSON object (amr %, type %, value %)',
+				p_amr_id, jsonb_typeof(reverse_patches_obj), reverse_patches_obj;
+		END IF;
+
 		-- Reverse of DELETE is INSERT - restore the row with its original values from reverse_patches
 		RAISE NOTICE '[apply_reverse_amr] Reversing DELETE for table %, id %', target_table, target_id;
 		columns_list := ''; values_list := '';
 		-- Ensure 'id' is included if not present in patches
-		IF NOT (amr_record.reverse_patches ? 'id') THEN
+		IF NOT (reverse_patches_obj ? 'id') THEN
 			columns_list := 'id'; values_list := quote_literal(target_id);
 		END IF;
 
-		FOR column_name, column_value IN SELECT * FROM jsonb_each(amr_record.reverse_patches)
+		FOR column_name, column_value IN SELECT * FROM jsonb_each(reverse_patches_obj)
 		LOOP
 			IF columns_list <> '' THEN columns_list := columns_list || ', '; values_list := values_list || ', '; END IF;
 			columns_list := columns_list || quote_ident(column_name);
@@ -70,12 +86,17 @@ BEGIN
 		END IF;
 
 	ELSIF amr_record.operation = 'UPDATE' THEN
+		IF jsonb_typeof(reverse_patches_obj) IS DISTINCT FROM 'object' THEN
+			RAISE EXCEPTION 'apply_reverse_amr: reverse_patches must be a JSON object (amr %, type %, value %)',
+				p_amr_id, jsonb_typeof(reverse_patches_obj), reverse_patches_obj;
+		END IF;
+
 		-- For reverse of UPDATE, apply the reverse patches to revert changes
 		RAISE NOTICE '[apply_reverse_amr] Reversing UPDATE for table %, id %', target_table, target_id;
 		sql_command := format('UPDATE %I SET ', target_table);
 		columns_list := '';
 
-		FOR column_name, column_value IN SELECT * FROM jsonb_each(amr_record.reverse_patches)
+		FOR column_name, column_value IN SELECT * FROM jsonb_each(reverse_patches_obj)
 		LOOP
 			IF column_name <> 'id' THEN
 				IF columns_list <> '' THEN columns_list := columns_list || ', '; END IF;

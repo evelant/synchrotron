@@ -46,6 +46,34 @@ Each client in an E2E test uses:
 - Only server package tests: `pnpm --filter @synchrotron/sync-server test`
 - Only E2E tests: `pnpm --filter @synchrotron/sync-server test -- test/e2e`
 
+## Optional: run E2E tests against a real Postgres
+
+PGlite is close, but it’s not identical to Postgres (especially around RLS edge cases). For higher confidence, there’s an opt-in E2E suite that runs the same RPC-based tests against a real Postgres instance.
+
+### One-command runner (recommended)
+
+Runs Postgres (docker compose), executes the Postgres E2E suite, then tears down the containers:
+
+- `pnpm test:e2e:postgres`
+
+By default the runner:
+
+- Uses a dedicated docker compose project name (`synchrotron-e2e-postgres`) so it doesn’t interfere with the example backend’s dev containers.
+- Picks a free host port for Postgres (prefers `56321`, otherwise chooses an ephemeral port) and exports `E2E_DATABASE_URL` / `E2E_ADMIN_DATABASE_URL` for the Vitest run.
+
+Useful flags:
+
+- `pnpm test:e2e:postgres --keep-docker` (don’t stop containers)
+- `pnpm test:e2e:postgres --reset-docker` (tear down with volumes)
+- `pnpm test:e2e:postgres --no-docker` (assume Postgres is already running)
+
+### Manual (if you already have Postgres running)
+
+- Start Postgres (easy path: `pnpm --filter @synchrotron-examples/backend docker:up:postgres`)
+- Run: `pnpm --filter @synchrotron/sync-server test:e2e:postgres`
+
+Note: some sandboxed environments block Docker access entirely. In that case, run `pnpm test:e2e:postgres --no-docker` against an already-running Postgres (or run the suite from a normal terminal outside the sandbox).
+
 ## Adding a new E2E test
 
 1) Start the server with `makeInProcessSyncRpcServer` (from `packages/sync-server/test/e2e/harness.ts`), then set `syncRpcUrl` to `${baseUrl}/rpc`.

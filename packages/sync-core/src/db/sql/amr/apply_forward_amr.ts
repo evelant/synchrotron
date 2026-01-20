@@ -11,6 +11,7 @@ DECLARE
 	target_exists BOOLEAN;
 	target_table TEXT;
 	target_id TEXT;
+	forward_patches_obj JSONB;
 BEGIN
 	-- Get the action_modified_rows entry
 	SELECT * INTO amr_record FROM action_modified_rows WHERE id = p_amr_id;
@@ -32,6 +33,16 @@ BEGIN
 
 	target_table := amr_record.table_name;
 	target_id := amr_record.row_id;
+
+	-- Normalize forward_patches for INSERT/UPDATE. We expect a JSON object, but defensive
+	-- parsing helps if something double-encoded JSON into a JSONB string.
+	forward_patches_obj := amr_record.forward_patches;
+	IF forward_patches_obj IS NULL OR forward_patches_obj = 'null'::jsonb THEN
+		forward_patches_obj := '{}'::jsonb;
+	END IF;
+	IF jsonb_typeof(forward_patches_obj) = 'string' THEN
+		forward_patches_obj := (forward_patches_obj #>> '{}')::jsonb;
+	END IF;
 
 	-- Handle operation type
 	IF amr_record.operation = 'DELETE' THEN
@@ -56,13 +67,18 @@ BEGIN
 		END IF;
 
 		ELSIF amr_record.operation = 'INSERT' THEN
+			IF jsonb_typeof(forward_patches_obj) IS DISTINCT FROM 'object' THEN
+				RAISE EXCEPTION 'apply_forward_amr: forward_patches must be a JSON object (amr %, type %, value %)',
+					p_amr_id, jsonb_typeof(forward_patches_obj), forward_patches_obj;
+			END IF;
+
 			-- Attempt direct INSERT. Let PK violation handle existing rows.
 			columns_list := ''; values_list := '';
-			IF NOT (amr_record.forward_patches ? 'id') THEN
+			IF NOT (forward_patches_obj ? 'id') THEN
 				columns_list := 'id'; values_list := quote_literal(target_id);
 			END IF;
 
-		FOR column_name, column_value IN SELECT * FROM jsonb_each(amr_record.forward_patches)
+		FOR column_name, column_value IN SELECT * FROM jsonb_each(forward_patches_obj)
 		LOOP
 			IF columns_list <> '' THEN columns_list := columns_list || ', '; values_list := values_list || ', '; END IF;
 			columns_list := columns_list || quote_ident(column_name);
@@ -93,11 +109,16 @@ BEGIN
 			END IF;
 
 	ELSIF amr_record.operation = 'UPDATE' THEN
+		IF jsonb_typeof(forward_patches_obj) IS DISTINCT FROM 'object' THEN
+			RAISE EXCEPTION 'apply_forward_amr: forward_patches must be a JSON object (amr %, type %, value %)',
+				p_amr_id, jsonb_typeof(forward_patches_obj), forward_patches_obj;
+		END IF;
+
 		-- Attempt direct UPDATE. If row doesn't exist, it affects 0 rows.
 		sql_command := format('UPDATE %I SET ', target_table);
 		columns_list := '';
 
-		FOR column_name, column_value IN SELECT * FROM jsonb_each(amr_record.forward_patches)
+		FOR column_name, column_value IN SELECT * FROM jsonb_each(forward_patches_obj)
 		LOOP
 			IF column_name <> 'id' THEN
 				IF columns_list <> '' THEN columns_list := columns_list || ', '; END IF;

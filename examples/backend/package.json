@@ -7,6 +7,7 @@
 	"scripts": {
 		"ensure:bun": "bun scripts/ensure-bun.ts",
 		"docker:wait": "bun scripts/wait-for-postgres.ts",
+		"docker:up:postgres": "docker compose -f ./docker-compose.yml up -d postgres && pnpm run docker:wait",
 		"docker:up": "docker compose -f ./docker-compose.yml up -d && pnpm run docker:wait && pnpm run db:migrate",
 		"docker:down": "docker compose -f ./docker-compose.yml down",
 		"docker:reset": "docker compose -f ./docker-compose.yml down --volumes",

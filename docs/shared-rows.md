@@ -95,6 +95,8 @@ Sync table RLS (typical pattern):
 - `action_modified_rows`: `USING/WITH CHECK` membership on `audience_key`.
 - `action_records`: visible iff there exists at least one visible `action_modified_rows` row for that `action_record_id`.
 
+If you also want to enforce that users can only insert AMRs for their *own* actions, avoid a direct `SELECT action_records ...` inside the `action_modified_rows` `WITH CHECK` (it can trigger Postgres RLS rewrite recursion). Use a `SECURITY DEFINER` helper like `synchrotron.action_record_belongs_to_user(action_record_id, user_id)` and call it from the policy instead.
+
 See `examples/backend/src/db/setup.ts` for a working policy set.
 
 ## Constraints
