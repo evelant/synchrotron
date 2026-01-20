@@ -67,7 +67,8 @@ export const initializeDbForTests = (schema: string) =>
 			content TEXT NOT NULL,
 			tags TEXT[] DEFAULT '{}'::text[],
 			updated_at TIMESTAMP WITH TIME ZONE, -- Reverted back
-			user_id TEXT NOT NULL
+			user_id TEXT NOT NULL,
+			audience_key TEXT GENERATED ALWAYS AS ('user:' || user_id) STORED
 		);
 	`
 

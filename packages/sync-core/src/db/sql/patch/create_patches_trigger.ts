@@ -1,6 +1,7 @@
 export default `CREATE OR REPLACE FUNCTION create_patches_trigger(p_table_name TEXT) RETURNS VOID AS $$
 DECLARE
 	id_exists BOOLEAN;
+	audience_key_exists BOOLEAN;
 	trigger_exists BOOLEAN;
 BEGIN
 	-- Check if the id column exists in the table
@@ -11,9 +12,21 @@ BEGIN
 		AND column_name = 'id'
 	) INTO id_exists;
 
+	-- Check if the audience_key column exists in the table (required for shared-row RLS model).
+	SELECT EXISTS (
+		SELECT 1
+		FROM information_schema.columns
+		WHERE table_name = p_table_name
+		AND column_name = 'audience_key'
+	) INTO audience_key_exists;
+
 	-- Error if required columns are missing
 	IF NOT id_exists THEN
 		RAISE EXCEPTION 'Table % is missing required "id" column. All tables managed by the sync system must have an id column.', p_table_name;
+	END IF;
+
+	IF NOT audience_key_exists THEN
+		RAISE EXCEPTION 'Table % is missing required "audience_key" column. All tables managed by the sync system must have an audience_key column (see docs/shared-rows.md).', p_table_name;
 	END IF;
 
 	-- Check if the trigger already exists

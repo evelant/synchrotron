@@ -333,6 +333,7 @@ describe("DB Reverse Patch Functions", () => {
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("table_name")
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("row_id")
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("action_record_id")
+				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("audience_key")
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("operation")
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("forward_patches")
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("reverse_patches")
@@ -808,6 +809,7 @@ describe("DB Reverse Patch Functions", () => {
 				// Create test table
 				yield* sql`CREATE TABLE IF NOT EXISTS test_apply_patches (
 					id TEXT PRIMARY KEY,
+					audience_key TEXT NOT NULL DEFAULT 'audience:test_apply_patches',
 					name TEXT NOT NULL,
 					value INTEGER NOT NULL,
 					data JSONB
@@ -879,6 +881,7 @@ describe("DB Reverse Patch Functions", () => {
 						table_name: "test_apply_patches",
 						row_id: rowIdFromInsert,
 						action_record_id: actionRecordId,
+						audience_key: "audience:test_apply_patches",
 						operation: "UPDATE",
 						forward_patches: sql.json({}),
 						reverse_patches: sql.json(patches),

@@ -50,6 +50,11 @@ BEGIN
 		new_row_data := to_jsonb(NEW);
 		operation_type := 'UPDATE';
 		target_row_id := NEW.id;
+		-- audience_key is the visibility scope token used for shared-row RLS filtering.
+		-- Changing it on UPDATE is not supported (model as DELETE + INSERT).
+		IF (old_row_data->>'audience_key') IS DISTINCT FROM (new_row_data->>'audience_key') THEN
+			RAISE EXCEPTION 'audience_key change is not supported (table %, row %). Model scope moves as DELETE + INSERT.', TG_TABLE_NAME, target_row_id;
+		END IF;
 		RAISE NOTICE '[generate_patches] UPDATE detected for RowID: %', target_row_id;
 	END IF;
 

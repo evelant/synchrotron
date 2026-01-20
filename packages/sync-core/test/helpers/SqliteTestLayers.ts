@@ -296,7 +296,8 @@ export const makeSqliteTestLayers = (clientId: string, serverSql: PgliteClient.P
 					content TEXT NOT NULL,
 					tags TEXT NOT NULL DEFAULT '[]',
 					updated_at TEXT NOT NULL,
-					user_id TEXT NOT NULL
+					user_id TEXT NOT NULL,
+					audience_key TEXT GENERATED ALWAYS AS ('user:' || user_id) STORED
 				)
 			`.raw
 
@@ -412,7 +413,8 @@ export const makeSqliteTestServerLayer = (
 					content TEXT NOT NULL,
 					tags TEXT NOT NULL DEFAULT '[]',
 					updated_at TEXT NOT NULL,
-					user_id TEXT NOT NULL
+					user_id TEXT NOT NULL,
+					audience_key TEXT GENERATED ALWAYS AS ('user:' || user_id) STORED
 				)
 			`.raw
 		})

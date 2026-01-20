@@ -65,218 +65,226 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			`
 		})
 
-			/**
-			 * Receives actions from a client, performs conflict checks, handles rollbacks,
-			 * inserts data, and applies patches to the server state.
-			 */
-			const receiveActions = (
-				clientId: string,
-				basisServerIngestId: number,
-				actions: readonly ActionRecord[],
-				amrs: readonly ActionModifiedRow[]
-			) =>
-				Effect.gen(function* () {
-					const userId = yield* SyncUserId
-					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+		/**
+		 * Receives actions from a client, performs conflict checks, handles rollbacks,
+		 * inserts data, and applies patches to the server state.
+		 */
+		const receiveActions = (
+			clientId: string,
+			basisServerIngestId: number,
+			actions: readonly ActionRecord[],
+			amrs: readonly ActionModifiedRow[]
+		) =>
+			Effect.gen(function* () {
+				const userId = yield* SyncUserId
+				// Set the RLS context for the duration of this transaction.
+				yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
 
-					const actionTags = actions.reduce<Record<string, number>>((acc, action) => {
-						acc[action._tag] = (acc[action._tag] ?? 0) + 1
-						return acc
-					}, {})
-					const hasSyncDelta = actions.some((a) => a._tag === "_InternalSyncApply")
+				const actionTags = actions.reduce<Record<string, number>>((acc, action) => {
+					acc[action._tag] = (acc[action._tag] ?? 0) + 1
+					return acc
+				}, {})
+				const hasSyncDelta = actions.some((a) => a._tag === "_InternalSyncApply")
 
-					yield* Effect.logInfo("server.receiveActions.start", {
-						userId,
+				yield* Effect.logInfo("server.receiveActions.start", {
+					userId,
+					clientId,
+					basisServerIngestId,
+					actionCount: actions.length,
+					amrCount: amrs.length,
+					actionTags,
+					hasSyncDelta
+				})
+
+				if (actions.length === 0) {
+					yield* Effect.logDebug("server.receiveActions.noop", { clientId })
+					return
+				}
+
+				type ReplayKey = {
+					readonly timeMs: number
+					readonly counter: number
+					readonly clientId: string
+					readonly id: string
+				}
+
+				const toNumber = (value: unknown): number => {
+					if (typeof value === "number") return value
+					if (typeof value === "bigint") return Number(value)
+					if (typeof value === "string") return Number(value)
+					return Number(value)
+				}
+
+				const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
+					if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
+					if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
+					if (a.clientId !== b.clientId) return a.clientId < b.clientId ? -1 : 1
+					if (a.id !== b.id) return a.id < b.id ? -1 : 1
+					return 0
+				}
+
+				const replayKeyForAction = (action: ActionRecord): ReplayKey => {
+					const counter = toNumber(action.clock.vector?.[action.client_id] ?? 0)
+					return {
+						timeMs: toNumber(action.clock.timestamp ?? 0),
+						counter,
+						clientId: action.client_id,
+						id: action.id
+					}
+				}
+
+				// Simplified correctness gate: only accept uploads from clients that are at the current
+				// server ingestion head for actions visible to them (excluding their own).
+				//
+				// This is intentionally coarse (global), assuming honest clients:
+				// - If the client is behind, it must fetch remote actions, reconcile locally, then retry.
+				// - Late-arriving actions by HLC are still accepted; the server re-materializes via rollback+replay.
+				const unseen = yield* sql<{ readonly id: string; readonly server_ingest_id: number | string }>`
+					SELECT id, server_ingest_id
+					FROM action_records
+					WHERE client_id != ${clientId}
+					AND server_ingest_id > ${basisServerIngestId}
+					ORDER BY server_ingest_id ASC, id ASC
+					LIMIT 1
+				`.pipe(
+					Effect.mapError(
+						(e) =>
+							new ServerInternalError({
+								message: "Head check query failed",
+								cause: e
+							})
+					)
+				)
+				if (unseen.length > 0) {
+					const first = unseen[0]
+					yield* Effect.logWarning("server.receiveActions.behindHead", {
 						clientId,
 						basisServerIngestId,
-						actionCount: actions.length,
-						amrCount: amrs.length,
-						actionTags,
-						hasSyncDelta
+						firstUnseenActionId: first?.id ?? null,
+						firstUnseenServerIngestId: first ? toNumber(first.server_ingest_id) : null
 					})
-
-					if (actions.length === 0) {
-						yield* Effect.logDebug("server.receiveActions.noop", { clientId })
-						return
-					}
-
-					type ReplayKey = {
-						readonly timeMs: number
-						readonly counter: number
-						readonly clientId: string
-						readonly id: string
-					}
-
-					const toNumber = (value: unknown): number => {
-						if (typeof value === "number") return value
-						if (typeof value === "bigint") return Number(value)
-						if (typeof value === "string") return Number(value)
-						return Number(value)
-					}
-
-						const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
-							if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
-							if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
-							if (a.clientId !== b.clientId) return a.clientId < b.clientId ? -1 : 1
-							if (a.id !== b.id) return a.id < b.id ? -1 : 1
-							return 0
-						}
-
-						const replayKeyForAction = (action: ActionRecord): ReplayKey => {
-							const counter = toNumber(action.clock.vector?.[action.client_id] ?? 0)
-							return {
-								timeMs: toNumber(action.clock.timestamp ?? 0),
-								counter,
-								clientId: action.client_id,
-								id: action.id
-							}
-						}
-
-					// Simplified correctness gate: only accept uploads from clients that are at the current
-					// server ingestion head for actions visible to them (excluding their own).
-					//
-					// This is intentionally coarse (global), assuming honest clients:
-					// - If the client is behind, it must fetch remote actions, reconcile locally, then retry.
-					// - Late-arriving actions by HLC are still accepted; the server re-materializes via rollback+replay.
-					const unseen = yield* sql<{ readonly id: string; readonly server_ingest_id: number | string }>`
-						SELECT id, server_ingest_id
-						FROM action_records
-						WHERE client_id != ${clientId}
-						AND server_ingest_id > ${basisServerIngestId}
-						ORDER BY server_ingest_id ASC, id ASC
-						LIMIT 1
-					`.pipe(
-						Effect.mapError(
-							(e) =>
-								new ServerInternalError({
-									message: "Head check query failed",
-									cause: e
-								})
-						)
-					)
-					if (unseen.length > 0) {
-						const first = unseen[0]
-						yield* Effect.logWarning("server.receiveActions.behindHead", {
-							clientId,
-							basisServerIngestId,
-							firstUnseenActionId: first?.id ?? null,
-							firstUnseenServerIngestId: first ? toNumber(first.server_ingest_id) : null
+					return yield* Effect.fail(
+						new ServerConflictError({
+							message:
+								"Client is behind the server ingestion head. Fetch remote actions, reconcile locally, then retry upload.",
+							conflictingActions: []
 						})
-						return yield* Effect.fail(
-							new ServerConflictError({
-								message:
-									"Client is behind the server ingestion head. Fetch remote actions, reconcile locally, then retry upload.",
-								conflictingActions: []
-							})
+					)
+				}
+
+				// From here on, we need to be able to write and read the sync log regardless of the
+				// requesting user's current audience membership (membership churn + late arrival).
+				// Sync-table RLS policies should allow a bypass when this flag is set.
+				yield* sql`SELECT set_config('synchrotron.internal_materializer', 'true', true)`
+
+				// Insert ActionRecords and AMRs idempotently.
+				for (const actionRecord of actions) {
+					const argsJson = JSON.stringify(actionRecord.args)
+					const clockJson = JSON.stringify(actionRecord.clock)
+					yield* sql`
+						INSERT INTO action_records (
+							server_ingest_id,
+							id,
+							user_id,
+							client_id,
+							_tag,
+							args,
+							clock,
+							synced,
+							transaction_id,
+							created_at
+						) VALUES (
+							nextval('action_records_server_ingest_id_seq'),
+							${actionRecord.id},
+							${userId},
+							${actionRecord.client_id},
+							${actionRecord._tag},
+							${argsJson}::jsonb,
+							${clockJson}::jsonb,
+							1,
+							${actionRecord.transaction_id},
+							${new Date(actionRecord.created_at).toISOString()}
 						)
-					}
+						ON CONFLICT (id) DO NOTHING
+					`
+				}
 
-					// Insert ActionRecords and AMRs idempotently.
-					for (const actionRecord of actions) {
-						const argsJson = JSON.stringify(actionRecord.args)
-						const clockJson = JSON.stringify(actionRecord.clock)
-						yield* sql`
-							INSERT INTO action_records (
-								server_ingest_id,
-								id,
-								user_id,
-								client_id,
-								_tag,
-								args,
-								clock,
-								synced,
-								transaction_id,
-								created_at
-							) VALUES (
-								nextval('action_records_server_ingest_id_seq'),
-								${actionRecord.id},
-								${userId},
-								${actionRecord.client_id},
-								${actionRecord._tag},
-								${argsJson}::jsonb,
-								${clockJson}::jsonb,
-								1,
-								${actionRecord.transaction_id},
-								${new Date(actionRecord.created_at).toISOString()}
-							)
-							ON CONFLICT (id) DO NOTHING
-						`
-					}
+				for (const modifiedRow of amrs) {
+					const forwardJson = JSON.stringify(modifiedRow.forward_patches)
+					const reverseJson = JSON.stringify(modifiedRow.reverse_patches)
+					yield* sql`
+						INSERT INTO action_modified_rows (
+							id,
+							table_name,
+							row_id,
+							action_record_id,
+							audience_key,
+							operation,
+							forward_patches,
+							reverse_patches,
+							sequence
+						) VALUES (
+							${modifiedRow.id},
+							${modifiedRow.table_name},
+							${modifiedRow.row_id},
+							${modifiedRow.action_record_id},
+							${modifiedRow.audience_key},
+							${modifiedRow.operation},
+							${forwardJson}::jsonb,
+							${reverseJson}::jsonb,
+							${modifiedRow.sequence}
+						)
+						ON CONFLICT (id) DO NOTHING
+					`
+				}
 
-					for (const modifiedRow of amrs) {
-						const forwardJson = JSON.stringify(modifiedRow.forward_patches)
-						const reverseJson = JSON.stringify(modifiedRow.reverse_patches)
-						yield* sql`
-							INSERT INTO action_modified_rows (
-								id,
-								table_name,
-								row_id,
-								action_record_id,
-								operation,
-								forward_patches,
-								reverse_patches,
-								sequence
-							) VALUES (
-								${modifiedRow.id},
-								${modifiedRow.table_name},
-								${modifiedRow.row_id},
-								${modifiedRow.action_record_id},
-								${modifiedRow.operation},
-								${forwardJson}::jsonb,
-								${reverseJson}::jsonb,
-								${modifiedRow.sequence}
-							)
-							ON CONFLICT (id) DO NOTHING
-						`
-					}
-
-					const incomingRollbacks = actions.filter((a) => a._tag === "RollbackAction")
-					let forcedRollbackTarget: string | null | undefined = undefined
-					if (incomingRollbacks.length > 0) {
-						const targets = incomingRollbacks.map((rb) => rb.args["target_action_id"] as string | null)
-						const hasGenesis = targets.some((t) => t === null)
-						if (hasGenesis) {
-							forcedRollbackTarget = null
-						} else {
-							const targetIds = targets.filter((t): t is string => typeof t === "string" && t.length > 0)
-							if (targetIds.length > 0) {
-								const targetRows = yield* sql<{
-									readonly id: string
-									readonly clock_time_ms: number | string
-									readonly clock_counter: number | string
-									readonly client_id: string
-								}>`
-									SELECT id, clock_time_ms, clock_counter, client_id
-									FROM action_records
-									WHERE id IN ${sql.in(targetIds)}
-								`
-								if (targetRows.length !== targetIds.length) {
-									return yield* Effect.fail(
-										new ServerInternalError({
-											message: "Rollback target action(s) not found on server"
-										})
-									)
-								}
-								const oldest = [...targetRows].sort((a, b) =>
-									compareReplayKey(
-										{
-											timeMs: toNumber(a.clock_time_ms),
-											counter: toNumber(a.clock_counter),
-											clientId: a.client_id,
-											id: a.id
-										},
-										{
-											timeMs: toNumber(b.clock_time_ms),
-											counter: toNumber(b.clock_counter),
-											clientId: b.client_id,
-											id: b.id
-										}
-									)
-								)[0]
-								forcedRollbackTarget = oldest?.id
+				const incomingRollbacks = actions.filter((a) => a._tag === "RollbackAction")
+				let forcedRollbackTarget: string | null | undefined = undefined
+				if (incomingRollbacks.length > 0) {
+					const targets = incomingRollbacks.map((rb) => rb.args["target_action_id"] as string | null)
+					const hasGenesis = targets.some((t) => t === null)
+					if (hasGenesis) {
+						forcedRollbackTarget = null
+					} else {
+						const targetIds = targets.filter((t): t is string => typeof t === "string" && t.length > 0)
+						if (targetIds.length > 0) {
+							const targetRows = yield* sql<{
+								readonly id: string
+								readonly clock_time_ms: number | string
+								readonly clock_counter: number | string
+								readonly client_id: string
+							}>`
+								SELECT id, clock_time_ms, clock_counter, client_id
+								FROM action_records
+								WHERE id IN ${sql.in(targetIds)}
+							`
+							if (targetRows.length !== targetIds.length) {
+								return yield* Effect.fail(
+									new ServerInternalError({
+										message: "Rollback target action(s) not found on server"
+									})
+								)
 							}
+							const oldest = [...targetRows].sort((a, b) =>
+								compareReplayKey(
+									{
+										timeMs: toNumber(a.clock_time_ms),
+										counter: toNumber(a.clock_counter),
+										clientId: a.client_id,
+										id: a.id
+									},
+									{
+										timeMs: toNumber(b.clock_time_ms),
+										counter: toNumber(b.clock_counter),
+										clientId: b.client_id,
+										id: b.id
+									}
+								)
+							)[0]
+							forcedRollbackTarget = oldest?.id
 						}
 					}
+				}
 
 					const getLatestApplied = () =>
 						sql<{
@@ -407,14 +415,14 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 
 					yield* materialize(forcedRollbackTarget)
 
-					yield* Effect.logInfo("server.receiveActions.success", {
-						userId,
-						clientId,
-						actionCount: actions.length,
-						amrCount: amrs.length,
-						actionTags
-					})
-				}).pipe(
+				yield* Effect.logInfo("server.receiveActions.success", {
+					userId,
+					clientId,
+					actionCount: actions.length,
+					amrCount: amrs.length,
+					actionTags
+				})
+			}).pipe(
 					sql.withTransaction,
 					Effect.catchAll((error) => {
 						if (error instanceof ServerConflictError || error instanceof ServerInternalError) {
@@ -435,7 +443,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					Effect.withSpan("SyncServerService.receiveActions", {
 						attributes: { clientId, actionCount: actions.length, amrCount: amrs.length }
 					})
-				)
+			)
 
 			const getActionsSince = (
 				clientId: string,
@@ -444,6 +452,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			) =>
 				Effect.gen(function* () {
 					const userId = yield* SyncUserId
+					// Set the RLS context for the duration of this transaction.
 					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
 					yield* Effect.logDebug("server.getActionsSince.start", {
 						userId,

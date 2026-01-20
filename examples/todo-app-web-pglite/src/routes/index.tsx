@@ -40,10 +40,21 @@ const defaults = {
 		metaEnv?.VITE_SYNC_RPC_AUTH_TOKEN ??
 		(typeof process !== "undefined" ? process.env.VITE_SYNC_RPC_AUTH_TOKEN : undefined) ??
 		undefined,
-	userId:
+	userIdA:
+		metaEnv?.VITE_SYNC_USER_ID_A ??
 		metaEnv?.VITE_SYNC_USER_ID ??
-		(typeof process !== "undefined" ? process.env.VITE_SYNC_USER_ID : undefined) ??
+		(typeof process !== "undefined"
+			? (process.env.VITE_SYNC_USER_ID_A ?? process.env.VITE_SYNC_USER_ID)
+			: undefined) ??
 		"user1",
+	userIdB:
+		metaEnv?.VITE_SYNC_USER_ID_B ??
+		(typeof process !== "undefined" ? process.env.VITE_SYNC_USER_ID_B : undefined) ??
+		"user2",
+	projectId:
+		metaEnv?.VITE_TODO_PROJECT_ID ??
+		(typeof process !== "undefined" ? process.env.VITE_TODO_PROJECT_ID : undefined) ??
+		"project-demo",
 	electricUrl:
 		metaEnv?.VITE_ELECTRIC_URL ??
 		(typeof process !== "undefined" ? process.env.VITE_ELECTRIC_URL : undefined) ??
@@ -221,6 +232,7 @@ const makeLocalStorageKeyValueStoreLayer = (prefix: string) =>
 const makeClientLayer = (options: {
 	readonly clientKey: string
 	readonly transportMode: TransportMode
+	readonly userId: string
 }) => {
 	const dataDir = makeClientIdbDataDir(options.clientKey)
 	const kvPrefix = makeKvPrefix(options.clientKey)
@@ -238,7 +250,7 @@ const makeClientLayer = (options: {
 						...(typeof defaults.syncRpcAuthToken === "string"
 							? { syncRpcAuthToken: defaults.syncRpcAuthToken }
 							: {}),
-						userId: defaults.userId,
+						userId: options.userId,
 						syncRpcUrl,
 						electricSyncUrl: defaults.electricUrl,
 						pglite: {
@@ -257,6 +269,8 @@ const makeClientLayer = (options: {
 				Effect.logInfo("todoAppWeb.runtime.start", {
 					clientKey: options.clientKey,
 					transportMode: options.transportMode,
+					userId: options.userId,
+					projectId: defaults.projectId,
 					syncRpcUrl,
 					electricSyncUrl: defaults.electricUrl,
 					pgliteDataDir: dataDir
@@ -310,8 +324,20 @@ export default function Index() {
 				</Flex>
 
 				<Flex gap="4" direction={{ initial: "column", md: "row" }}>
-					<ClientRuntimePanel clientKey="clientA" label="Client A" transportMode={transportMode} />
-					<ClientRuntimePanel clientKey="clientB" label="Client B" transportMode={transportMode} />
+					<ClientRuntimePanel
+						clientKey="clientA"
+						label="Client A"
+						transportMode={transportMode}
+						userId={defaults.userIdA}
+						projectId={defaults.projectId}
+					/>
+					<ClientRuntimePanel
+						clientKey="clientB"
+						label="Client B"
+						transportMode={transportMode}
+						userId={defaults.userIdB}
+						projectId={defaults.projectId}
+					/>
 				</Flex>
 			</Flex>
 		</Container>
@@ -322,6 +348,8 @@ function ClientRuntimePanel(props: {
 	readonly clientKey: string
 	readonly label: string
 	readonly transportMode: TransportMode
+	readonly userId: string
+	readonly projectId: string
 }) {
 	const [instance, setInstance] = useState(0)
 	const [isResetting, setIsResetting] = useState(false)
@@ -331,10 +359,14 @@ function ClientRuntimePanel(props: {
 	}>(null)
 
 	const runtime = useMemo(() => {
-		const layer = makeClientLayer({ clientKey: props.clientKey, transportMode: props.transportMode })
+		const layer = makeClientLayer({
+			clientKey: props.clientKey,
+			transportMode: props.transportMode,
+			userId: props.userId
+		})
 		return ManagedRuntime.make(layer)
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [props.clientKey, props.transportMode, instance])
+	}, [props.clientKey, props.transportMode, props.userId, instance])
 
 	useEffect(() => {
 		// React StrictMode runs effects + cleanups twice in development. Disposing the runtime
@@ -408,6 +440,8 @@ function ClientRuntimePanel(props: {
 					key={`${props.clientKey}-${instance}`}
 					label={props.label}
 					transportMode={props.transportMode}
+					userId={props.userId}
+					projectId={props.projectId}
 					isResetting={isResetting}
 					onResetDb={() => resetDb(false)}
 					onResetIdentity={() => resetDb(true)}
@@ -420,6 +454,8 @@ function ClientRuntimePanel(props: {
 	function ClientPanel(props: {
 		readonly label: string
 		readonly transportMode: TransportMode
+		readonly userId: string
+		readonly projectId: string
 		readonly isResetting: boolean
 		readonly onResetDb: () => void
 		readonly onResetIdentity: () => void
@@ -494,7 +530,8 @@ function ClientRuntimePanel(props: {
 
 			const action = actions.createTodoAction({
 				text,
-				owner_id: "user1",
+				project_id: props.projectId,
+				created_by: props.userId,
 				timestamp
 			})
 
@@ -506,7 +543,7 @@ function ClientRuntimePanel(props: {
 			.then(() => setNewTodoText(""))
 			.then(() => runSync())
 			.catch((err: ActionExecutionError | Error) => console.error("Failed to create todo:", err))
-	}, [newTodoText, runtime, runSync])
+	}, [newTodoText, props.projectId, props.userId, runtime, runSync])
 
 	const handleToggleTodo = useCallback(
 		(todo: Todo) => {
@@ -558,6 +595,12 @@ function ClientRuntimePanel(props: {
 				<Flex align="center" justify="between" gap="3" wrap="wrap">
 					<Heading size="4">{props.label}</Heading>
 					<Flex align="center" gap="2" wrap="wrap">
+						<Badge color="gray" variant="soft">
+							User: {props.userId}
+						</Badge>
+						<Badge color="gray" variant="soft">
+							Project: {props.projectId}
+						</Badge>
 						<Badge color={offline ? "red" : "green"} variant="soft">
 							{offline ? "Offline" : "Online"}
 						</Badge>

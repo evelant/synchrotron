@@ -20,7 +20,8 @@ describe("SQLite patch capture encodes booleans", () => {
 						yield* sql`
 							CREATE TABLE IF NOT EXISTS todos (
 								id TEXT PRIMARY KEY,
-								completed BOOLEAN NOT NULL DEFAULT FALSE
+								completed BOOLEAN NOT NULL DEFAULT FALSE,
+								audience_key TEXT NOT NULL DEFAULT 'audience:todos'
 							)
 						`.raw
 
@@ -57,4 +58,3 @@ describe("SQLite patch capture encodes booleans", () => {
 		{ timeout: 30000 }
 	)
 })
-

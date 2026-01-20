@@ -249,25 +249,27 @@ export const createTestSyncNetworkServiceLayer = (
 					for (const modifiedRow of amrs) {
 						if (incomingActionIdSet.has(modifiedRow.action_record_id) === false) continue
 						yield* serverSql`
-							INSERT INTO action_modified_rows (
-								id,
-								table_name,
-								row_id,
-								action_record_id,
-								operation,
-								forward_patches,
-								reverse_patches,
-								sequence
-							) VALUES (
-								${modifiedRow.id},
-								${modifiedRow.table_name},
-								${modifiedRow.row_id},
-								${modifiedRow.action_record_id},
-								${modifiedRow.operation},
-								${serverJson(modifiedRow.forward_patches)},
-								${serverJson(modifiedRow.reverse_patches)},
-								${modifiedRow.sequence}
-							)
+								INSERT INTO action_modified_rows (
+									id,
+									table_name,
+									row_id,
+									action_record_id,
+									audience_key,
+									operation,
+									forward_patches,
+									reverse_patches,
+									sequence
+								) VALUES (
+									${modifiedRow.id},
+									${modifiedRow.table_name},
+									${modifiedRow.row_id},
+									${modifiedRow.action_record_id},
+									${modifiedRow.audience_key},
+									${modifiedRow.operation},
+									${serverJson(modifiedRow.forward_patches)},
+									${serverJson(modifiedRow.reverse_patches)},
+									${modifiedRow.sequence}
+								)
 							ON CONFLICT (id) DO NOTHING
 						`
 					}

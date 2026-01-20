@@ -13,7 +13,8 @@ describe("AMR apply idempotency", () => {
 				yield* sql`
 					CREATE TABLE IF NOT EXISTS test_amr_idempotent_insert (
 						id TEXT PRIMARY KEY,
-						value TEXT NOT NULL
+						value TEXT NOT NULL,
+						audience_key TEXT GENERATED ALWAYS AS ('row:' || id) STORED
 					)
 				`
 
@@ -40,6 +41,7 @@ describe("AMR apply idempotency", () => {
 						table_name,
 						row_id,
 						action_record_id,
+						audience_key,
 						operation,
 						forward_patches,
 						reverse_patches,
@@ -49,6 +51,7 @@ describe("AMR apply idempotency", () => {
 						${"test_amr_idempotent_insert"},
 						${rowId},
 						${actionRecordId},
+						${`row:${rowId}`},
 						${"INSERT"},
 						${sql.json({ value: "value-1" })},
 						${sql.json({})},
@@ -77,4 +80,3 @@ describe("AMR apply idempotency", () => {
 		{ timeout: 30000 }
 	)
 })
-

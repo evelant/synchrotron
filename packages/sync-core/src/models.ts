@@ -130,6 +130,7 @@ export class ActionModifiedRow extends Model.Class<ActionModifiedRow>("ActionMod
 	table_name: Schema.String,
 	row_id: Schema.String,
 	action_record_id: Schema.String,
+	audience_key: Schema.String,
 	operation: Schema.Literal("INSERT", "UPDATE", "DELETE"),
 	forward_patches: JsonColumn(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
 	reverse_patches: JsonColumn(Schema.Record({ key: Schema.String, value: Schema.Unknown })),

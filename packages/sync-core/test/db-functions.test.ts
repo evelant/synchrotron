@@ -189,6 +189,7 @@ describe("Sync Database Functions", () => {
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("table_name")
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("row_id")
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("action_record_id")
+				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("audience_key")
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("operation")
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("forward_patches")
 				expect(actionModifiedRowsColumns.map((c) => c.column_name)).toContain("reverse_patches")
@@ -669,6 +670,7 @@ describe("Sync Database Functions", () => {
 				yield* sql`
 					CREATE TABLE IF NOT EXISTS test_apply_patches (
 						id TEXT PRIMARY KEY,
+						audience_key TEXT NOT NULL DEFAULT 'audience:test_apply_patches',
 						name TEXT,
 						value INTEGER,
 						data JSONB
@@ -696,7 +698,27 @@ describe("Sync Database Functions", () => {
 
 				// Insert action_modified_rows with patches
 				yield* sql`
-					INSERT INTO action_modified_rows (id, table_name, row_id, action_record_id, operation, forward_patches, reverse_patches, sequence) VALUES (${"modified-row-test-id"}, ${"test_apply_patches"}, ${"test1"}, ${"patch-test-id"}, ${"UPDATE"}, ${sql.json({})}, ${sql.json(patches)}, 0)
+					INSERT INTO action_modified_rows (
+						id,
+						table_name,
+						row_id,
+						action_record_id,
+						audience_key,
+						operation,
+						forward_patches,
+						reverse_patches,
+						sequence
+					) VALUES (
+						${"modified-row-test-id"},
+						${"test_apply_patches"},
+						${"test1"},
+						${"patch-test-id"},
+						${"audience:test_apply_patches"},
+						${"UPDATE"},
+						${sql.json({})},
+						${sql.json(patches)},
+						0
+					)
 				`
 
 				// Modify the row

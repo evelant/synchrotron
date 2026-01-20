@@ -23,6 +23,9 @@ import { setupClientDatabase } from "./src/db/setup"
 import { RuntimeProvider, sqliteFilename, useRuntime } from "./src/runtime"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
 
+const demoProjectId = process.env.EXPO_PUBLIC_TODO_PROJECT_ID ?? "project-demo"
+const demoUserId = process.env.EXPO_PUBLIC_SYNC_USER_ID ?? "user1"
+
 function AppInner() {
 	const runtime = useRuntime()
 
@@ -229,7 +232,8 @@ function AppInner() {
 
 			const action = actions.createTodoAction({
 				text,
-				owner_id: "user1",
+				project_id: demoProjectId,
+				created_by: demoUserId,
 				timestamp
 			})
 

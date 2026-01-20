@@ -207,6 +207,7 @@ export const SyncNetworkServiceLive = Layer.scoped(
 								INSERT INTO action_records ${sql.insert({
 									server_ingest_id: a.server_ingest_id,
 									id: a.id,
+									user_id: a.user_id,
 									_tag: a._tag,
 									client_id: a.client_id,
 									transaction_id: a.transaction_id,
@@ -228,6 +229,7 @@ export const SyncNetworkServiceLive = Layer.scoped(
 									table_name: a.table_name,
 									row_id: a.row_id,
 									action_record_id: a.action_record_id,
+									audience_key: a.audience_key,
 									operation: a.operation,
 									forward_patches: json(a.forward_patches),
 									reverse_patches: json(a.reverse_patches),

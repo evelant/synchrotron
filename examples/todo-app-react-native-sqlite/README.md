@@ -53,3 +53,7 @@ Notes:
 To point the app at a non-local backend (LAN / physical device without USB reverse), set:
 
 - `EXPO_PUBLIC_SYNC_RPC_URL=http://<YOUR_LAN_IP>:3010/rpc`
+
+Optional:
+
+- `EXPO_PUBLIC_TODO_PROJECT_ID=project-demo` (defaults to `project-demo`)

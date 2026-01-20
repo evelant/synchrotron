@@ -2,6 +2,7 @@ export default `CREATE OR REPLACE FUNCTION apply_forward_amr(p_amr_id TEXT) RETU
 DECLARE
 	amr_record RECORD;
 	action_record_tag TEXT;
+	action_record_user_id TEXT;
 	column_name TEXT;
 	column_value JSONB;
 	sql_command TEXT;
@@ -19,7 +20,15 @@ BEGIN
 	END IF;
 
 	-- Get the tag from the associated action_record
-	SELECT _tag INTO action_record_tag FROM action_records WHERE id = amr_record.action_record_id;
+	SELECT _tag, user_id
+	INTO action_record_tag, action_record_user_id
+	FROM action_records
+	WHERE id = amr_record.action_record_id;
+
+	-- Apply patches under the originating action principal (server-side RLS).
+	IF action_record_user_id IS NOT NULL THEN
+		PERFORM set_config('synchrotron.user_id', action_record_user_id, true);
+	END IF;
 
 	target_table := amr_record.table_name;
 	target_id := amr_record.row_id;

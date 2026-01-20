@@ -57,7 +57,8 @@ const setupClientNotes = Effect.gen(function* () {
 		CREATE TABLE IF NOT EXISTS notes (
 			id TEXT PRIMARY KEY,
 			content TEXT NOT NULL,
-			user_id TEXT NOT NULL
+			project_id TEXT NOT NULL,
+			audience_key TEXT GENERATED ALWAYS AS ('project:' || project_id) STORED
 		);
 	`
 
@@ -74,14 +75,14 @@ const defineClientActions = Effect.gen(function* () {
 		Schema.Struct({
 			id: Schema.String,
 			content: Schema.String,
-			user_id: Schema.String,
+			project_id: Schema.String,
 			timestamp: Schema.Number
 		}),
 		(args) =>
 			Effect.gen(function* () {
 				yield* sql`
-					INSERT INTO notes (id, content, user_id)
-					VALUES (${args.id}, ${args.content}, ${args.user_id})
+					INSERT INTO notes (id, content, project_id)
+					VALUES (${args.id}, ${args.content}, ${args.project_id})
 				`
 			})
 	)
@@ -188,6 +189,19 @@ describe("E2E (HTTP RPC): SyncNetworkServiceLive + SyncNetworkRpcHandlersLive", 
 						)
 
 				const noteId = crypto.randomUUID()
+				const projectId = `project-${crypto.randomUUID()}`
+
+				yield* runOnServer(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient
+						yield* sql`INSERT INTO projects (id) VALUES (${projectId}) ON CONFLICT DO NOTHING`
+						yield* sql`
+							INSERT INTO project_members (id, project_id, user_id)
+							VALUES (${`${projectId}-userA`}, ${projectId}, 'userA')
+							ON CONFLICT DO NOTHING
+						`
+					})
+				)
 
 				yield* withInProcessFetch(
 					server.baseUrl,
@@ -210,7 +224,7 @@ describe("E2E (HTTP RPC): SyncNetworkServiceLive + SyncNetworkRpcHandlersLive", 
 							clientAActions.createNoteWithId({
 								id: noteId,
 								content: "hello",
-								user_id: "userA",
+								project_id: projectId,
 								timestamp: 1000
 							})
 						)
@@ -278,6 +292,19 @@ describe("E2E (HTTP RPC): SyncNetworkServiceLive + SyncNetworkRpcHandlersLive", 
 						)
 
 				const noteId = crypto.randomUUID()
+				const projectId = `project-${crypto.randomUUID()}`
+
+				yield* runOnServer(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient
+						yield* sql`INSERT INTO projects (id) VALUES (${projectId}) ON CONFLICT DO NOTHING`
+						yield* sql`
+							INSERT INTO project_members (id, project_id, user_id)
+							VALUES (${`${projectId}-userA`}, ${projectId}, 'userA')
+							ON CONFLICT DO NOTHING
+						`
+					})
+				)
 
 				yield* withInProcessFetch(
 					server.baseUrl,
@@ -298,7 +325,7 @@ describe("E2E (HTTP RPC): SyncNetworkServiceLive + SyncNetworkRpcHandlersLive", 
 							clientAActions.createNoteWithId({
 								id: noteId,
 								content: "private",
-								user_id: "userA",
+								project_id: projectId,
 								timestamp: 1000
 							})
 						)
@@ -395,12 +422,25 @@ describe("E2E (HTTP RPC): SyncNetworkServiceLive + SyncNetworkRpcHandlersLive", 
 						const clientBSync = yield* SyncService.pipe(Effect.provide(clientBContext))
 
 						const noteId = crypto.randomUUID()
+						const projectId = `project-${crypto.randomUUID()}`
+
+						yield* runOnServer(
+							Effect.gen(function* () {
+								const sql = yield* SqlClient.SqlClient
+								yield* sql`INSERT INTO projects (id) VALUES (${projectId}) ON CONFLICT DO NOTHING`
+								yield* sql`
+									INSERT INTO project_members (id, project_id, user_id)
+									VALUES (${`${projectId}-user-1`}, ${projectId}, 'user-1')
+									ON CONFLICT DO NOTHING
+								`
+							})
+						)
 
 						yield* sourceSync.executeAction(
 							sourceActions.createNoteWithId({
 								id: noteId,
 								content: "Initial",
-								user_id: "user-1",
+								project_id: projectId,
 								timestamp: 1000
 							})
 						)

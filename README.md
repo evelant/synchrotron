@@ -68,8 +68,8 @@ Synchrotron moves the merge boundary up a level:
 
 ## TODO
 
-- RLS hardening: expand policies + tests beyond the v1 demo (`packages/sync-server/test/rls-filtering.test.ts` and `docs/planning/todo/0004-rls-policies.md`).
-- Formalize SYNC semantics (monotonic/additive deltas) and document recommended RLS policies for `action_records` / `action_modified_rows` (see `docs/planning/todo/0003-sync-action-semantics.md` and `docs/planning/todo/0004-rls-policies.md`).
+- RLS hardening: expand policies + tests beyond the v1 demo (`packages/sync-server/test/rls-filtering.test.ts`).
+- Tighten SYNC semantics + diagnostics (see `DESIGN.md`).
 - Add end-to-end tests with the example app
 - Add pruning for old action records to prevent unbounded growth. Add a "rebase" function for clients that are offline long enough that they would need pruned actions to catch up.
 - Improve the APIs. They're proof-of-concept level at the moment and could be significantly nicer.
@@ -118,6 +118,7 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
 
 1.  **Initialize the Sync Schema:** On clients, call `ClientDbAdapter.initializeSyncSchema` (provided by either `PostgresClientDbAdapter` or `SqliteClientDbAdapter`). On the Postgres backend, run `initializeDatabaseSchema` to also install server-only SQL functions used for patch-apply / rollback.
 2.  **Install Patch Capture:** Call `ClientDbAdapter.installPatchCapture([...])` during your database initialization for _all_ tables whose changes should be tracked and synchronized by the system. This installs patch-capture triggers (AFTER INSERT/UPDATE/DELETE) that write to `action_modified_rows` (dialect-specific implementation).
+    - Tracked tables must include an `audience_key` column (`TEXT`). Patch capture copies `NEW/OLD.audience_key` onto `action_modified_rows.audience_key` for fast RLS filtering (shared/collaborative rows) and strips it out of the JSON patches. Prefer making `audience_key` a generated column (or otherwise computed on insert) so patch-apply can insert rows without specifying it (see `docs/shared-rows.md`).
     - On SQLite, `installPatchCapture` should be called after any schema migrations that add/remove columns on tracked tables (it drops/recreates triggers from the current table schema).
     - On SQLite, declare boolean columns as `BOOLEAN` (not `INTEGER`) so patch capture can encode booleans as JSON `true/false` (portable to Postgres); `0/1` numeric patches can cause false divergence and server-side apply failures.
     - On SQLite, Synchrotron coerces bound boolean parameters (`true/false`) to `1/0` at execution time (SQLite driver limitation).
@@ -131,7 +132,8 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
 3.  **Action Determinism:** Actions must be deterministic aside from database operations. Capture any non-deterministic inputs (like current time, random values, user context not in the database, network call results, etc.) as arguments passed into the action. The `timestamp` argument (`Date.now()`) is automatically provided. You have full access to the database in actions, no restrictions on reads or writes.
     - Actions are defined via `ActionRegistry.defineAction(tag, argsSchema, fn)`.
     - `argsSchema` must include `timestamp: Schema.Number`, but the returned action creator accepts `timestamp` optionally; it is injected automatically when you create an action (and preserved for replay).
-    - Design note: “purity” means repeatable on the same snapshot. If running an action twice against the same DB state produces different writes, that’s a determinism bug (see `docs/planning/todo/0003-sync-action-semantics.md` for detection/mitigation ideas). Also treat “hidden/private state influencing writes to shared rows” as an application-level constraint: it can leak derived information, and competing SYNC overwrites on shared fields resolve via action order (last SYNC wins).
+    - `action_records.args` are replicated to any client that can read that `action_records` row (no redaction). Don’t put secrets in args; store private inputs in normal tables protected by RLS and pass only opaque references (ids) in args.
+    - Design note: “purity” means repeatable on the same snapshot. If running an action twice against the same DB state produces different writes, that’s a determinism bug. Also treat “hidden/private state influencing writes to shared rows” as an application-level constraint: it can leak derived information, and competing SYNC overwrites on shared fields resolve via action order (last SYNC wins). See `DESIGN.md`.
 4.  **Mutations via Actions:** All modifications (INSERT, UPDATE, DELETE) to synchronized tables _must_ be performed exclusively through actions executed via `SyncService` (e.g. `const sync = yield* SyncService; yield* sync.executeAction(action)`). Patch-capture triggers will reject writes when no capture context is set (unless tracking is explicitly disabled for rollback / patch-apply).
 5.  **IDs are App-Provided (Required):** Inserts into synchronized tables must explicitly include `id`. Use `DeterministicId.forRow(tableName, row)` inside `SyncService`-executed actions to compute deterministic UUIDs scoped to the current action. Avoid relying on DB defaults/triggers for IDs; prefer removing `DEFAULT` clauses for `id` columns so missing IDs fail fast.
 6.  **Stable Client Identity:** Synchrotron persists a per-device `clientId` in Effect’s `KeyValueStore` under the key `sync_client_id`.
@@ -139,8 +141,9 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
     - React Native (native) uses `react-native-mmkv` via `@synchrotron/sync-client/react-native` (install `react-native-mmkv` in your app).
     - React Native (web) uses `localStorage`.
     - If the local database is cleared but the `clientId` is retained, the client will bootstrap by fetching its own previously-synced action history from the server (one-time, when `action_records` is empty) and replaying it to rebuild local state.
-7.  **RLS User Context (Server):** To enforce Postgres RLS on both app tables and sync tables, the server must run requests under a non-bypass DB role and set `synchrotron.user_id` (e.g. via `set_config('synchrotron.user_id', <user_id>, true)` inside a transaction). The demo RPC transport uses `x-synchrotron-user-id` and stores it on `action_records.user_id`.
-    - Real apps should use verified auth (JWT) and have the server derive `user_id` from the token (see `docs/planning/todo/0010-jwt-auth.md`).
+7.  **RLS User Context (Server):** To enforce Postgres RLS on both app tables and sync tables, the server must run requests under a non-bypass DB role and set `synchrotron.user_id` (e.g. via `set_config('synchrotron.user_id', <user_id>, true)` inside a transaction). The demo RPC server supports `Authorization: Bearer <jwt>` (preferred) and a dev-only `x-synchrotron-user-id` fallback; server-side materialization applies patches under the originating action principal (`action_records.user_id`), not the request principal.
+    - Real apps should use verified auth (JWT) and have the server derive `user_id` from the token. See `docs/security.md`.
+    - Note: `action_records.user_id` is the originating user (audit + `WITH CHECK`). For shared/collaborative data, sync-table visibility should be derived from `action_modified_rows.audience_key` (membership/sharing rules) rather than only the originating user. See `docs/shared-rows.md` and `docs/security.md`.
 
 ## Downsides and limitations
 

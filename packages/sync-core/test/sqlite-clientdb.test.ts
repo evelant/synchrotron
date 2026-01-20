@@ -42,7 +42,8 @@ const makeSqliteTestLayers = (clientId: string) => {
 				CREATE TABLE notes (
 					id TEXT PRIMARY KEY,
 					title TEXT NOT NULL,
-					content TEXT NOT NULL
+					content TEXT NOT NULL,
+					audience_key TEXT NOT NULL DEFAULT 'audience:notes'
 				)
 			`.raw
 
@@ -289,16 +290,17 @@ describe("SQLite ClientDbAdapter (sqlite-node)", () => {
 						`.raw
 					)
 
-				const amr = {
-					id: "amr-1",
-					table_name: "todos",
-					row_id: "todo-1",
-					action_record_id: "action-1",
-					operation: "UPDATE",
-					forward_patches: { done: true },
-					reverse_patches: { done: false },
-					sequence: 0
-				} as const
+					const amr = {
+						id: "amr-1",
+						table_name: "todos",
+						row_id: "todo-1",
+						action_record_id: "action-1",
+						audience_key: "audience:test",
+						operation: "UPDATE",
+						forward_patches: { done: true },
+						reverse_patches: { done: false },
+						sequence: 0
+					} as const
 
 					yield* clientDbAdapter.withPatchTrackingDisabled(applyForwardAmrs([amr]))
 
@@ -359,6 +361,7 @@ describe("SQLite ClientDbAdapter (sqlite-node)", () => {
 						table_name,
 						row_id,
 						action_record_id,
+						audience_key,
 						operation,
 						forward_patches,
 						reverse_patches,
@@ -369,6 +372,7 @@ describe("SQLite ClientDbAdapter (sqlite-node)", () => {
 						${tableName},
 						${rowId},
 						${actionRecordId},
+						${"audience:notes"},
 						${"INSERT"},
 						${JSON.stringify({ id: "note-1", title: "A", content: "B" })},
 						${JSON.stringify({})},

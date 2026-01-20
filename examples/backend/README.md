@@ -10,8 +10,10 @@ Shared backend for Synchrotron examples:
 
 This backend installs demo RLS policies for:
 
-- Sync tables: `action_records`, `action_modified_rows` (scoped by `action_records.user_id`)
-- App table: `todos` (scoped by `todos.owner_id`)
+- Sync tables: `action_records`, `action_modified_rows` (scoped by `action_modified_rows.audience_key` membership via `synchrotron.user_audiences`)
+- App tables: `todos` (scoped by project membership; `todos.audience_key` is generated from `project_id`)
+
+It also seeds a demo project (`project-demo`) with two demo users (`user1`, `user2`) as members so the web example can demonstrate multi-user shared rows.
 
 The `db:migrate` step creates a non-superuser role `synchrotron_app` and grants it the required privileges, so RLS is actually enforced at runtime.
 

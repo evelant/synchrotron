@@ -9,9 +9,7 @@ const ensureSqliteDialect = (sql: SqlClient.SqlClient) =>
 		sqlite: () => Effect.void,
 		orElse: () =>
 			Effect.fail(
-				new Error(
-					`SqliteClientDbAdapter requires a SQLite SqlClient (got non-sqlite dialect)`
-				)
+				new Error(`SqliteClientDbAdapter requires a SQLite SqlClient (got non-sqlite dialect)`)
 			)
 	})
 
@@ -46,45 +44,45 @@ const SqliteClientDbAdapterLive = Layer.effect(
 		yield* ensureSqliteDialect(sql)
 		const dbDialect = "sqlite" as const
 
-			const initializeSyncSchema: Effect.Effect<void, SqlError.SqlError | Error> = Effect.logDebug(
-				"clientDbAdapter.initializeSyncSchema.start",
-				{ dbDialect }
-			).pipe(
-				Effect.zipRight(
-					Effect.gen(function* () {
-						const requiredSyncTables = [
-							"action_records",
-							"action_modified_rows",
-							"client_sync_status",
-							"local_applied_action_ids"
-						] as const
+		const initializeSyncSchema: Effect.Effect<void, SqlError.SqlError | Error> = Effect.logDebug(
+			"clientDbAdapter.initializeSyncSchema.start",
+			{ dbDialect }
+		).pipe(
+			Effect.zipRight(
+				Effect.gen(function* () {
+					const requiredSyncTables = [
+						"action_records",
+						"action_modified_rows",
+						"client_sync_status",
+						"local_applied_action_ids"
+					] as const
 
-						const boolFromExists = (value: unknown): boolean =>
-							value === true || value === 1 || value === "1"
+					const boolFromExists = (value: unknown): boolean =>
+						value === true || value === 1 || value === "1"
 
-						const hasAnyTablesBefore = yield* sql<{ readonly present: unknown }>`
+					const hasAnyTablesBefore = yield* sql<{ readonly present: unknown }>`
 							SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table') AS present
 						`.pipe(Effect.map((rows) => boolFromExists(rows[0]?.present)))
 
-						const existingBefore = yield* Effect.all(
-								requiredSyncTables.map((tableName) =>
-									sql<{ readonly present: unknown }>`
+					const existingBefore = yield* Effect.all(
+						requiredSyncTables.map((tableName) =>
+							sql<{ readonly present: unknown }>`
 										SELECT EXISTS (
 											SELECT 1 FROM sqlite_master
 											WHERE type = 'table'
 											AND name = ${tableName}
 										) AS present
 									`.pipe(Effect.map((rows) => [tableName, boolFromExists(rows[0]?.present)] as const))
-								),
-							{ concurrency: 1 }
-						)
+						),
+						{ concurrency: 1 }
+					)
 
-						const existingBeforeTables = existingBefore
-							.filter(([, exists]) => exists)
-							.map(([tableName]) => tableName)
-						const hadAllSyncTablesBefore = existingBeforeTables.length === requiredSyncTables.length
+					const existingBeforeTables = existingBefore
+						.filter(([, exists]) => exists)
+						.map(([tableName]) => tableName)
+					const hadAllSyncTablesBefore = existingBeforeTables.length === requiredSyncTables.length
 
-						const tempContextExistsBefore = yield* sql<{ readonly present: unknown }>`
+					const tempContextExistsBefore = yield* sql<{ readonly present: unknown }>`
 							SELECT EXISTS (
 								SELECT 1 FROM sqlite_temp_master
 								WHERE type = 'table'
@@ -92,25 +90,25 @@ const SqliteClientDbAdapterLive = Layer.effect(
 							) AS present
 						`.pipe(Effect.map((rows) => boolFromExists(rows[0]?.present)))
 
-						yield* Effect.logInfo("db.sqlite.syncSchema.ensure.start", {
-							dbDialect,
-							hasAnyTablesBefore,
-							hadAllSyncTablesBefore,
-							existingSyncTablesBefore: existingBeforeTables,
-							tempContextExistsBefore
-						})
+					yield* Effect.logInfo("db.sqlite.syncSchema.ensure.start", {
+						dbDialect,
+						hasAnyTablesBefore,
+						hadAllSyncTablesBefore,
+						existingSyncTablesBefore: existingBeforeTables,
+						tempContextExistsBefore
+					})
 
-				// better-sqlite3 (used by @effect/sql-sqlite-node) cannot prepare multi-statement SQL.
-				// Execute the schema file one statement at a time.
-				for (const statement of createSyncTablesSqliteSQL
-					.split(";")
-				.map((s) => s.trim())
-				.filter((s) => s.length > 0)) {
-				yield* sql.unsafe(statement).raw
-			}
+					// better-sqlite3 (used by @effect/sql-sqlite-node) cannot prepare multi-statement SQL.
+					// Execute the schema file one statement at a time.
+					for (const statement of createSyncTablesSqliteSQL
+						.split(";")
+						.map((s) => s.trim())
+						.filter((s) => s.length > 0)) {
+						yield* sql.unsafe(statement).raw
+					}
 
-			// Per-connection TEMP table used by triggers for action association + sequencing.
-			yield* sql`
+					// Per-connection TEMP table used by triggers for action association + sequencing.
+					yield* sql`
 				CREATE TEMP TABLE IF NOT EXISTS sync_context (
 					capture_action_record_id TEXT,
 					sequence INTEGER NOT NULL DEFAULT 0,
@@ -118,32 +116,32 @@ const SqliteClientDbAdapterLive = Layer.effect(
 				)
 			`.raw
 
-			// Ensure a single row exists.
-			yield* sql`DELETE FROM sync_context`.raw
-				yield* sql`
+					// Ensure a single row exists.
+					yield* sql`DELETE FROM sync_context`.raw
+					yield* sql`
 					INSERT INTO sync_context (capture_action_record_id, sequence, disable_tracking)
 					VALUES (NULL, 0, 0)
 				`.raw
 
-						const existingAfter = yield* Effect.all(
-							requiredSyncTables.map((tableName) =>
-								sql<{ readonly present: unknown }>`
+					const existingAfter = yield* Effect.all(
+						requiredSyncTables.map((tableName) =>
+							sql<{ readonly present: unknown }>`
 									SELECT EXISTS (
 										SELECT 1 FROM sqlite_master
 										WHERE type = 'table'
 										AND name = ${tableName}
 									) AS present
 								`.pipe(Effect.map((rows) => [tableName, boolFromExists(rows[0]?.present)] as const))
-							),
-							{ concurrency: 1 }
-						)
+						),
+						{ concurrency: 1 }
+					)
 
-						const existingAfterTables = existingAfter
-							.filter(([, exists]) => exists)
-							.map(([tableName]) => tableName)
-						const hasAllSyncTablesAfter = existingAfterTables.length === requiredSyncTables.length
+					const existingAfterTables = existingAfter
+						.filter(([, exists]) => exists)
+						.map(([tableName]) => tableName)
+					const hasAllSyncTablesAfter = existingAfterTables.length === requiredSyncTables.length
 
-						const tempContextExistsAfter = yield* sql<{ readonly present: unknown }>`
+					const tempContextExistsAfter = yield* sql<{ readonly present: unknown }>`
 							SELECT EXISTS (
 								SELECT 1 FROM sqlite_temp_master
 								WHERE type = 'table'
@@ -151,52 +149,75 @@ const SqliteClientDbAdapterLive = Layer.effect(
 							) AS present
 						`.pipe(Effect.map((rows) => boolFromExists(rows[0]?.present)))
 
-						yield* Effect.logInfo("db.sqlite.syncSchema.ensure.done", {
-							dbDialect,
-							hadAllSyncTablesBefore,
-							hasAllSyncTablesAfter,
-							createdOrRepaired: !hadAllSyncTablesBefore && hasAllSyncTablesAfter,
-							tempContextExistsAfter
-						})
+					yield* Effect.logInfo("db.sqlite.syncSchema.ensure.done", {
+						dbDialect,
+						hadAllSyncTablesBefore,
+						hasAllSyncTablesAfter,
+						createdOrRepaired: !hadAllSyncTablesBefore && hasAllSyncTablesAfter,
+						tempContextExistsAfter
 					})
-				),
-				Effect.annotateLogs({ dbDialect }),
-				Effect.withSpan("ClientDbAdapter.initializeSyncSchema", { attributes: { dbDialect } })
+				})
+			),
+			Effect.annotateLogs({ dbDialect }),
+			Effect.withSpan("ClientDbAdapter.initializeSyncSchema", { attributes: { dbDialect } })
 		)
 
 		const quoteSqliteIdentifier = (identifier: string) =>
-			`"${identifier.replaceAll("\"", "\"\"").replaceAll(".", "\".\"")}"`
+			`"${identifier.replaceAll('"', '""').replaceAll(".", '"."')}"`
 
 		const sqliteTriggerName = (tableName: string, op: string) => {
 			const base = tableName.replaceAll(/[^a-zA-Z0-9_]/g, "_")
 			return `sync_patches_${base}_${op}`.slice(0, 60)
 		}
 
-			const createSqlitePatchTriggersForTable = (tableName: string) =>
-				Effect.gen(function* () {
-				const columns = yield* sql<{ name: string; type: string | null }>`
-					SELECT name, type FROM pragma_table_info(${tableName})
-				`
+		const createSqlitePatchTriggersForTable = (tableName: string) =>
+			Effect.gen(function* () {
+				// Important SQLite detail: use pragma_table_xinfo so generated columns (like audience_key GENERATED ...) are detected; pragma_table_info can miss them
+				const columns = yield* sql<{ name: string; type: string | null; hidden?: number }>`
+						SELECT name, type, hidden FROM pragma_table_xinfo(${tableName})
+					`.pipe(
+					Effect.catchAll(() =>
+						sql<{ name: string; type: string | null }>`
+								SELECT name, type FROM pragma_table_info(${tableName})
+							`.pipe(Effect.map((rows) => rows.map((r) => ({ ...r, hidden: 0 }))))
+					)
+				)
+				const visibleColumns = columns.filter((c) => (c.hidden ?? 0) !== 1)
 				if (columns.length === 0) {
 					return yield* Effect.fail(
 						new Error(`Cannot install patch triggers: table not found: ${tableName}`)
 					)
 				}
 
-				const columnNames = columns.map((c) => c.name)
+				const columnNames = visibleColumns.map((c) => c.name)
 				const booleanColumnNames = new Set(
-					columns
+					visibleColumns
 						.filter((c) => (c.type ?? "").toLowerCase().includes("bool"))
 						.map((c) => c.name)
 				)
 				const hasId = columnNames.some((c) => c.toLowerCase() === "id")
 				if (!hasId) {
 					return yield* Effect.fail(
-						new Error(`Cannot install patch triggers: table "${tableName}" must have an "id" column`)
+						new Error(
+							`Cannot install patch triggers: table "${tableName}" must have an "id" column`
+						)
 					)
 				}
 
-				const nonIdColumns = columnNames.filter((c) => c.toLowerCase() !== "id")
+					const hasAudienceKey = columnNames.some((c) => c.toLowerCase() === "audience_key")
+					if (!hasAudienceKey) {
+						return yield* Effect.fail(
+							new Error(
+								`Cannot install patch triggers: table "${tableName}" must have an "audience_key" column (see docs/shared-rows.md)`
+							)
+						)
+					}
+
+				// `audience_key` is used for sync-log visibility filtering; store it on the AMR row and
+				// omit it from patches so it can be derived/generated by the app schema.
+				const patchColumnNames = columnNames.filter((c) => c.toLowerCase() !== "audience_key")
+
+				const patchNonIdColumns = patchColumnNames.filter((c) => c.toLowerCase() !== "id")
 
 				const tableIdent = quoteSqliteIdentifier(tableName)
 
@@ -208,32 +229,34 @@ const SqliteClientDbAdapterLive = Layer.effect(
 
 				const jsonObjectFor = (prefix: "NEW" | "OLD") => {
 					const parts: string[] = []
-					for (const col of columnNames) {
+					for (const col of patchColumnNames) {
 						parts.push(`'${col.replaceAll("'", "''")}', ${sqliteJsonValue(prefix, col)}`)
 					}
 					return `json_object(${parts.join(", ")})`
 				}
 
 				const changedCondition =
-					nonIdColumns.length === 0
-						? "0"
-						: nonIdColumns
-								.map(
+					patchNonIdColumns.length === 0
+						? // Still run when audience_key changes so we can abort (scope moves are not supported).
+							`OLD.${quoteSqliteIdentifier("audience_key")} IS NOT NEW.${quoteSqliteIdentifier("audience_key")}`
+						: [
+								...patchNonIdColumns.map(
 									(col) =>
 										`OLD.${quoteSqliteIdentifier(col)} IS NOT NEW.${quoteSqliteIdentifier(col)}`
-								)
-								.join(" OR ")
+								),
+								`OLD.${quoteSqliteIdentifier("audience_key")} IS NOT NEW.${quoteSqliteIdentifier("audience_key")}`
+							].join(" OR ")
 
-					const jsonPatchChain = (prefix: "NEW" | "OLD") => {
-						let expr = `'{}'`
-						for (const col of nonIdColumns) {
-							const colLiteral = col.replaceAll("'", "''")
-							const colIdent = quoteSqliteIdentifier(col)
-							const valueExpr = sqliteJsonValue(prefix, col)
-							expr = `json_patch(${expr}, CASE WHEN OLD.${colIdent} IS NOT NEW.${colIdent} THEN json_object('${colLiteral}', ${valueExpr}) ELSE '{}' END)`
-						}
-						return expr
+				const jsonPatchChain = (prefix: "NEW" | "OLD") => {
+					let expr = `'{}'`
+					for (const col of patchNonIdColumns) {
+						const colLiteral = col.replaceAll("'", "''")
+						const colIdent = quoteSqliteIdentifier(col)
+						const valueExpr = sqliteJsonValue(prefix, col)
+						expr = `json_patch(${expr}, CASE WHEN OLD.${colIdent} IS NOT NEW.${colIdent} THEN json_object('${colLiteral}', ${valueExpr}) ELSE '{}' END)`
 					}
+					return expr
+				}
 
 				const triggerInsertName = sqliteTriggerName(tableName, "insert")
 				const triggerUpdateName = sqliteTriggerName(tableName, "update")
@@ -257,6 +280,7 @@ BEGIN
     table_name,
     row_id,
     action_record_id,
+    audience_key,
     operation,
     forward_patches,
     reverse_patches,
@@ -266,6 +290,7 @@ BEGIN
     '${tableName.replaceAll("'", "''")}',
     NEW.${quoteSqliteIdentifier("id")},
     (SELECT capture_action_record_id FROM sync_context LIMIT 1),
+    NEW.${quoteSqliteIdentifier("audience_key")},
     'INSERT',
     ${jsonObjectFor("NEW")},
     '{}',
@@ -293,6 +318,7 @@ BEGIN
     table_name,
     row_id,
     action_record_id,
+    audience_key,
     operation,
     forward_patches,
     reverse_patches,
@@ -302,6 +328,7 @@ BEGIN
     '${tableName.replaceAll("'", "''")}',
     OLD.${quoteSqliteIdentifier("id")},
     (SELECT capture_action_record_id FROM sync_context LIMIT 1),
+    OLD.${quoteSqliteIdentifier("audience_key")},
     'DELETE',
     '{}',
     ${jsonObjectFor("OLD")},
@@ -325,11 +352,18 @@ BEGIN
       THEN RAISE(ABORT, 'sync.capture_action_record_id not set')
     END;
 
+  SELECT
+    CASE
+      WHEN OLD.${quoteSqliteIdentifier("audience_key")} IS NOT NEW.${quoteSqliteIdentifier("audience_key")}
+      THEN RAISE(ABORT, 'audience_key change is not supported; model as DELETE + INSERT')
+    END;
+
   INSERT INTO action_modified_rows (
     id,
     table_name,
     row_id,
     action_record_id,
+    audience_key,
     operation,
     forward_patches,
     reverse_patches,
@@ -339,6 +373,7 @@ BEGIN
     '${tableName.replaceAll("'", "''")}',
     NEW.${quoteSqliteIdentifier("id")},
     (SELECT capture_action_record_id FROM sync_context LIMIT 1),
+    NEW.${quoteSqliteIdentifier("audience_key")},
     'UPDATE',
     ${jsonPatchChain("NEW")},
     ${jsonPatchChain("OLD")},
@@ -430,7 +465,10 @@ END;
 				Effect.ensuring(setPatchTrackingEnabled(true).pipe(Effect.orDie))
 			)
 
-		const withCaptureContext = <A, E, R>(actionRecordId: string | null, effect: Effect.Effect<A, E, R>) =>
+		const withCaptureContext = <A, E, R>(
+			actionRecordId: string | null,
+			effect: Effect.Effect<A, E, R>
+		) =>
 			setCaptureContext(actionRecordId).pipe(
 				Effect.zipRight(effect),
 				Effect.ensuring(setCaptureContext(null).pipe(Effect.orDie))

@@ -23,7 +23,7 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
   - `client_id`: origin
   - `clock`: HLC for ordering (JSON; JSONB on Postgres/PGlite, JSON strings on SQLite)
   - `transaction_id`: app-provided execution identifier (number), not a DB-specific txid
-- Action modified row (`action_modified_rows`): per-row patch records captured by triggers during the action transaction.
+- Action modified row (`action_modified_rows`): per-row patch records captured by triggers during the action transaction (includes an application-defined `audience_key` scope token for RLS filtering).
 - Execute vs apply:
   - Execute: run an action and create a new action record + patches.
   - Apply: replay an existing action record without creating a new record.
@@ -59,6 +59,7 @@ Notes on portability:
 - `id`
 - `action_record_id` (FK)
 - `table_name`, `row_id`
+- `audience_key`: application-defined visibility scope token (copied from the base table’s `audience_key`; used for fast RLS filtering, especially for shared/collaborative rows)
 - `operation`: `INSERT` | `UPDATE` | `DELETE`
 - `forward_patches`, `reverse_patches` (JSON)
 - `sequence`: monotonic per action record (preserves intra-transaction order)
@@ -145,7 +146,7 @@ Replaying an action can legitimately produce different writes when:
 
 When patch comparison finds a mismatch, the client may emit a SYNC action record (patch-only) to reconcile outcomes. In the common case (private-data divergence), SYNC is intended to be additive: it adds missing row/field effects that were not present in the received patch set due to partial visibility. Incoming SYNC actions are applied directly as patches (no action code to run).
 
-However, reconciliation deltas are not guaranteed to be purely additive: late-arriving actions and rollback+replay can legitimately change what an earlier action “should have done” in canonical replay order, which can supersede previously-known effects (including prior SYNC patches). The key requirement is that replicas reach a fixed point once they have applied the same history; repeated non-convergence for the same basis indicates action impurity (nondeterminism) or an unsupported shared-row divergence case. See `docs/planning/todo/0003-sync-action-semantics.md`.
+However, reconciliation deltas are not guaranteed to be purely additive: late-arriving actions and rollback+replay can legitimately change what an earlier action “should have done” in canonical replay order, which can supersede previously-known effects (including prior SYNC patches). The key requirement is that replicas reach a fixed point once they have applied the same history; repeated non-convergence for the same basis indicates action impurity (nondeterminism) or an unsupported shared-row divergence case.
 
 ### Conflict detection
 
@@ -213,14 +214,20 @@ This caused problems (especially on the server: rollback patches could reference
 
 - Convergence is defined per-user view (as determined by RLS): for a given user, the user’s visible state converges (different users can legitimately see different overall DB contents).
 - PostgreSQL RLS must protect both application tables and the sync tables (`action_records`, `action_modified_rows`) on reads and writes.
-- `action_records.user_id` is the server-side scoping column for sync metadata. The server must derive `user_id` from auth and set `synchrotron.user_id` (e.g. `set_config('synchrotron.user_id', <user_id>, true)`) for each request/transaction before reading/writing/applying patches.
+- `action_records.user_id` records the **originating authenticated principal** (who executed the action) and is used for audit + “apply under the right identity” (RLS `WITH CHECK`).
+  - For per-user / owner-only apps, sync-table visibility can be filtered by `action_records.user_id`.
+  - For shared/collaborative rows, sync-table visibility should be derived from `action_modified_rows.audience_key` (membership/sharing rules) rather than only the originating user (see `docs/shared-rows.md`).
+  - In both cases, the server must derive `user_id` from auth and set `synchrotron.user_id` (e.g. `set_config('synchrotron.user_id', <user_id>, true)`) for each request/transaction before reading/writing/applying patches.
+  - Server patch application runs under the **action’s** principal (derived from `action_records.user_id`), not the request principal. This is required for correct server-side replay under base-table RLS.
+  - The server must be able to read the full sync log during rollback+replay even when the current request user can’t see it (e.g. after membership revocation). The recommended pattern is a sync-table RLS escape hatch keyed off `synchrotron.internal_materializer=true` (set only for server internal materialization, ideally also gated by DB role).
+  - If base-table RLS depends on membership/ACL tables, those tables must be replayable as part of canonical history (avoid out-of-band membership churn if you want late-arrival correctness).
 - The RPC server derives the per-request RLS identity (`user_id`) from verified auth:
   - Preferred: `Authorization: Bearer <jwt>` (HS256 demo verifier; `sub` → `user_id`, optional `aud`/`iss` checks).
   - Dev-only fallback: `x-synchrotron-user-id` when no JWT secret is configured (do not use in real apps).
 - Synchrotron does not generate RLS policies; the application must define them for its own data tables.
 - Trust model: clients are assumed honest; the server never runs action logic and largely relies on Postgres constraints + RLS for safety.
-- Clients must not receive patches that touch rows they cannot see; this implies `action_modified_rows` must be filtered by policies that track underlying row visibility (this is currently underspecified; see `docs/planning/todo/0004-rls-policies.md`).
-- `action_records.args` must not leak sensitive data unless `action_records` visibility is scoped similarly (see `docs/planning/todo/0004-rls-policies.md`).
+- Clients must not receive patches that touch rows they cannot see; this implies `action_modified_rows` must be filtered by policies that track underlying row visibility (see `docs/security.md` and `docs/shared-rows.md`).
+- Args visibility is part of the contract: if a user can read an `action_records` row, they can read its `args` (no field-level redaction). Applications should avoid putting secrets in `args`; store private inputs in RLS-protected tables and pass only opaque references.
 - Patch verification (for reverse patches) can be enforced server-side with a SECURITY INVOKER function: check that every referenced row is visible under the caller's RLS policy; missing rows imply unauthorized modifications.
 
 Private-data divergence example:

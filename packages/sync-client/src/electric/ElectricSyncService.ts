@@ -108,6 +108,16 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 								})
 							}
 
+							const optionalString = (row: Row, key: string): string | null => {
+								const value = row[key]
+								if (value === null || value === undefined) return null
+								if (typeof value === "string") return value
+								throw new ElectricSyncError({
+									message: `Expected "${key}" to be a string, null, or undefined, got: ${typeof value}`,
+									cause: value
+								})
+							}
+
 							const optionalNumberFromValue = (row: Row, key: string): number | null => {
 								const value = row[key]
 								if (value === null || value === undefined) return null
@@ -195,6 +205,7 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 										const clientId = requireString(row, "client_id")
 										const transactionId = requireNumberFromValue(row, "transaction_id")
 										const serverIngestId = optionalNumberFromValue(row, "server_ingest_id")
+										const userId = optionalString(row, "user_id")
 										const createdAt = requireDateTimeString(row, "created_at")
 										const synced = requireDbBoolean(row, "synced")
 										yield* sql`
@@ -202,6 +213,7 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 												server_ingest_id: serverIngestId,
 												id,
 												_tag: tag,
+												user_id: userId,
 												client_id: clientId,
 												transaction_id: transactionId,
 												clock: json(row["clock"]),
@@ -223,6 +235,7 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 										const tableName = requireString(row, "table_name")
 										const rowId = requireString(row, "row_id")
 										const actionRecordId = requireString(row, "action_record_id")
+										const audienceKey = requireString(row, "audience_key")
 										const operation = requireString(row, "operation")
 										const sequence = requireNumberFromValue(row, "sequence")
 										yield* sql`
@@ -231,6 +244,7 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 												table_name: tableName,
 												row_id: rowId,
 												action_record_id: actionRecordId,
+												audience_key: audienceKey,
 												operation,
 												forward_patches: json(row["forward_patches"]),
 												reverse_patches: json(row["reverse_patches"]),

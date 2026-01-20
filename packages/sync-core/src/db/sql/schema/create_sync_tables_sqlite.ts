@@ -45,19 +45,23 @@ CREATE INDEX IF NOT EXISTS action_records_client_id_idx ON action_records(client
 CREATE INDEX IF NOT EXISTS action_records_user_id_idx ON action_records(user_id);
 CREATE INDEX IF NOT EXISTS action_records_transaction_id_idx ON action_records(transaction_id);
 
-CREATE TABLE IF NOT EXISTS action_modified_rows (
-	id TEXT PRIMARY KEY,
-	table_name TEXT NOT NULL,
-	row_id TEXT NOT NULL,
-	action_record_id TEXT NOT NULL,
-	operation TEXT NOT NULL,
-	forward_patches TEXT NOT NULL DEFAULT '{}',
-	reverse_patches TEXT NOT NULL DEFAULT '{}',
+	CREATE TABLE IF NOT EXISTS action_modified_rows (
+		id TEXT PRIMARY KEY,
+		table_name TEXT NOT NULL,
+		row_id TEXT NOT NULL,
+		action_record_id TEXT NOT NULL,
+		-- Application-defined visibility scope token (see docs/shared-rows.md).
+		audience_key TEXT NOT NULL,
+		operation TEXT NOT NULL,
+		forward_patches TEXT NOT NULL DEFAULT '{}',
+		reverse_patches TEXT NOT NULL DEFAULT '{}',
 	sequence INTEGER NOT NULL,
 	FOREIGN KEY (action_record_id) REFERENCES action_records(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS action_modified_rows_action_idx ON action_modified_rows(action_record_id);
+CREATE INDEX IF NOT EXISTS action_modified_rows_audience_key_idx ON action_modified_rows(audience_key);
+CREATE INDEX IF NOT EXISTS action_modified_rows_action_audience_key_idx ON action_modified_rows(action_record_id, audience_key);
 CREATE UNIQUE INDEX IF NOT EXISTS action_modified_rows_unique_idx
 ON action_modified_rows(table_name, row_id, action_record_id, sequence);
 

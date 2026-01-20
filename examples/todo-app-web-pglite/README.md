@@ -8,6 +8,8 @@ This example includes a **two-client demo harness** in a single page, with a sma
 - `last_seen_server_ingest_id`
 - action log counts (unsynced / synced / unapplied)
 
+By default, Client A and Client B run as **different users** (`user1` / `user2`) in the same demo project (`project-demo`) so you can see shared-row replication in action (RLS-scoped by audience membership).
+
 It also supports two transport modes:
 
 - **RPC (polling)**: manual/interval `performSync()` with a per-client offline toggle
@@ -77,3 +79,8 @@ When you're done, stop the backend services using:
 ```shell
 pnpm docker:down
 ```
+
+## Env vars (optional)
+
+- `VITE_SYNC_USER_ID_A` / `VITE_SYNC_USER_ID_B`: override demo user ids (defaults: `user1` / `user2`)
+- `VITE_TODO_PROJECT_ID`: override demo project id (default: `project-demo`)

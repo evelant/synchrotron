@@ -17,7 +17,9 @@ const createTodoTables = Effect.gen(function* () {
 			id TEXT PRIMARY KEY,
 			text TEXT NOT NULL,
 			completed BOOLEAN NOT NULL DEFAULT FALSE,
-			owner_id TEXT NOT NULL
+			project_id TEXT NOT NULL,
+			created_by TEXT NOT NULL,
+			audience_key TEXT GENERATED ALWAYS AS ('project:' || project_id) STORED
 			);
 		`.raw
 

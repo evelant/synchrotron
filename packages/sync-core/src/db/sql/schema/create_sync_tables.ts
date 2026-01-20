@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS action_records (
 	transaction_id FLOAT NOT NULL,
 	clock JSONB NOT NULL,
 	-- Canonical, index-friendly ordering fields derived from \`clock\` + \`client_id\`.
-	-- See \`docs/planning/todo/0001-rework-sort-key.md\`.
+	-- See \`DESIGN.md\`.
 	clock_time_ms BIGINT NOT NULL,
 	clock_counter BIGINT NOT NULL,
 	args JSONB NOT NULL,
@@ -52,19 +52,22 @@ ON action_records(server_ingest_id)
 WHERE server_ingest_id IS NOT NULL;
 
 
--- Create indexes for action_records
-CREATE INDEX IF NOT EXISTS action_records_synced_idx ON action_records(synced);
-CREATE INDEX IF NOT EXISTS action_records_client_id_idx ON action_records(client_id);
-CREATE INDEX IF NOT EXISTS action_records_user_id_idx ON action_records(user_id);
-CREATE INDEX IF NOT EXISTS action_records_transaction_id_idx ON action_records(transaction_id);
-
--- Create action_modified_rows table
-CREATE TABLE IF NOT EXISTS action_modified_rows (
-	id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
-	table_name TEXT NOT NULL,
-	row_id TEXT NOT NULL,
-	action_record_id TEXT NOT NULL,
-	operation TEXT NOT NULL,
+	-- Create indexes for action_records
+	CREATE INDEX IF NOT EXISTS action_records_synced_idx ON action_records(synced);
+	CREATE INDEX IF NOT EXISTS action_records_client_id_idx ON action_records(client_id);
+	CREATE INDEX IF NOT EXISTS action_records_user_id_idx ON action_records(user_id);
+	CREATE INDEX IF NOT EXISTS action_records_transaction_id_idx ON action_records(transaction_id);
+	
+	-- Create action_modified_rows table
+	CREATE TABLE IF NOT EXISTS action_modified_rows (
+		id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+		table_name TEXT NOT NULL,
+		row_id TEXT NOT NULL,
+		action_record_id TEXT NOT NULL,
+		-- Application-defined visibility scope token (see docs/shared-rows.md).
+		-- Required so RLS can efficiently filter sync log rows for shared/collaborative data.
+		audience_key TEXT NOT NULL,
+		operation TEXT NOT NULL,
 	forward_patches JSONB DEFAULT '{}'::jsonb,
 	reverse_patches JSONB DEFAULT '{}'::jsonb,
 	sequence INT NOT NULL, -- Added sequence number
@@ -73,6 +76,8 @@ CREATE TABLE IF NOT EXISTS action_modified_rows (
 
 -- Create indexes for action_modified_rows
 CREATE INDEX IF NOT EXISTS action_modified_rows_action_idx ON action_modified_rows(action_record_id);
+CREATE INDEX IF NOT EXISTS action_modified_rows_audience_key_idx ON action_modified_rows(audience_key);
+CREATE INDEX IF NOT EXISTS action_modified_rows_action_audience_key_idx ON action_modified_rows(action_record_id, audience_key);
 -- Removed old unique index as multiple rows per action/row are now allowed
 -- Add new unique index including sequence
 CREATE UNIQUE INDEX IF NOT EXISTS action_modified_rows_unique_idx ON action_modified_rows(table_name, row_id, action_record_id, sequence);

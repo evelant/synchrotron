@@ -15,7 +15,8 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 			"CreateTodo",
 			Schema.Struct({
 				timestamp: Schema.Number,
-				owner_id: Schema.String,
+				project_id: Schema.String,
+				created_by: Schema.String,
 				text: Schema.String
 			}),
 			(args) =>
@@ -23,7 +24,8 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 					const row = {
 						text: args.text,
 						completed: false,
-						owner_id: args.owner_id
+						project_id: args.project_id,
+						created_by: args.created_by
 					} as const
 
 					const id = yield* deterministicId.forRow("todos", row)
@@ -84,11 +86,11 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 			"ClearCompletedTodos",
 			Schema.Struct({
 				timestamp: Schema.Number,
-				owner_id: Schema.String
+				project_id: Schema.String
 			}),
 			(args) =>
 				Effect.gen(function* () {
-					yield* sql`DELETE FROM todos WHERE completed = ${1} AND owner_id = ${args.owner_id}`
+					yield* sql`DELETE FROM todos WHERE completed = ${1} AND project_id = ${args.project_id}`
 				})
 		)
 
@@ -102,4 +104,3 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 	}),
 	dependencies: [ActionRegistry.Default, TodoRepo.Default, DeterministicId.Default]
 }) {}
-

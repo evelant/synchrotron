@@ -12,6 +12,7 @@ DECLARE
 	amr_id TEXT;
 	result JSONB;
 	new_amr_uuid TEXT; -- Variable for new UUID
+	v_audience_key TEXT;
 BEGIN
 	RAISE NOTICE '[handle_remove_operation] Called for ActionID: %, Table: %, RowID: %, Sequence: %', 
 		p_action_record_id, 
@@ -21,7 +22,12 @@ BEGIN
 
 	-- Always insert a new record for each delete operation
 	forward_patch := '{}'::jsonb; -- Forward patch for DELETE is empty
-	reverse_patch := p_old_data; -- Reverse patch contains the data before delete
+	v_audience_key := COALESCE(p_old_data->>'audience_key', null);
+	IF v_audience_key IS NULL OR v_audience_key = '' THEN
+		RAISE EXCEPTION 'Cannot capture patches: missing audience_key for table %, row %', p_table_name, p_row_id;
+	END IF;
+
+	reverse_patch := p_old_data - 'audience_key'; -- Reverse patch contains the data before delete (excluding audience_key)
 
 	-- Explicitly generate UUID
 	new_amr_uuid := gen_random_uuid();
@@ -31,6 +37,7 @@ BEGIN
 		action_record_id, 
 		table_name, 
 		row_id, 
+		audience_key,
 		operation, 
 		forward_patches, 
 		reverse_patches,
@@ -40,6 +47,7 @@ BEGIN
 		p_action_record_id, 
 		p_table_name, 
 		p_row_id, 
+		v_audience_key,
 		'DELETE', -- Operation is always DELETE here
 		forward_patch, 
 		reverse_patch,

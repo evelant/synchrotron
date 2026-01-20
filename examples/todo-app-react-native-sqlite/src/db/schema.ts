@@ -16,6 +16,8 @@ export class Todo extends Model.Class<Todo>("todos")({
 	id: Schema.UUID,
 	text: Schema.String,
 	completed: DbBoolean,
-	owner_id: Schema.String
+	project_id: Schema.String,
+	created_by: Schema.String,
+	// Generated column (computed from `project_id`); omit on insert.
+	audience_key: Schema.optional(Schema.String)
 }) {}
-

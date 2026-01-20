@@ -12,6 +12,7 @@ DECLARE
 	amr_id TEXT;
 	result JSONB;
 	new_amr_uuid TEXT; -- Variable for new UUID
+	v_audience_key TEXT;
 BEGIN
 	-- Generate patches
 	SELECT * INTO patches_data FROM generate_op_patches(
@@ -19,6 +20,15 @@ BEGIN
 		p_new_data, 
 		p_operation_type
 	);
+
+	-- Capture audience scope token (stored separately on the AMR row; omitted from patches).
+	v_audience_key := COALESCE(p_new_data->>'audience_key', p_old_data->>'audience_key');
+	IF v_audience_key IS NULL OR v_audience_key = '' THEN
+		RAISE EXCEPTION 'Cannot capture patches: missing audience_key for table %, row %', p_table_name, p_row_id;
+	END IF;
+
+	patches_data.forward_patches := patches_data.forward_patches - 'audience_key';
+	patches_data.reverse_patches := patches_data.reverse_patches - 'audience_key';
 
 	-- Explicitly generate UUID
 	new_amr_uuid := gen_random_uuid();
@@ -29,6 +39,7 @@ BEGIN
 		action_record_id,
 		table_name,
 		row_id,
+		audience_key,
 		operation,
 		forward_patches,
 		reverse_patches,
@@ -38,6 +49,7 @@ BEGIN
 		p_action_record_id,
 		p_table_name,
 		p_row_id,
+		v_audience_key,
 		p_operation_type,
 		patches_data.forward_patches,
 		patches_data.reverse_patches,

@@ -155,6 +155,7 @@ describe("ElectricSyncService", () => {
 					table_name: "notes",
 					row_id: crypto.randomUUID(),
 					action_record_id: actionId,
+					audience_key: "user:user-1",
 					operation: "INSERT",
 					forward_patches: { title: "A", content: "", user_id: "user-1" },
 					reverse_patches: {},
@@ -216,7 +217,8 @@ describe("ElectricSyncService", () => {
 						id TEXT PRIMARY KEY,
 						title TEXT NOT NULL,
 						content TEXT NOT NULL,
-						user_id TEXT NOT NULL
+						user_id TEXT NOT NULL,
+						audience_key TEXT GENERATED ALWAYS AS ('user:' || user_id) STORED
 					)
 				`
 
@@ -246,6 +248,7 @@ describe("ElectricSyncService", () => {
 					table_name: "notes",
 					row_id: noteId,
 					action_record_id: actionId,
+					audience_key: "user:user-1",
 					operation: "INSERT",
 					forward_patches: { title: "Electric note", content: "", user_id: "user-1" },
 					reverse_patches: {},
