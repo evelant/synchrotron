@@ -104,7 +104,21 @@ const SqliteClientDbAdapterLive = Layer.effect(
 						.split(";")
 						.map((s) => s.trim())
 						.filter((s) => s.length > 0)) {
-						yield* sql.unsafe(statement).raw
+						yield* sql.unsafe(statement).raw.pipe(
+							Effect.catchAll((error) =>
+								Effect.logError("db.sqlite.syncSchema.statementFailed", {
+									dbDialect,
+									statement:
+										statement.length > 500 ? `${statement.slice(0, 500)}…` : statement,
+									errorMessage: error instanceof Error ? error.message : String(error),
+									cause:
+										typeof error === "object" && error !== null && "cause" in error
+											? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+												(error as any).cause
+											: undefined
+								}).pipe(Effect.zipRight(Effect.fail(error)))
+							)
+						)
 					}
 
 					// Per-connection TEMP table used by triggers for action association + sequencing.

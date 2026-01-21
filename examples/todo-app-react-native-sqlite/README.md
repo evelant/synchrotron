@@ -46,13 +46,22 @@ Notes:
   - If needed, run manually: `pnpm --filter todo-app-react-native-sqlite run sync:wa-sqlite-wasm`
 - Web uses OPFS persistence via a Web Worker; this app imports `@expo/metro-runtime` in `examples/todo-app-react-native-sqlite/index.ts` to enable Metro’s web worker bundling.
 - If you get “stuck” local data on web (OPFS), use the in-app `Reset DB` / `Reset ID` buttons.
-  - `Reset DB` clears the local schema by dropping tables and re-initializing (no OPFS deletion required).
+  - On web, `Reset DB` switches the app to a fresh OPFS sqlite file name (stored in localStorage) and reloads. This avoids needing to delete OPFS files (which can be blocked by open handles).
   - `Reset ID` also clears the persisted `sync_client_id` and reloads the app.
   - Note: this only resets **local** state; if the backend still has action history, it will be re-fetched and re-applied on the next sync.
 
 To point the app at a non-local backend (LAN / physical device without USB reverse), set:
 
 - `EXPO_PUBLIC_SYNC_RPC_URL=http://<YOUR_LAN_IP>:3010/rpc`
+
+## Env vars
+
+Copy `examples/todo-app-react-native-sqlite/.env.example` to `examples/todo-app-react-native-sqlite/.env` for a working local setup.
+
+Required:
+
+- `EXPO_PUBLIC_SYNC_RPC_AUTH_TOKEN` (JWT for RPC auth; `sub` is used as `user_id` for RLS)
+- `EXPO_PUBLIC_SYNC_USER_ID` (used by app code; should match the JWT `sub`)
 
 Optional:
 

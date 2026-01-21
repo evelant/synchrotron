@@ -20,7 +20,7 @@ import { TodoActions } from "./src/actions"
 import type { Todo } from "./src/db/schema"
 import { TodoRepo } from "./src/db/repositories"
 import { setupClientDatabase } from "./src/db/setup"
-import { RuntimeProvider, sqliteFilename, useRuntime } from "./src/runtime"
+import { RuntimeProvider, sqliteFilename, sqliteFilenameStorageKey, useRuntime } from "./src/runtime"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
 
 const demoProjectId = process.env.EXPO_PUBLIC_TODO_PROJECT_ID ?? "project-demo"
@@ -161,18 +161,30 @@ function AppInner() {
 			setError(null)
 			stopSyncInterval()
 
-			runtime
-				.runPromise(resetDatabaseEffect(options))
-				.then(() => {
+			if (Platform.OS === "web") {
+				try {
 					if (options.resetIdentity) {
-						if (Platform.OS === "web") {
-							window.location.reload()
-							return
-						}
-						if (typeof DevSettings.reload === "function") {
-							DevSettings.reload()
-							return
-						}
+						window.localStorage.removeItem("sync_client_id")
+					}
+					// Don't depend on a working SqlClient / sqlite worker: just switch to a new OPFS db name
+					// and reload.
+					window.localStorage.setItem(sqliteFilenameStorageKey, `todo-app-${Date.now()}.db`)
+				} catch (cause) {
+					console.warn("Failed to persist web reset state", cause)
+				}
+
+				window.location.reload()
+				return
+			}
+
+				runtime
+					.runPromise(resetDatabaseEffect(options))
+					.then(() => {
+						if (options.resetIdentity) {
+							if (typeof DevSettings.reload === "function") {
+								DevSettings.reload()
+								return
+							}
 						Alert.alert("Reload required", "Please restart the app to finish resetting the identity.")
 						return
 					}
@@ -202,6 +214,12 @@ function AppInner() {
 	)
 
 	const resetLocalDb = useCallback(() => {
+		if (Platform.OS === "web") {
+			const ok = window.confirm("Reset local database? This clears all local data for this app.")
+			if (ok) runReset({ resetIdentity: false })
+			return
+		}
+
 		Alert.alert("Reset local database?", "This clears all local data for this app.", [
 			{ text: "Cancel", style: "cancel" },
 			{ text: "Reset", style: "destructive", onPress: () => runReset({ resetIdentity: false }) }
@@ -209,6 +227,14 @@ function AppInner() {
 	}, [runReset])
 
 	const resetIdentity = useCallback(() => {
+		if (Platform.OS === "web") {
+			const ok = window.confirm(
+				"Reset identity? This clears the persisted client id and resets the local database. The app will reload."
+			)
+			if (ok) runReset({ resetIdentity: true })
+			return
+		}
+
 		Alert.alert(
 			"Reset identity?",
 			"This clears the persisted client id and resets the local database. The app will reload.",

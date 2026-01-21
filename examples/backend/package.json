@@ -6,15 +6,15 @@
 	"description": "Shared backend (Postgres + Electric + Bun RPC) for Synchrotron examples",
 	"scripts": {
 		"ensure:bun": "bun scripts/ensure-bun.ts",
-		"docker:wait": "bun scripts/wait-for-postgres.ts",
+		"docker:wait": "dotenv -e .env -e .env.example -- bun scripts/wait-for-postgres.ts",
 		"docker:up:postgres": "docker compose -f ./docker-compose.yml up -d postgres && pnpm run docker:wait",
 		"docker:up": "docker compose -f ./docker-compose.yml up -d && pnpm run docker:wait && pnpm run db:migrate",
 		"docker:down": "docker compose -f ./docker-compose.yml down",
 		"docker:reset": "docker compose -f ./docker-compose.yml down --volumes",
 		"predb:migrate": "pnpm run ensure:bun",
-		"db:migrate": "bun src/db/migrate.ts",
+		"db:migrate": "dotenv -e .env -e .env.example -- bun src/db/migrate.ts",
 		"preserver:dev": "pnpm run ensure:bun",
-		"server:dev": "bun --watch src/server.ts",
+		"server:dev": "dotenv -e .env -e .env.example -- bun --watch src/server.ts",
 		"dev": "pnpm run docker:up && pnpm run server:dev",
 		"typecheck": "tsc --noEmit"
 	},

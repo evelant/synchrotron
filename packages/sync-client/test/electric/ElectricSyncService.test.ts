@@ -188,12 +188,18 @@ describe("ElectricSyncService", () => {
 			await Effect.runPromise(program)
 		})
 
-	it("applies Electric-ingested rows even when SyncNetworkService.fetchRemoteActions is a no-op (Electric-only mode)", async () => {
-		const noopNetwork = SyncNetworkService.of({
-			_tag: "SyncNetworkService",
-			fetchRemoteActions: () => Effect.succeed({ actions: [], modifiedRows: [] } as const),
-			sendLocalActions: () => Effect.succeed(true)
-		})
+		it("applies Electric-ingested rows even when SyncNetworkService.fetchRemoteActions is a no-op (Electric-only mode)", async () => {
+			const noopNetwork = SyncNetworkService.of({
+				_tag: "SyncNetworkService",
+				fetchBootstrapSnapshot: () =>
+					Effect.succeed({
+						serverIngestId: 0,
+						serverClock: { timestamp: 0, vector: {} },
+						tables: []
+					}),
+				fetchRemoteActions: () => Effect.succeed({ actions: [], modifiedRows: [] } as const),
+				sendLocalActions: () => Effect.succeed(true)
+			})
 
 		const testLayer = ElectricSyncService.Default.pipe(
 			Layer.provideMerge(SyncService.Default),

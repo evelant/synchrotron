@@ -12,12 +12,6 @@ export interface SynchrotronClientConfigData {
 	 */
 	syncRpcAuthToken?: string
 	/**
-	 * Optional authenticated user id for the demo RPC transport.
-	 *
-	 * In real applications, prefer `Authorization` / JWT and have the server derive identity.
-	 */
-	userId?: string
-	/**
 	 * HTTP URL for Synchrotron's RPC sync endpoint (used by `SyncNetworkServiceLive`).
 	 *
 	 * Example: `http://localhost:3010/rpc`
@@ -68,7 +62,6 @@ export const synchrotronClientConfig = {
 		Config.withDefault(defaultConfig.electricSyncUrl)
 	),
 	syncRpcAuthToken: Config.string("SYNC_RPC_AUTH_TOKEN").pipe(Config.option),
-	userId: Config.string("SYNC_USER_ID").pipe(Config.option),
 	syncRpcUrl: Config.string("SYNC_RPC_URL").pipe(Config.withDefault(defaultConfig.syncRpcUrl)),
 	pglite: {
 		debug: Config.number("PGLITE_DEBUG").pipe(Config.withDefault(defaultConfig.pglite.debug)),
@@ -89,7 +82,6 @@ export const SynchrotronConfigLive = Layer.effect(
 	Effect.gen(function* () {
 		const electricSyncUrl = yield* synchrotronClientConfig.electricSyncUrl
 		const syncRpcAuthToken = yield* synchrotronClientConfig.syncRpcAuthToken
-		const userId = yield* synchrotronClientConfig.userId
 		const syncRpcUrl = yield* synchrotronClientConfig.syncRpcUrl
 		const debug = yield* synchrotronClientConfig.pglite.debug
 		const dataDir = yield* synchrotronClientConfig.pglite.dataDir
@@ -105,8 +97,7 @@ export const SynchrotronConfigLive = Layer.effect(
 			},
 			...(Option.isSome(syncRpcAuthToken)
 				? { syncRpcAuthToken: syncRpcAuthToken.value }
-				: {}),
-			...(Option.isSome(userId) ? { userId: userId.value } : {})
+				: {})
 		}
 	})
 )
@@ -126,8 +117,7 @@ export const createSynchrotronConfig = (
 		},
 		...(typeof config.syncRpcAuthToken === "string"
 			? { syncRpcAuthToken: config.syncRpcAuthToken }
-			: {}),
-		...(typeof config.userId === "string" ? { userId: config.userId } : {})
+			: {})
 	}
 
 	return Layer.succeed(SynchrotronClientConfig, mergedConfig)

@@ -6,7 +6,7 @@ This folder contains **internal planning docs** for Synchrotron. These are not u
 
 | ID | Topic | Status | Next |
 | --- | --- | --- | --- |
-| `0010` | JWT auth for RPC (`user_id` for RLS) | Partially implemented | Decide what’s “demo-only” vs “real”; consider JWKS/RS256 + token refresh ergonomics. |
+| `0010` | JWT auth for RPC (`user_id` for RLS) | Partially implemented | Add JWKS/RS256 + explicit auth mode (no silent insecure fallback); add client token provider API; optionally set `request.jwt.claim.sub` for `auth.uid()` compatibility. |
 | `0003` | SYNC action semantics (batch delta) | Proposed | Implement diagnostics + dev/test purity checks; add tests for private divergence and fixed-point behavior. |
 | `006` | SYNC conflicts (shared-field overwrites) | Proposed | Add tests + warnings/diagnostics; document app-level constraints for “view-dependent writes to shared fields”. |
 | `0013` | Transport abstraction | Proposed (on hold) | Revisit after core semantics + server correctness stabilize. |

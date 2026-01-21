@@ -9,6 +9,7 @@ import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
 import { ConfigProvider, Effect, Layer } from "effect"
 import { createServer } from "node:http"
 import { SyncNetworkRpcHandlersLive } from "../../src/rpcRouter"
+import { createSyncSnapshotConfig } from "../../src/SyncSnapshotConfig"
 
 export const makeServerSqlLayer = (dataDir: string) => {
 	const PgliteClientLive = PgliteClient.layer({
@@ -218,7 +219,11 @@ export const makeInProcessSyncRpcServer = (options: {
 		const dbLayer = makeServerSqlLayer(options.dataDir)
 		const servicesLayer = SyncNetworkRpcHandlersLive.pipe(Layer.provideMerge(dbLayer))
 
-		const serverLayer = Layer.mergeAll(servicesLayer, RpcSerialization.layerJson)
+		const serverLayer = Layer.mergeAll(
+			servicesLayer,
+			RpcSerialization.layerJson,
+			createSyncSnapshotConfig(["notes"])
+		)
 
 		const runtime = yield* Layer.toRuntime(serverLayer).pipe(Effect.withConfigProvider(options.configProvider))
 

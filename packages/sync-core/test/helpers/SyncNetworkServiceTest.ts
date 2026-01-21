@@ -449,25 +449,31 @@ export const createTestSyncNetworkServiceLayer = (
 				}).pipe(serverSql.withTransaction, Effect.annotateLogs("clientId", `${clientId} (server simulation)`))
 
 			// Define the service implementation INSIDE the Effect.gen scope
-			const service: SyncNetworkService = SyncNetworkService.of({
-				_tag: "SyncNetworkService",
-				fetchRemoteActions: () =>
-					// Interface expects only RemoteActionFetchError
-					Effect.gen(function* () {
-							const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
+				const service: SyncNetworkService = SyncNetworkService.of({
+					_tag: "SyncNetworkService",
+					fetchBootstrapSnapshot: () =>
+						Effect.fail(
+							new RemoteActionFetchError({
+								message: "Bootstrap snapshot is not implemented for SyncNetworkServiceTest"
+							})
+						),
+					fetchRemoteActions: () =>
+						// Interface expects only RemoteActionFetchError
+						Effect.gen(function* () {
+								const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
 
 							const [localState] = yield* sql<{ readonly has_any_action_records: boolean | 0 | 1 }>`
 								SELECT EXISTS (SELECT 1 FROM action_records LIMIT 1) as has_any_action_records
 							`
-							const hasAnyActionRecords =
-								typeof localState?.has_any_action_records === "boolean"
-									? localState.has_any_action_records
-									: localState?.has_any_action_records === 1
-							const includeSelf = !hasAnyActionRecords
-							const effectiveSinceServerIngestId = includeSelf ? 0 : sinceServerIngestId
-							yield* Effect.logInfo(
-								`Fetching remote data since server_ingest_id=${effectiveSinceServerIngestId} for client ${clientId} (includeSelf=${includeSelf})`
-							)
+								const hasAnyActionRecords =
+									typeof localState?.has_any_action_records === "boolean"
+										? localState.has_any_action_records
+										: localState?.has_any_action_records === 1
+								const includeSelf = !hasAnyActionRecords && sinceServerIngestId === 0
+								const effectiveSinceServerIngestId = includeSelf ? 0 : sinceServerIngestId
+								yield* Effect.logInfo(
+									`Fetching remote data since server_ingest_id=${effectiveSinceServerIngestId} for client ${clientId} (includeSelf=${includeSelf})`
+								)
 						if (state.shouldFail && !state.fetchResult) {
 							// Only fail if no mock result provided
 							return yield* Effect.fail(

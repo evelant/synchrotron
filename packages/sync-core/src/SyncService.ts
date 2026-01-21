@@ -293,6 +293,94 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							// Ensure `client_sync_status` exists before reading cursor state (last_seen_server_ingest_id, etc).
 							const lastSeenServerIngestId = yield* clockService.getLastSeenServerIngestId
 							yield* Effect.logDebug("performSync.cursor", { lastSeenServerIngestId })
+
+							const sanitizeSnapshotRow = (row: Record<string, unknown>) => {
+								const out: Record<string, unknown> = {}
+								for (const [key, value] of Object.entries(row)) {
+									if (key === "audience_key") continue
+									if (value === undefined) continue
+									if (value instanceof Date) {
+										out[key] = value.toISOString()
+										continue
+									}
+									if (typeof value === "object" && value !== null) {
+										out[key] = JSON.stringify(value)
+										continue
+									}
+									out[key] = value
+								}
+								return out
+							}
+
+							const bootstrapFromSnapshotIfNeeded = () =>
+								Effect.gen(function* () {
+									if (lastSeenServerIngestId > 0) return false
+
+									const [localState] = yield* sqlClient<{
+										readonly has_any_action_records: boolean | 0 | 1
+									}>`
+										SELECT EXISTS (SELECT 1 FROM action_records LIMIT 1) as has_any_action_records
+									`
+									const hasAnyActionRecords =
+										typeof localState?.has_any_action_records === "boolean"
+											? localState.has_any_action_records
+											: localState?.has_any_action_records === 1
+									if (hasAnyActionRecords) return false
+
+									yield* Effect.logInfo("performSync.bootstrap.start", { clientId })
+									const snapshot = yield* syncNetworkService.fetchBootstrapSnapshot()
+									yield* Effect.logInfo("performSync.bootstrap.received", {
+										clientId,
+										serverIngestId: snapshot.serverIngestId,
+										tableCount: snapshot.tables.length,
+										rowCounts: snapshot.tables.map((t) => ({
+											tableName: t.tableName,
+											rowCount: t.rows.length
+										}))
+									})
+
+									yield* clientDbAdapter
+										.withCaptureContext(
+											null,
+											clientDbAdapter.withPatchTrackingDisabled(
+												Effect.gen(function* () {
+													for (const table of snapshot.tables) {
+														yield* sqlClient`DELETE FROM ${sqlClient(table.tableName)}`.pipe(
+															Effect.asVoid
+														)
+														for (const row of table.rows) {
+															const sanitized = sanitizeSnapshotRow(row)
+															if (Object.keys(sanitized).length === 0) continue
+															yield* sqlClient`
+																INSERT INTO ${sqlClient(table.tableName)}
+																${sqlClient.insert(sanitized)}
+															`.pipe(Effect.asVoid)
+														}
+													}
+												})
+											)
+										)
+										.pipe(sqlClient.withTransaction)
+
+									yield* clockService.advanceLastSeenServerIngestId(snapshot.serverIngestId)
+									yield* clockService.observeRemoteClocks([snapshot.serverClock])
+
+									yield* Effect.logInfo("performSync.bootstrap.done", {
+										clientId,
+										serverIngestId: snapshot.serverIngestId
+									})
+
+									return true
+								}).pipe(
+									Effect.catchAll((error) =>
+										Effect.logWarning("performSync.bootstrap.failed", {
+											clientId,
+											message: error instanceof Error ? error.message : String(error)
+										}).pipe(Effect.as(false))
+									)
+								)
+
+							yield* bootstrapFromSnapshotIfNeeded()
 							// 1. Get pending local actions
 							const pendingActions = yield* actionRecordRepo.findBySynced(false)
 							yield* Effect.logDebug("performSync.pendingActions", {

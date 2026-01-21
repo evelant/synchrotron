@@ -2,8 +2,10 @@ import { KeyValueStore } from "@effect/platform"
 import type { Headers as PlatformHeaders } from "@effect/platform/Headers"
 import { HLC } from "@synchrotron/sync-core/HLC"
 import {
+	FetchBootstrapSnapshot,
 	FetchRemoteActions,
 	SendLocalActions,
+	SyncRpcAuthMiddleware,
 	SyncNetworkRpcGroup
 } from "@synchrotron/sync-core/SyncNetworkRpc"
 import {
@@ -75,6 +77,56 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 				Effect.withSpan("RpcHandler.FetchRemoteActions")
 			)
 
+		const FetchBootstrapSnapshotHandler = (
+			payload: FetchBootstrapSnapshot,
+			options: { readonly headers: PlatformHeaders }
+		) =>
+			Effect.gen(function* () {
+				const clientId = payload.clientId
+				const userId = (yield* auth.requireUserId(options.headers).pipe(
+					Effect.mapError(
+						(e) =>
+							new RemoteActionFetchError({
+								message: e.message,
+								cause: e.cause
+							})
+					)
+				)) as UserId
+
+				yield* Effect.logInfo("rpc.FetchBootstrapSnapshot.start", { userId, clientId })
+
+				const snapshot = yield* serverService
+					.getBootstrapSnapshot(clientId)
+					.pipe(Effect.provideService(SyncUserId, userId))
+
+				yield* Effect.logDebug("rpc.FetchBootstrapSnapshot.result", {
+					userId,
+					clientId,
+					serverIngestId: snapshot.serverIngestId,
+					tableCount: snapshot.tables.length
+				})
+
+				return {
+					serverIngestId: snapshot.serverIngestId,
+					serverClock: HLC.make(snapshot.serverClock),
+					tables: snapshot.tables
+				}
+			}).pipe(
+				Effect.tapErrorCause((c) =>
+					Effect.logError("rpc.FetchBootstrapSnapshot.error", { cause: Cause.pretty(c) })
+				),
+				Effect.catchTag("ServerInternalError", (e: ServerInternalError) =>
+					Effect.fail(
+						new RemoteActionFetchError({
+							message: `Server internal error fetching bootstrap snapshot: ${e.message}`,
+							cause: e.cause
+						})
+					)
+				),
+				Effect.annotateLogs({ rpcMethod: "FetchBootstrapSnapshot", clientId: payload.clientId }),
+				Effect.withSpan("RpcHandler.FetchBootstrapSnapshot")
+			)
+
 			const SendLocalActionsHandler = (payload: SendLocalActions, options: { readonly headers: PlatformHeaders }) =>
 				Effect.gen(function* (_) {
 					const clientId = payload.clientId
@@ -142,12 +194,19 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 			)
 
 		return {
+			FetchBootstrapSnapshot: FetchBootstrapSnapshotHandler,
 			FetchRemoteActions: FetchRemoteActionsHandler,
 			SendLocalActions: SendLocalActionsHandler
 		}
 	})
 ).pipe(
 	Layer.tapErrorCause((e) => Effect.logError(`error in SyncNetworkRpcHandlersLive`, e)),
+	Layer.provideMerge(
+		Layer.succeed(
+			SyncRpcAuthMiddleware,
+			SyncRpcAuthMiddleware.of(() => Effect.void)
+		)
+	),
 	Layer.provideMerge(SyncServerService.Default),
 	Layer.provideMerge(SyncAuthService.Default),
 	Layer.provideMerge(KeyValueStore.layerMemory)

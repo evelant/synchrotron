@@ -2,7 +2,6 @@ import { SqlClient } from "@effect/sql"
 import { ActionRegistry, DeterministicId } from "@synchrotron/sync-core"
 import { Array, Effect, Option, Schema } from "effect"
 import { TodoRepo } from "./db/repositories"
-import { Todo } from "./db/schema"
 
 export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 	effect: Effect.gen(function* () {
@@ -41,12 +40,21 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 			}),
 			(args) =>
 				Effect.gen(function* () {
-					const result = yield* sql<Todo>`SELECT * FROM todos WHERE id = ${args.id}`
+					const result = yield* sql<{ readonly completed: unknown }>`
+						SELECT completed FROM todos WHERE id = ${args.id}
+					`
 					const todo = Array.head(result)
+					const currentCompleted = (value: unknown): boolean => value === true || value === 1 || value === "1"
 
 					yield* Option.match(todo, {
 						onNone: () => Effect.logWarning(`Todo not found for toggle: ${args.id}`),
-						onSome: (t: Todo) => todoRepo.update({ ...t, completed: !t.completed })
+						onSome: (t) =>
+							sql<{ readonly id: string }>`
+								UPDATE todos
+								SET completed = ${currentCompleted(t.completed) ? 0 : 1}
+								WHERE id = ${args.id}
+								RETURNING id
+							`
 					})
 				})
 		)
@@ -60,12 +68,18 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 			}),
 			(args) =>
 				Effect.gen(function* () {
-					const result = yield* sql<Todo>`SELECT * FROM todos WHERE id = ${args.id}`
+					const result = yield* sql<{ readonly id: string }>`SELECT id FROM todos WHERE id = ${args.id}`
 					const todo = Array.head(result)
 
 					yield* Option.match(todo, {
 						onNone: () => Effect.logWarning(`Todo not found for text update: ${args.id}`),
-						onSome: (t: Todo) => todoRepo.update({ ...t, text: args.text })
+						onSome: () =>
+							sql<{ readonly id: string }>`
+								UPDATE todos
+								SET text = ${args.text}
+								WHERE id = ${args.id}
+								RETURNING id
+							`
 					})
 				})
 		)

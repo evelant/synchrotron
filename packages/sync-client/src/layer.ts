@@ -20,6 +20,7 @@ import { PgliteClientLive } from "./db/connection"
 import { SqliteWasmClientMemoryLive } from "./db/sqlite-wasm"
 import { ElectricSyncService } from "./electric/ElectricSyncService"
 import { SyncNetworkServiceLive } from "./SyncNetworkService"
+import { SyncRpcAuthTokenFromConfig } from "./SyncRpcAuthToken"
 import { logInitialSyncDbState } from "./logInitialDbState"
 
 /**
@@ -74,6 +75,7 @@ export const makeSynchrotronClientLayer = (
 		// Highest-level services first, core dependencies last.
 		// `Layer.provideMerge` wraps previously-added layers, so later layers are available to earlier ones.
 		Layer.provideMerge(SyncNetworkServiceLive),
+		Layer.provideMerge(SyncRpcAuthTokenFromConfig),
 		Layer.provideMerge(ActionRegistry.Default),
 		Layer.provideMerge(ClockService.Default),
 		Layer.provideMerge(ActionRecordRepo.Default),
@@ -87,7 +89,6 @@ export const makeSynchrotronClientLayer = (
 					const cfg = yield* SynchrotronClientConfig
 					yield* Effect.logInfo("synchrotron.client.start", {
 						platform: "browser-pglite",
-						userId: cfg.userId ?? null,
 						hasSyncRpcAuthToken:
 							typeof cfg.syncRpcAuthToken === "string" && cfg.syncRpcAuthToken.length > 0,
 						electricSyncUrl: cfg.electricSyncUrl,
@@ -118,6 +119,7 @@ export const makeSynchrotronSqliteWasmClientLayer = (
 
 	return SyncService.Default.pipe(
 		Layer.provideMerge(SyncNetworkServiceLive),
+		Layer.provideMerge(SyncRpcAuthTokenFromConfig),
 		Layer.provideMerge(ActionRegistry.Default),
 		Layer.provideMerge(ClockService.Default),
 		Layer.provideMerge(ActionRecordRepo.Default),
@@ -131,7 +133,6 @@ export const makeSynchrotronSqliteWasmClientLayer = (
 					const cfg = yield* SynchrotronClientConfig
 					yield* Effect.logInfo("synchrotron.client.start", {
 						platform: "browser-sqlite-wasm",
-						userId: cfg.userId ?? null,
 						syncRpcUrl: cfg.syncRpcUrl,
 						electricSyncUrl: cfg.electricSyncUrl
 					})

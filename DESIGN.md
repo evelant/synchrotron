@@ -202,13 +202,13 @@ This caused problems (especially on the server: rollback patches could reference
 
 - Fetch/stream remote actions by `action_records.server_ingest_id > client_sync_status.last_seen_server_ingest_id` (receipt cursor), then sort/apply by replay order key (`clock_time_ms`, `clock_counter`, `client_id`, `id`).
 - Remote ingress is transport-specific (Electric stream, RPC fetch, polling, etc) and populates local `action_records` / `action_modified_rows`. Applying those remotes is DB-driven: the client applies actions discovered in the local DB (`synced=true` and not present in `local_applied_action_ids`), not by trusting the transient fetch return value.
-- By default, the fetch/RPC path excludes actions authored by the requesting client (avoid echo). When a client has lost its local action log/materialized state but retained its `clientId`, it can bootstrap by fetching with `includeSelf=true` (from `sinceServerIngestId=0`) and then applying from the local action tables.
+- By default, the fetch/RPC path excludes actions authored by the requesting client (avoid echo). `includeSelf=true` is primarily a fallback for action-log restore (see below).
 - `last_seen_server_ingest_id` is treated as an **applied** watermark (not merely ingested) for remote (other-client) actions: it is advanced only after those actions have been incorporated into the client’s materialized state (apply/reconcile). It is also used as `basisServerIngestId` for upload head-gating.
 - Use up-to-date signals to ensure the complete set of `action_modified_rows` for a transaction has arrived before applying. The sync loop will not apply remote actions until their patches are present, to preserve rollback correctness and avoid spurious outgoing SYNC deltas.
 - This may use Electric's experimental `multishapestream` / `transactionmultishapestream` APIs, depending on how you stream the shapes.
 - Bootstrap / restore options:
-  - Fast bootstrap (no action history): sync base tables, then set `last_seen_server_ingest_id` to the current server head cursor.
-  - Action-log restore (same `clientId`, empty local DB): fetch actions with `includeSelf=true` starting at `sinceServerIngestId=0`, then apply from the local action tables to rebuild materialized state.
+  - Fast bootstrap snapshot (recommended): hydrate base tables from the server’s canonical state and set `last_seen_server_ingest_id` to the snapshot head cursor. The RPC transport provides this via `FetchBootstrapSnapshot` (tables + head `server_ingest_id` + `serverClock`); the client applies it with patch tracking disabled, advances the cursor, then resumes incremental action fetch from that point.
+  - Action-log restore (fallback): if snapshot bootstrapping isn’t configured, fetch actions with `includeSelf=true` starting at `sinceServerIngestId=0`, then apply from the local action tables to rebuild materialized state (O(history)).
 
 ## Security and privacy
 
@@ -219,11 +219,10 @@ This caused problems (especially on the server: rollback patches could reference
   - For shared/collaborative rows, sync-table visibility should be derived from `action_modified_rows.audience_key` (membership/sharing rules) rather than only the originating user (see `docs/shared-rows.md`).
   - In both cases, the server must derive `user_id` from auth and set `synchrotron.user_id` (e.g. `set_config('synchrotron.user_id', <user_id>, true)`) for each request/transaction before reading/writing/applying patches.
   - Server patch application runs under the **action’s** principal (derived from `action_records.user_id`), not the request principal. This is required for correct server-side replay under base-table RLS.
-  - The server must be able to read the full sync log during rollback+replay even when the current request user can’t see it (e.g. after membership revocation). The recommended pattern is a sync-table RLS escape hatch keyed off `synchrotron.internal_materializer=true` (set only for server internal materialization, ideally also gated by DB role).
-  - If base-table RLS depends on membership/ACL tables, those tables must be replayable as part of canonical history (avoid out-of-band membership churn if you want late-arrival correctness).
+- The server must be able to read the full sync log during rollback+replay even when the current request user can’t see it (e.g. after membership revocation). The recommended pattern is a sync-table RLS escape hatch keyed off `synchrotron.internal_materializer=true` (set only for server internal materialization, ideally also gated by DB role).
+- If base-table RLS depends on membership/ACL tables, those tables must be replayable as part of canonical history (avoid out-of-band membership churn if you want late-arrival correctness).
 - The RPC server derives the per-request RLS identity (`user_id`) from verified auth:
-  - Preferred: `Authorization: Bearer <jwt>` (HS256 demo verifier; `sub` → `user_id`, optional `aud`/`iss` checks).
-  - Dev-only fallback: `x-synchrotron-user-id` when no JWT secret is configured (do not use in real apps).
+  - `Authorization: Bearer <jwt>` (`sub` → `user_id`, optional `aud`/`iss` checks; HS256 demo verifier or JWKS/RS256).
 - Synchrotron does not generate RLS policies; the application must define them for its own data tables.
 - Trust model: clients are assumed honest; the server never runs action logic and largely relies on Postgres constraints + RLS for safety.
 - Clients must not receive patches that touch rows they cannot see; this implies `action_modified_rows` must be filtered by policies that track underlying row visibility (see `docs/security.md` and `docs/shared-rows.md`).

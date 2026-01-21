@@ -108,7 +108,24 @@ const defineClientActions = Effect.gen(function* () {
 			})
 	)
 
-	return { createNoteWithId, clientSpecificContent } as const
+	const updateNoteContent = actionRegistry.defineAction(
+		"e2e-update-note-content",
+		Schema.Struct({
+			id: Schema.String,
+			content: Schema.String,
+			timestamp: Schema.Number
+		}),
+		(args) =>
+			Effect.gen(function* () {
+				yield* sql`
+					UPDATE notes
+					SET content = ${args.content}
+					WHERE id = ${args.id}
+				`
+			})
+	)
+
+	return { createNoteWithId, clientSpecificContent, updateNoteContent } as const
 })
 
 const withInProcessFetch = <A, E, R>(
@@ -158,7 +175,7 @@ const makeClientLayer = (params: {
 
 describe("E2E (Postgres): SyncNetworkRpc over real Postgres", () => {
 	it.scoped(
-		"bootstrap from empty client DB fetches includeSelf (restores own remote history)",
+		"bootstrap from empty client DB uses server snapshot (no action replay)",
 		() =>
 			Effect.gen(function* () {
 				const secret = "supersecretvalue-supersecretvalue"
@@ -251,8 +268,124 @@ describe("E2E (Postgres): SyncNetworkRpc over real Postgres", () => {
 
 						const restored = yield* getNoteContent(noteId).pipe(Effect.provide(clientFreshContext))
 						expect(restored).toBe("hello")
+						const freshLogCount = yield* Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient
+							const rows = yield* sql<{ readonly count: number | string }>`
+								SELECT count(*)::int as count
+								FROM action_records
+							`
+							return typeof rows[0]?.count === "number" ? rows[0].count : Number(rows[0]?.count ?? 0)
+						}).pipe(Effect.provide(clientFreshContext))
+						expect(freshLogCount).toBe(0)
 						const serverCount = yield* runOnServerAsUser("userA")(getNoteCount)
 						expect(serverCount).toBe(1)
+					})
+				)
+			}),
+			{ timeout: 120000 }
+		)
+
+	it.scoped(
+		"bootstrap snapshot then tail sync applies subsequent remote actions",
+		() =>
+			Effect.gen(function* () {
+				const secret = "supersecretvalue-supersecretvalue"
+				const token = yield* Effect.promise(() =>
+					signHs256Jwt({ secret, sub: "userA", aud: "authenticated" })
+				)
+
+				const server = yield* makeInProcessSyncRpcServerPostgres({
+					baseUrl: "http://synchrotron.test",
+					configProvider: ConfigProvider.orElse(
+						ConfigProvider.fromMap(
+							new Map([
+								["SYNC_JWT_SECRET", secret],
+								["SYNC_JWT_AUD", "authenticated"]
+							])
+						),
+						() => ConfigProvider.fromEnv()
+					)
+				})
+
+				const syncRpcUrl = `${server.baseUrl}/rpc`
+				const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<
+						A,
+						E,
+						never
+					>
+
+				const projectId = `project-${crypto.randomUUID()}`
+				const noteId = crypto.randomUUID()
+
+				yield* runOnServer(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient
+						yield* sql`INSERT INTO projects (id) VALUES (${projectId}) ON CONFLICT DO NOTHING`
+						yield* sql`
+							INSERT INTO project_members (id, project_id, user_id)
+							VALUES (${`${projectId}-userA`}, ${projectId}, 'userA')
+							ON CONFLICT DO NOTHING
+						`
+					})
+				)
+
+				yield* withInProcessFetch(
+					server.baseUrl,
+					server.handler,
+					Effect.gen(function* () {
+						const clientAContext = yield* Layer.build(
+							makeClientLayer({
+								clientId: "clientA",
+								syncRpcUrl,
+								syncRpcAuthToken: token,
+								pgliteDataDir: `memory://clientA-${crypto.randomUUID()}`
+							})
+						)
+
+						const clientAActions = yield* defineClientActions.pipe(Effect.provide(clientAContext))
+						const clientASync = yield* SyncService.pipe(Effect.provide(clientAContext))
+
+						yield* setupClientNotes.pipe(Effect.provide(clientAContext))
+						yield* clientASync.executeAction(
+							clientAActions.createNoteWithId({
+								id: noteId,
+								content: "hello",
+								project_id: projectId,
+								timestamp: 1000
+							})
+						)
+						yield* clientASync.performSync()
+
+						const clientFreshContext = yield* Layer.build(
+							makeClientLayer({
+								clientId: "clientFresh",
+								syncRpcUrl,
+								syncRpcAuthToken: token,
+								pgliteDataDir: `memory://clientFresh-${crypto.randomUUID()}`
+							})
+						)
+						const clientFreshSync = yield* SyncService.pipe(Effect.provide(clientFreshContext))
+
+						yield* setupClientNotes.pipe(Effect.provide(clientFreshContext))
+						yield* defineClientActions.pipe(Effect.provide(clientFreshContext))
+						yield* clientFreshSync.performSync()
+
+						expect(yield* getNoteContent(noteId).pipe(Effect.provide(clientFreshContext))).toBe("hello")
+
+						yield* waitForNextMillisecond
+
+						yield* clientASync.executeAction(
+							clientAActions.updateNoteContent({
+								id: noteId,
+								content: "world",
+								timestamp: 2000
+							})
+						)
+						yield* clientASync.performSync()
+
+						yield* clientFreshSync.performSync()
+						expect(yield* getNoteContent(noteId).pipe(Effect.provide(clientFreshContext))).toBe("world")
 					})
 				)
 			}),

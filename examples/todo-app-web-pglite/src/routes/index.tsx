@@ -31,33 +31,110 @@ type TransportMode = "rpc-poll" | "electric"
 
 const metaEnv = (import.meta as any).env as Partial<Record<string, string>> | undefined
 
+const viteServerUrlFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_SERVER_URL
+	} catch {
+		return undefined
+	}
+})()
+
+const viteElectricUrlFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_ELECTRIC_URL
+	} catch {
+		return undefined
+	}
+})()
+
+const viteTodoProjectIdFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_TODO_PROJECT_ID
+	} catch {
+		return undefined
+	}
+})()
+
+const viteSyncUserIdFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_SYNC_USER_ID
+	} catch {
+		return undefined
+	}
+})()
+
+const viteSyncUserIdAFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_SYNC_USER_ID_A
+	} catch {
+		return undefined
+	}
+})()
+
+const viteSyncUserIdBFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_SYNC_USER_ID_B
+	} catch {
+		return undefined
+	}
+})()
+
+const viteSyncRpcAuthTokenFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_SYNC_RPC_AUTH_TOKEN
+	} catch {
+		return undefined
+	}
+})()
+
+const viteSyncRpcAuthTokenAFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_SYNC_RPC_AUTH_TOKEN_A
+	} catch {
+		return undefined
+	}
+})()
+
+const viteSyncRpcAuthTokenBFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_SYNC_RPC_AUTH_TOKEN_B
+	} catch {
+		return undefined
+	}
+})()
+
 const defaults = {
 	serverUrl:
-		metaEnv?.VITE_SERVER_URL ??
-		(typeof process !== "undefined" ? process.env.VITE_SERVER_URL : undefined) ??
-		"http://localhost:3010",
-	syncRpcAuthToken:
+		metaEnv?.VITE_SERVER_URL ?? viteServerUrlFromProcessEnv ?? "http://localhost:3010",
+	syncRpcAuthTokenA:
+		metaEnv?.VITE_SYNC_RPC_AUTH_TOKEN_A ??
 		metaEnv?.VITE_SYNC_RPC_AUTH_TOKEN ??
-		(typeof process !== "undefined" ? process.env.VITE_SYNC_RPC_AUTH_TOKEN : undefined) ??
+		viteSyncRpcAuthTokenAFromProcessEnv ??
+		viteSyncRpcAuthTokenFromProcessEnv ??
+		undefined,
+	syncRpcAuthTokenB:
+		metaEnv?.VITE_SYNC_RPC_AUTH_TOKEN_B ??
+		metaEnv?.VITE_SYNC_RPC_AUTH_TOKEN ??
+		viteSyncRpcAuthTokenBFromProcessEnv ??
+		viteSyncRpcAuthTokenFromProcessEnv ??
 		undefined,
 	userIdA:
 		metaEnv?.VITE_SYNC_USER_ID_A ??
 		metaEnv?.VITE_SYNC_USER_ID ??
-		(typeof process !== "undefined"
-			? (process.env.VITE_SYNC_USER_ID_A ?? process.env.VITE_SYNC_USER_ID)
-			: undefined) ??
+		viteSyncUserIdAFromProcessEnv ??
+		viteSyncUserIdFromProcessEnv ??
 		"user1",
 	userIdB:
 		metaEnv?.VITE_SYNC_USER_ID_B ??
-		(typeof process !== "undefined" ? process.env.VITE_SYNC_USER_ID_B : undefined) ??
+		viteSyncUserIdBFromProcessEnv ??
 		"user2",
 	projectId:
 		metaEnv?.VITE_TODO_PROJECT_ID ??
-		(typeof process !== "undefined" ? process.env.VITE_TODO_PROJECT_ID : undefined) ??
+		viteTodoProjectIdFromProcessEnv ??
 		"project-demo",
 	electricUrl:
 		metaEnv?.VITE_ELECTRIC_URL ??
-		(typeof process !== "undefined" ? process.env.VITE_ELECTRIC_URL : undefined) ??
+		viteElectricUrlFromProcessEnv ??
 		"http://localhost:5133"
 } as const
 
@@ -237,6 +314,8 @@ const makeClientLayer = (options: {
 	const dataDir = makeClientIdbDataDir(options.clientKey)
 	const kvPrefix = makeKvPrefix(options.clientKey)
 	const syncRpcUrl = normalizeRpcUrl(defaults.serverUrl)
+	const syncRpcAuthToken =
+		options.clientKey === "clientA" ? defaults.syncRpcAuthTokenA : defaults.syncRpcAuthTokenB
 
 	const rootLayer =
 		options.transportMode === "electric" ? Layer.mergeAll(TodoRepo.Default, ElectricSyncLive) : TodoRepo.Default
@@ -245,15 +324,12 @@ const makeClientLayer = (options: {
 		Layer.provideMerge(TodoActions.Default),
 		Layer.provideMerge(Layer.effectDiscard(setupClientDatabase)),
 		Layer.provideMerge(
-				makeSynchrotronClientLayer(
-					{
-						...(typeof defaults.syncRpcAuthToken === "string"
-							? { syncRpcAuthToken: defaults.syncRpcAuthToken }
-							: {}),
-						userId: options.userId,
-						syncRpcUrl,
-						electricSyncUrl: defaults.electricUrl,
-						pglite: {
+			makeSynchrotronClientLayer(
+				{
+					...(typeof syncRpcAuthToken === "string" ? { syncRpcAuthToken } : {}),
+					syncRpcUrl,
+					electricSyncUrl: defaults.electricUrl,
+					pglite: {
 						dataDir,
 						debug: 0,
 						relaxedDurability: true
@@ -271,6 +347,7 @@ const makeClientLayer = (options: {
 					transportMode: options.transportMode,
 					userId: options.userId,
 					projectId: defaults.projectId,
+					hasSyncRpcAuthToken: typeof syncRpcAuthToken === "string" && syncRpcAuthToken.length > 0,
 					syncRpcUrl,
 					electricSyncUrl: defaults.electricUrl,
 					pgliteDataDir: dataDir

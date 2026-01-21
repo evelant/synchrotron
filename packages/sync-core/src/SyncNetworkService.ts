@@ -1,5 +1,6 @@
 import { SqlClient } from "@effect/sql"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
+import type { HLC } from "@synchrotron/sync-core/HLC"
 import { Data, Effect, Schema } from "effect"
 import { type ActionModifiedRow, type ActionRecord } from "./models" // Import ActionModifiedRow
 import type { BadArgument } from "@effect/platform/Error"
@@ -24,6 +25,15 @@ export interface FetchResult {
 	modifiedRows: readonly ActionModifiedRow[]
 }
 
+export interface BootstrapSnapshot {
+	readonly serverIngestId: number
+	readonly serverClock: HLC
+	readonly tables: ReadonlyArray<{
+		readonly tableName: string
+		readonly rows: ReadonlyArray<Record<string, unknown>>
+	}>
+}
+
 export interface TestNetworkState {
 	/** Simulated network delay in milliseconds */
 	networkDelay: number
@@ -41,6 +51,15 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 		const clientId = yield* clockService.getNodeId // Keep clientId dependency
 
 		return {
+			fetchBootstrapSnapshot: (): Effect.Effect<
+				BootstrapSnapshot,
+				RemoteActionFetchError | BadArgument
+			> =>
+				Effect.fail(
+					new RemoteActionFetchError({
+						message: "Bootstrap snapshot is not implemented for this transport"
+					})
+				),
 			fetchRemoteActions: (): Effect.Effect<FetchResult, RemoteActionFetchError | BadArgument> =>
 				Effect.gen(function* () {
 					const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId

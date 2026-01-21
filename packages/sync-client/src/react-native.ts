@@ -10,6 +10,7 @@ import { SynchrotronClientConfigData, createSynchrotronConfig } from "@synchrotr
 import { Effect, Layer } from "effect"
 import { makeSqliteReactNativeClientLayer } from "./db/sqlite-react-native"
 import { logInitialSyncDbState } from "./logInitialDbState"
+import { SyncRpcAuthTokenFromConfig } from "./SyncRpcAuthToken"
 import { SynchrotronKeyValueStoreLive } from "./synchrotronKeyValueStore"
 import { SyncNetworkServiceLive } from "./SyncNetworkService"
 
@@ -29,7 +30,6 @@ export const makeSynchrotronSqliteReactNativeClientLayer = (
 			Layer.effectDiscard(
 				Effect.logInfo("synchrotron.client.start", {
 					platform: "react-native",
-					userId: config.userId ?? null,
 					hasSyncRpcAuthToken:
 						typeof config.syncRpcAuthToken === "string" && config.syncRpcAuthToken.length > 0,
 					sqliteFilename: sqliteConfig.filename,
@@ -39,6 +39,7 @@ export const makeSynchrotronSqliteReactNativeClientLayer = (
 			)
 		),
 		Layer.provideMerge(SyncNetworkServiceLive),
+		Layer.provideMerge(SyncRpcAuthTokenFromConfig),
 		Layer.provideMerge(ActionRegistry.Default),
 			Layer.provideMerge(ClockService.Default),
 			Layer.provideMerge(ActionRecordRepo.Default),

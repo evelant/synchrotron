@@ -10,11 +10,11 @@
 		"docker:reset": "pnpm --filter @synchrotron-examples/backend run docker:reset",
 		"server:dev": "pnpm --filter @synchrotron-examples/backend run server:dev",
 		"preclient:dev": "pnpm run sync:wa-sqlite-wasm && pnpm --filter @synchrotron/sync-client run build",
-		"client:dev": "expo start -c",
+		"client:dev": "dotenv -e .env -e .env.example -- expo start -c",
 		"preclient:web": "pnpm run sync:wa-sqlite-wasm && pnpm --filter @synchrotron/sync-client run build",
-		"client:web": "expo start --web",
-		"client:android": "expo run:android",
-		"client:ios": "expo run:ios",
+		"client:web": "dotenv -e .env -e .env.example -- expo start --web",
+		"client:android": "dotenv -e .env -e .env.example -- expo run:android",
+		"client:ios": "dotenv -e .env -e .env.example -- expo run:ios",
 		"android:reverse": "bun scripts/adb-reverse.ts",
 		"dev": "pnpm run android:reverse && pnpm run docker:up && concurrently -k -n server,client \"pnpm run server:dev\" \"pnpm run client:dev\"",
 		"typecheck": "tsc --noEmit"
@@ -41,6 +41,7 @@
 	},
 	"devDependencies": {
 		"concurrently": "~9.2.1",
+		"dotenv-cli": "~11.0.0",
 		"@types/react": "~19.1.0",
 		"tsx": "^4.19.3",
 		"typescript": "~5.9.2"

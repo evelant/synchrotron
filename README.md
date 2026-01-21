@@ -100,9 +100,8 @@ Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlit
 
 - Configure the RPC endpoint with `makeSynchrotronClientLayer({ syncRpcUrl: "http://..." })` or `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
 - Auth for RLS:
-  - Preferred: `Authorization: Bearer <jwt>` (server verifies and derives `user_id` from `sub`).
-  - Dev-only fallback: `x-synchrotron-user-id` (used only when no JWT secret is configured on the server).
-  - Client-side: set `SynchrotronClientConfig.syncRpcAuthToken` to send the bearer token; `SynchrotronClientConfig.userId` sets the dev header.
+  - `Authorization: Bearer <jwt>` (server verifies and derives `user_id` from `sub`).
+  - Client-side: set `SynchrotronClientConfig.syncRpcAuthToken` to send the bearer token (or provide a custom `SyncRpcAuthToken` layer to fetch/refresh tokens dynamically).
 
 ## Observability
 
@@ -140,8 +139,8 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
     - Browser clients use `localStorage`.
     - React Native (native) uses `react-native-mmkv` via `@synchrotron/sync-client/react-native` (install `react-native-mmkv` in your app).
     - React Native (web) uses `localStorage`.
-    - If the local database is cleared but the `clientId` is retained, the client will bootstrap by fetching its own previously-synced action history from the server (one-time, when `action_records` is empty) and replaying it to rebuild local state.
-7.  **RLS User Context (Server):** To enforce Postgres RLS on both app tables and sync tables, the server must run requests under a non-bypass DB role and set `synchrotron.user_id` (e.g. via `set_config('synchrotron.user_id', <user_id>, true)` inside a transaction). The demo RPC server supports `Authorization: Bearer <jwt>` (preferred) and a dev-only `x-synchrotron-user-id` fallback; server-side materialization applies patches under the originating action principal (`action_records.user_id`), not the request principal.
+    - If the local database is cleared but the `clientId` is retained, the client bootstraps from a server snapshot of the canonical base-table state (no full action-log replay) and advances its remote fetch cursor to the snapshot head (see `docs/bootstrap.md`).
+7.  **RLS User Context (Server):** To enforce Postgres RLS on both app tables and sync tables, the server must run requests under a non-bypass DB role and set `synchrotron.user_id` (e.g. via `set_config('synchrotron.user_id', <user_id>, true)` inside a transaction). The demo RPC server derives `user_id` from verified auth (`Authorization: Bearer <jwt>`). Server-side materialization applies patches under the originating action principal (`action_records.user_id`), not the request principal.
     - Real apps should use verified auth (JWT) and have the server derive `user_id` from the token. See `docs/security.md`.
     - Note: `action_records.user_id` is the originating user (audit + `WITH CHECK`). For shared/collaborative data, sync-table visibility should be derived from `action_modified_rows.audience_key` (membership/sharing rules) rather than only the originating user. See `docs/shared-rows.md` and `docs/security.md`.
 

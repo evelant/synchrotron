@@ -6,6 +6,7 @@ import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
 import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
 import { Config, ConfigProvider, Effect, Layer, Redacted } from "effect"
 import { SyncNetworkRpcHandlersLive } from "../../src/rpcRouter"
+import { createSyncSnapshotConfig } from "../../src/SyncSnapshotConfig"
 
 const createTestDatabaseName = () => `synchrotron_e2e_${crypto.randomUUID().replaceAll("-", "")}`
 
@@ -262,7 +263,11 @@ export const makeInProcessSyncRpcServerPostgres = (options: {
 		const servicesLayer = SyncNetworkRpcHandlersLive.pipe(
 			Layer.provideMerge(Layer.mergeAll(AppDbLive, KeyValueStore.layerMemory))
 		)
-		const serverLayer = Layer.mergeAll(servicesLayer, RpcSerialization.layerJson)
+		const serverLayer = Layer.mergeAll(
+			servicesLayer,
+			RpcSerialization.layerJson,
+			createSyncSnapshotConfig(["notes"])
+		)
 
 		const runtime = yield* Layer.toRuntime(serverLayer).pipe(Effect.withConfigProvider(options.configProvider))
 		const rpcHttpApp = yield* RpcServer.toHttpApp(SyncNetworkRpcGroup).pipe(Effect.provide(runtime))

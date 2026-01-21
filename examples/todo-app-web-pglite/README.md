@@ -80,7 +80,13 @@ When you're done, stop the backend services using:
 pnpm docker:down
 ```
 
-## Env vars (optional)
+## Env vars
 
-- `VITE_SYNC_USER_ID_A` / `VITE_SYNC_USER_ID_B`: override demo user ids (defaults: `user1` / `user2`)
-- `VITE_TODO_PROJECT_ID`: override demo project id (default: `project-demo`)
+Dev scripts load both `.env` and `.env.example` (in that order), so `.env.example` acts as a fallback for any missing variables.
+Copy `examples/todo-app-web-pglite/.env.example` to `examples/todo-app-web-pglite/.env` if you want to customize the values.
+
+Variables:
+
+- `VITE_SYNC_RPC_AUTH_TOKEN_A` / `VITE_SYNC_RPC_AUTH_TOKEN_B`: JWTs for the two demo users (required for RPC auth).
+- `VITE_SYNC_USER_ID_A` / `VITE_SYNC_USER_ID_B`: override demo user ids (defaults: `user1` / `user2`).
+- `VITE_TODO_PROJECT_ID`: override demo project id (default: `project-demo`).

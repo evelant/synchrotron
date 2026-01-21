@@ -1,50 +1,45 @@
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform"
-import { RpcClient, RpcSerialization } from "@effect/rpc"
+import { FetchHttpClient } from "@effect/platform"
+import * as Headers from "@effect/platform/Headers"
+import { RpcClient, RpcMiddleware, RpcSerialization } from "@effect/rpc"
 import { SqlClient } from "@effect/sql"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
-import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
+import { SyncNetworkRpcGroup, SyncRpcAuthMiddleware } from "@synchrotron/sync-core/SyncNetworkRpc"
 import {
 	NetworkRequestError,
 	RemoteActionFetchError,
 	SyncNetworkService
 } from "@synchrotron/sync-core/SyncNetworkService"
+import { HLC } from "@synchrotron/sync-core/HLC"
 import { ActionRecord, type ActionModifiedRow } from "@synchrotron/sync-core/models"
-import { Cause, Chunk, Effect, Layer } from "effect"
+import { Cause, Chunk, Effect, Layer, Option, Redacted } from "effect"
+import { SyncRpcAuthToken } from "./SyncRpcAuthToken"
 
 const valuePreview = (value: unknown, maxLength = 500) => {
 	const json = JSON.stringify(value)
 	return json.length <= maxLength ? json : `${json.slice(0, maxLength)}…`
 }
 
-// Choose which protocol to use
+const AuthClientLive: Layer.Layer<RpcMiddleware.ForClient<SyncRpcAuthMiddleware>, never, SyncRpcAuthToken> =
+	RpcMiddleware.layerClient(SyncRpcAuthMiddleware, ({ request }) =>
+		Effect.gen(function* () {
+			const tokenService = yield* SyncRpcAuthToken
+			const tokenOption = yield* tokenService.get
+			if (Option.isNone(tokenOption)) return request
+
+			return {
+				...request,
+				headers: Headers.set(request.headers, "authorization", `Bearer ${Redacted.value(tokenOption.value)}`)
+			}
+		})
+	)
+
 const ProtocolLive = Layer.unwrapEffect(
 	Effect.gen(function* () {
 		const config = yield* SynchrotronClientConfig
-		const transformClient = <E, R>(client: HttpClient.HttpClient.With<E, R>) => {
-			let transformed = client
-			if (config.syncRpcAuthToken) {
-				transformed = HttpClient.mapRequest(
-					transformed,
-					HttpClientRequest.setHeader("authorization", `Bearer ${config.syncRpcAuthToken}`)
-				)
-			}
-			if (config.userId) {
-				transformed = HttpClient.mapRequest(
-					transformed,
-					HttpClientRequest.setHeader("x-synchrotron-user-id", config.userId)
-				)
-			}
-			return transformed
-		}
-
-		return RpcClient.layerProtocolHttp({ url: config.syncRpcUrl, transformClient }).pipe(
-			Layer.provide([
-				// use fetch for http requests
-				FetchHttpClient.layer,
-				// use ndjson for serialization
-				RpcSerialization.layerJson
-			])
+		return RpcClient.layerProtocolHttp({ url: config.syncRpcUrl }).pipe(
+			Layer.provide(FetchHttpClient.layer),
+			Layer.provide(RpcSerialization.layerJson)
 		)
 	})
 )
@@ -176,7 +171,7 @@ export const SyncNetworkServiceLive = Layer.scoped(
 						? localState.has_any_action_records
 						: localState?.has_any_action_records === 1
 
-				const includeSelf = !hasAnyActionRecords
+				const includeSelf = !hasAnyActionRecords && sinceServerIngestId === 0
 				const effectiveSinceServerIngestId = includeSelf ? 0 : sinceServerIngestId
 
 				yield* Effect.logInfo("sync.network.fetchRemoteActions.cursor", {
@@ -257,10 +252,32 @@ export const SyncNetworkServiceLive = Layer.scoped(
 				)
 			)
 
+		const fetchBootstrapSnapshot = () =>
+			Effect.gen(function* () {
+				yield* Effect.logInfo("sync.network.fetchBootstrapSnapshot.start", { clientId })
+				const snapshot = yield* client.FetchBootstrapSnapshot({ clientId })
+				yield* Effect.logInfo("sync.network.fetchBootstrapSnapshot.result", {
+					clientId,
+					serverIngestId: snapshot.serverIngestId,
+					tableCount: snapshot.tables.length,
+					rowCounts: snapshot.tables.map((t) => ({ tableName: t.tableName, rowCount: t.rows.length }))
+				})
+				return { ...snapshot, serverClock: HLC.make(snapshot.serverClock) }
+			}).pipe(
+				Effect.mapError(
+					(error) =>
+						new RemoteActionFetchError({
+							message: error instanceof Error ? error.message : String(error),
+							cause: error
+						})
+				)
+			)
+
 		return SyncNetworkService.of({
 			_tag: "SyncNetworkService",
 			sendLocalActions,
+			fetchBootstrapSnapshot,
 			fetchRemoteActions
 		})
 	})
-).pipe(Layer.provide(ProtocolLive)) // Provide the configured protocol layer
+).pipe(Layer.provide(AuthClientLive), Layer.provide(ProtocolLive)) // Provide the configured protocol + auth middleware layers

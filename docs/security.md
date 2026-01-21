@@ -21,15 +21,19 @@ current_setting('synchrotron.user_id', true)
 
 ## RPC authentication (JWT)
 
-The demo RPC server supports:
+The demo RPC server requires:
 
-- Preferred: `Authorization: Bearer <jwt>` (server verifies and derives `user_id` from `sub`, Supabase-compatible).
-- Dev-only fallback: `x-synchrotron-user-id` (used only when no JWT secret is configured).
+- `Authorization: Bearer <jwt>` (server verifies and derives `user_id` from `sub`, Supabase-compatible defaults).
 
 If you use the built-in HS256 verifier, configure:
 
 - `SYNC_JWT_SECRET` (or `GOTRUE_JWT_SECRET`)
-- optional: `SYNC_JWT_AUD` / `GOTRUE_JWT_AUD`, `SYNC_JWT_ISSUER`, `SYNC_JWT_USER_ID_CLAIM`
+- optional: `SYNC_JWT_AUD` / `GOTRUE_JWT_AUD`, `SYNC_JWT_ISSUER`, `SYNC_JWT_USER_ID_CLAIM`, `SYNC_JWT_ALGORITHMS`
+
+If you use a JWKS (RS256) verifier, configure:
+
+- `SYNC_JWT_JWKS_URL`
+- optional: `SYNC_JWT_AUD` / `GOTRUE_JWT_AUD`, `SYNC_JWT_ISSUER`, `SYNC_JWT_USER_ID_CLAIM`, `SYNC_JWT_ALGORITHMS`
 
 Apps can replace the server auth service if they need a different mechanism (cookies, opaque tokens, JWKS, etc).
 

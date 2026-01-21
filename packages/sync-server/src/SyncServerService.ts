@@ -5,7 +5,8 @@ import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
-import { Cause, Data, Effect, Schema } from "effect"
+import { Cause, Data, Effect, Option, Schema } from "effect"
+import { SyncSnapshotConfig } from "./SyncSnapshotConfig"
 import { SyncUserId } from "./SyncUserId"
 
 export class ServerConflictError extends Data.TaggedError("ServerConflictError")<{
@@ -24,13 +25,50 @@ export interface FetchActionsResult {
 	readonly serverClock: HLC
 }
 
+export interface BootstrapSnapshotResult {
+	readonly serverIngestId: number
+	readonly serverClock: HLC
+	readonly tables: ReadonlyArray<{
+		readonly tableName: string
+		readonly rows: ReadonlyArray<Record<string, unknown>>
+	}>
+}
+
 export class SyncServerService extends Effect.Service<SyncServerService>()("SyncServerService", {
 	effect: Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
-		const clockService = yield* ClockService
-		const actionRecordRepo = yield* ActionRecordRepo
-		const actionModifiedRowRepo = yield* ActionModifiedRowRepo
-		const keyValueStore = yield* KeyValueStore.KeyValueStore
+			const clockService = yield* ClockService
+			const actionRecordRepo = yield* ActionRecordRepo
+			const actionModifiedRowRepo = yield* ActionModifiedRowRepo
+			const keyValueStore = yield* KeyValueStore.KeyValueStore
+
+		const toNumber = (value: unknown): number => {
+			if (typeof value === "number") return value
+			if (typeof value === "bigint") return Number(value)
+			if (typeof value === "string") return Number(value)
+			return Number(value)
+		}
+
+		const parseJson = (value: unknown): unknown => {
+			if (typeof value !== "string") return value
+			try {
+				return JSON.parse(value)
+			} catch {
+				return value
+			}
+		}
+
+		const parseClock = (value: unknown): HLC => {
+			const parsed = parseJson(value)
+			if (typeof parsed === "object" && parsed !== null) {
+				const obj = parsed as { readonly timestamp?: unknown; readonly vector?: unknown }
+				return {
+					timestamp: typeof obj.timestamp === "number" ? obj.timestamp : Number(obj.timestamp ?? 0),
+					vector: typeof obj.vector === "object" && obj.vector !== null ? (obj.vector as any) : {}
+				}
+			}
+			return { timestamp: 0, vector: {} }
+		}
 
 		const findActionsSince = SqlSchema.findAll({
 			Request: Schema.Struct({
@@ -519,11 +557,11 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					})
 			)
 
-			const getActionsSince = (
-				clientId: string,
-				sinceServerIngestId: number,
-				includeSelf: boolean = false
-			) =>
+		const getActionsSince = (
+			clientId: string,
+			sinceServerIngestId: number,
+			includeSelf: boolean = false
+		) =>
 				Effect.gen(function* () {
 					const userId = yield* SyncUserId
 					// Set the RLS context for the duration of this transaction.
@@ -609,9 +647,87 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					})
 				)
 
+			const getBootstrapSnapshot = (clientId: string) =>
+				Effect.gen(function* () {
+					const userId = yield* SyncUserId
+					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+
+					const snapshotConfigOption = yield* Effect.serviceOption(SyncSnapshotConfig)
+					const snapshotConfig = Option.getOrElse(snapshotConfigOption, () => ({ tables: [] as const }))
+					if (snapshotConfig.tables.length === 0) {
+						return yield* Effect.fail(
+							new ServerInternalError({
+								message:
+								"Bootstrap snapshot is not configured (SyncSnapshotConfig.tables is empty)"
+						})
+					)
+				}
+
+				const headRow = yield* sql<{
+					readonly max_server_ingest_id: number | string | bigint | null
+				}>`
+					SELECT COALESCE(MAX(server_ingest_id), 0) AS max_server_ingest_id
+					FROM action_records
+				`
+				const serverIngestId = toNumber(headRow[0]?.max_server_ingest_id ?? 0)
+
+				const clockRows = yield* sql<{ readonly clock: unknown }>`
+					SELECT clock
+					FROM action_records
+					ORDER BY clock_time_ms DESC, clock_counter DESC, client_id DESC, id DESC
+					LIMIT 1
+				`
+				const serverClock = parseClock(clockRows[0]?.clock)
+
+				const tables = yield* Effect.forEach(
+					snapshotConfig.tables,
+					(tableName) =>
+						Effect.gen(function* () {
+							const rows = yield* sql<Record<string, unknown>>`
+								SELECT *
+								FROM ${sql(tableName)}
+								ORDER BY id ASC
+							`
+							return { tableName, rows } as const
+						}),
+					{ concurrency: 1 }
+				)
+
+				yield* Effect.logInfo("server.getBootstrapSnapshot.done", {
+					userId,
+					clientId,
+					serverIngestId,
+					tableCount: tables.length,
+					rowCounts: tables.map((t) => ({ tableName: t.tableName, rowCount: t.rows.length }))
+				})
+
+				return { serverIngestId, serverClock, tables } satisfies BootstrapSnapshotResult
+			}).pipe(
+				sql.withTransaction,
+				Effect.annotateLogs({ serverOperation: "getBootstrapSnapshot", requestingClientId: clientId }),
+				Effect.withSpan("SyncServerService.getBootstrapSnapshot", {
+					attributes: { clientId }
+				}),
+				Effect.catchAll((error) => {
+					const unknownError = error as unknown
+					if (unknownError instanceof ServerInternalError) {
+						return Effect.fail(unknownError)
+					}
+					const message =
+						unknownError instanceof Error ? unknownError.message : String(unknownError)
+					return Effect.fail(
+						new ServerInternalError({
+							message: `Unexpected error during getBootstrapSnapshot: ${message}`,
+							cause: unknownError
+						})
+					)
+				})
+			)
+
 		return {
 			receiveActions,
-			getActionsSince
+			getActionsSince,
+			getBootstrapSnapshot
 		}
 	}),
 	dependencies: [ClockService.Default, ActionRecordRepo.Default, ActionModifiedRowRepo.Default]

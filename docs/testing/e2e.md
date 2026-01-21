@@ -22,7 +22,7 @@ The server harness is `packages/sync-server/test/e2e/harness.ts`:
 - **Database**: `PGlite` (`memory://…`) via `@effect/sql-pglite`
 - **Schema**: `initializeDatabaseSchema` (sync tables + server rollback/apply functions)
 - **RLS**: enabled for both sync tables and the example app table (`notes`)
-- **Auth**: `SyncAuthService` derives `user_id` from request headers (JWT when `SYNC_JWT_SECRET` is configured)
+- **Auth**: `SyncAuthService` derives `user_id` from `Authorization: Bearer <jwt>` (`sub` → `user_id`)
 - **RPC**: `SyncNetworkRpcGroup` served over HTTP using `RpcServer.toHttpApp` + `RpcSerialization.layerJson`
 - **HTTP transport**: `HttpApp.toWebHandlerRuntime(runtime)` (no listening socket)
 

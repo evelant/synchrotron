@@ -1,5 +1,6 @@
-import { Rpc, RpcGroup } from "@effect/rpc"
+import { Rpc, RpcGroup, RpcMiddleware } from "@effect/rpc"
 import { Schema } from "effect"
+import { HLC } from "./HLC"
 import { ActionModifiedRow, ActionRecord } from "./models"
 import { NetworkRequestError, RemoteActionFetchError } from "./SyncNetworkService"
 
@@ -7,6 +8,30 @@ const FetchResultSchema = Schema.Struct({
 	actions: Schema.Array(ActionRecord),
 	modifiedRows: Schema.Array(ActionModifiedRow)
 })
+
+const SnapshotTableSchema = Schema.Struct({
+	tableName: Schema.String,
+	rows: Schema.Array(Schema.Record({ key: Schema.String, value: Schema.Unknown }))
+})
+
+const BootstrapSnapshotSchema = Schema.Struct({
+	serverIngestId: Schema.Number,
+	serverClock: HLC,
+	tables: Schema.Array(SnapshotTableSchema)
+})
+
+/**
+ * Client-side middleware hook for attaching authentication (e.g. Authorization header) to RPC requests.
+ *
+ * Server auth is still enforced by `packages/sync-server` and RLS; this middleware is purely a
+ * transport convenience so clients can supply a dynamic token per request (refresh without restart).
+ */
+export class SyncRpcAuthMiddleware extends RpcMiddleware.Tag<SyncRpcAuthMiddleware>()(
+	"SyncRpcAuthMiddleware",
+	{
+		requiredForClient: true
+	}
+) {}
 
 export class FetchRemoteActions extends Schema.TaggedRequest<FetchRemoteActions>()(
 	"FetchRemoteActions",
@@ -27,6 +52,17 @@ export class FetchRemoteActions extends Schema.TaggedRequest<FetchRemoteActions>
 	}
 ) {}
 
+export class FetchBootstrapSnapshot extends Schema.TaggedRequest<FetchBootstrapSnapshot>()(
+	"FetchBootstrapSnapshot",
+	{
+		payload: {
+			clientId: Schema.String
+		},
+		success: BootstrapSnapshotSchema,
+		failure: RemoteActionFetchError
+	}
+) {}
+
 export class SendLocalActions extends Schema.TaggedRequest<SendLocalActions>()("SendLocalActions", {
 	payload: {
 		clientId: Schema.String,
@@ -40,5 +76,6 @@ export class SendLocalActions extends Schema.TaggedRequest<SendLocalActions>()("
 
 export class SyncNetworkRpcGroup extends RpcGroup.make(
 	Rpc.fromTaggedRequest(FetchRemoteActions),
+	Rpc.fromTaggedRequest(FetchBootstrapSnapshot),
 	Rpc.fromTaggedRequest(SendLocalActions)
-) {}
+).middleware(SyncRpcAuthMiddleware) {}

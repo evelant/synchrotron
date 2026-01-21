@@ -13,7 +13,23 @@ import { TodoActions } from "./actions"
 import { TodoRepo } from "./db/repositories"
 import { setupClientDatabase } from "./db/setup"
 
-export const sqliteFilename = "todo-app.db"
+export const sqliteFilenameStorageKey = "synchrotron.todoApp.sqliteFilename"
+
+const defaultSqliteFilename = "todo-app.db"
+
+const resolveSqliteFilename = () => {
+	if (Platform.OS !== "web") return defaultSqliteFilename
+	try {
+		const existing = window.localStorage.getItem(sqliteFilenameStorageKey)
+		if (typeof existing === "string" && existing.length > 0) return existing
+		window.localStorage.setItem(sqliteFilenameStorageKey, defaultSqliteFilename)
+	} catch {
+		// ignore
+	}
+	return defaultSqliteFilename
+}
+
+export const sqliteFilename = resolveSqliteFilename()
 
 const defaultSyncRpcUrl = Platform.select({
 	android: "http://localhost:3010/rpc",
@@ -46,8 +62,7 @@ const AppLive = TodoRepo.Default.pipe(
 			{ filename: sqliteFilename },
 			{
 				syncRpcUrl,
-				syncRpcAuthToken,
-				userId
+				syncRpcAuthToken
 			}
 		)
 	),

@@ -39,6 +39,12 @@ alter table todos
   add column audience_key text generated always as ('project:' || project_id::text) stored;
 ```
 
+If you model tables with `@effect/sql`, mark the generated column as select-only so inserts/updates don’t try to write it:
+
+```ts
+audience_key: Model.FieldOnly("select")(Schema.optional(Schema.String))
+```
+
 If you can’t use generated columns, compute it with a trigger or in application code.
 
 ### No “audience moves” via UPDATE
