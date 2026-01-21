@@ -376,25 +376,13 @@ If `audience_key` can change on UPDATE, you must decide semantics:
 
 For v1 shared rows, treat `audience_key` as stable.
 
-## Concrete implementation plan (this repo)
+## Implementation (this repo)
 
-1) **Schema**:
-   - Add `audience_key TEXT` to `action_modified_rows` (Postgres + SQLite + PGlite).
-   - Add indexes:
-     - `action_modified_rows(audience_key)`
-     - `action_modified_rows(action_record_id, audience_key)` (supports `action_records` visibility via `EXISTS`)
-2) **Patch capture**:
-   - Require/assume `audience_key` exists on tracked app tables in examples.
-   - Update patch-capture writers to populate `action_modified_rows.audience_key` from `OLD/NEW`.
-   - Optional hardening: ensure update patches include `audience_key` so server can validate.
-3) **Example backend**:
-   - Add `project_members` + shared `todos` scope demo (or similar).
-   - Define `synchrotron.user_audiences` view/table.
-   - Replace per-user sync-table policies with audience-based policies.
-4) **Tests**:
-   - E2E: two users in same audience converge on shared rows.
-   - E2E: user outside audience cannot fetch/apply those actions.
-   - E2E: delete propagates to all audience members.
-5) **Docs**:
-   - Update `docs/planning/todo/0004-rls-policies.md` to reference this doc as the concrete shared-row direction.
-   - Update `DESIGN.md` / `README.md` once implemented (behavioral change).
+Implemented as:
+
+- **Sync schema**: `action_modified_rows.audience_key` + indexes in `packages/sync-core/src/db/sql/schema/create_sync_tables.ts`.
+- **Patch capture**: tracked tables must have `audience_key`; capture stores it on AMRs and strips it from JSON patches (see `packages/sync-core/src/db/sql/patch/*`).
+- **Example backend**: `projects` / `project_members` / `todos` with a generated `audience_key` and a `synchrotron.user_audiences` view in `examples/backend/src/db/setup.ts`.
+- **RLS policies**: sync-table and base-table policies use `audience_key` membership (see `examples/backend/src/db/setup.ts` and `packages/sync-server/test/e2e-postgres/harness.ts`).
+- **Tests**: filtering and enforcement coverage in `packages/sync-server/test/rls-filtering.test.ts` plus Postgres e2e in `packages/sync-server/test/e2e-postgres/`.
+- **Docs**: consumer-facing guidance in `docs/shared-rows.md` and `docs/security.md`.

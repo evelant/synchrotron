@@ -35,10 +35,9 @@ Apps can replace the server auth service if they need a different mechanism (coo
 
 ## Sync-table RLS
 
-Two common setups:
-
-- Owner-only apps: you can scope visibility by `action_records.user_id` (originating user).
-- Shared/collaborative apps: scope visibility by `action_modified_rows.audience_key` membership (see `docs/shared-rows.md`).
+Recommended pattern (works for owner-only and shared rows): scope sync-log visibility by
+`action_modified_rows.audience_key` membership (see `docs/shared-rows.md`). Owner-only apps can
+model this as a `user:<user_id>` audience.
 
 ## Server materialization (rollback+replay)
 

@@ -2,7 +2,26 @@
 
 ## Status
 
-Proposed
+Implemented (Option A)
+
+## Implemented (Option A)
+
+This repo adopts **Option A** (replay-time RLS enforcement with replayable membership/ACL state):
+
+- Server materialization applies patches under the **originating action principal** (`action_records.user_id`) so base-table RLS (`WITH CHECK`) is always enforced.
+- Sync-table `SELECT` policies include an internal escape hatch so the server can read the full canonical sync log during rollback+replay:
+  - `current_setting('synchrotron.internal_materializer', true) = 'true'` (transaction-local), additionally gated by server DB role.
+- Therefore: any tables that influence base-table RLS decisions (membership/ACL) must be part of canonical history (replayable). Don’t mutate membership out-of-band if you want late-arrival correctness across churn.
+
+Tests:
+
+- `packages/sync-server/test/rls-filtering.test.ts` covers both:
+  - success when membership changes are in-history (replayable), and
+  - deterministic failure when membership changes out-of-band and a late arrival forces rollback+replay.
+
+Consumer-facing docs:
+
+- `docs/security.md`
 
 ## Problem
 
