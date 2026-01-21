@@ -874,4 +874,172 @@ describe("E2E (Postgres): SyncNetworkRpc over real Postgres", () => {
 				}),
 			{ timeout: 120000 }
 		)
+
+		it.scoped(
+			"late-arriving older action forces replay of multiple suffix actions (server rollback+replay)",
+			() =>
+				Effect.gen(function* () {
+					const secret = "supersecretvalue-supersecretvalue"
+					const tokenA = yield* Effect.promise(() =>
+						signHs256Jwt({ secret, sub: "userA", aud: "authenticated" })
+					)
+					const tokenB = yield* Effect.promise(() =>
+						signHs256Jwt({ secret, sub: "userB", aud: "authenticated" })
+					)
+					const tokenC = yield* Effect.promise(() =>
+						signHs256Jwt({ secret, sub: "userC", aud: "authenticated" })
+					)
+
+					const server = yield* makeInProcessSyncRpcServerPostgres({
+						baseUrl: "http://synchrotron.test",
+						configProvider: ConfigProvider.orElse(
+							ConfigProvider.fromMap(
+								new Map([
+									["SYNC_JWT_SECRET", secret],
+									["SYNC_JWT_AUD", "authenticated"]
+								])
+							),
+							() => ConfigProvider.fromEnv()
+						)
+					})
+
+					const syncRpcUrl = `${server.baseUrl}/rpc`
+					const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+						Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<
+							A,
+							E,
+							never
+						>
+					const runOnServerAsUser =
+						(userId: string) =>
+						<A, E, R>(effect: Effect.Effect<A, E, R>) =>
+							runOnServer(
+								Effect.gen(function* () {
+									const sql = yield* SqlClient.SqlClient
+									yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, false)`
+									return yield* effect
+								})
+							)
+
+					const projectId = `project-${crypto.randomUUID()}`
+					const noteId = crypto.randomUUID()
+
+					yield* runOnServer(
+						Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient
+							yield* sql`INSERT INTO projects (id) VALUES (${projectId}) ON CONFLICT DO NOTHING`
+							yield* sql`
+								INSERT INTO project_members (id, project_id, user_id)
+								VALUES
+									(${`${projectId}-userA`}, ${projectId}, 'userA'),
+									(${`${projectId}-userB`}, ${projectId}, 'userB'),
+									(${`${projectId}-userC`}, ${projectId}, 'userC')
+								ON CONFLICT DO NOTHING
+							`
+						})
+					)
+
+					yield* withInProcessFetch(
+						server.baseUrl,
+						server.handler,
+						Effect.gen(function* () {
+							const clientAContext = yield* Layer.build(
+								makeClientLayer({
+									clientId: "clientA",
+									syncRpcUrl,
+									syncRpcAuthToken: tokenA,
+									pgliteDataDir: `memory://clientA-${crypto.randomUUID()}`
+								})
+							)
+							const clientBContext = yield* Layer.build(
+								makeClientLayer({
+									clientId: "clientB",
+									syncRpcUrl,
+									syncRpcAuthToken: tokenB,
+									pgliteDataDir: `memory://clientB-${crypto.randomUUID()}`
+								})
+							)
+							const clientCContext = yield* Layer.build(
+								makeClientLayer({
+									clientId: "clientC",
+									syncRpcUrl,
+									syncRpcAuthToken: tokenC,
+									pgliteDataDir: `memory://clientC-${crypto.randomUUID()}`
+								})
+							)
+
+							yield* setupClientNotes.pipe(Effect.provide(clientAContext))
+							yield* setupClientNotes.pipe(Effect.provide(clientBContext))
+							yield* setupClientNotes.pipe(Effect.provide(clientCContext))
+
+							const actionsA = yield* defineClientActions.pipe(Effect.provide(clientAContext))
+							const actionsB = yield* defineClientActions.pipe(Effect.provide(clientBContext))
+							const actionsC = yield* defineClientActions.pipe(Effect.provide(clientCContext))
+
+							const syncA = yield* SyncService.pipe(Effect.provide(clientAContext))
+							const syncB = yield* SyncService.pipe(Effect.provide(clientBContext))
+							const syncC = yield* SyncService.pipe(Effect.provide(clientCContext))
+
+							// Create base row.
+							yield* syncA.executeAction(
+								actionsA.createNoteWithId({
+									id: noteId,
+									content: "base",
+									project_id: projectId,
+									timestamp: 1000
+								})
+							)
+							yield* syncA.performSync()
+
+							yield* waitForNextMillisecond
+							yield* syncB.performSync()
+							yield* waitForNextMillisecond
+							yield* syncC.performSync()
+
+							// Client A creates an older update but stays offline.
+							yield* waitForNextMillisecond
+							yield* syncA.executeAction(
+								actionsA.clientSpecificContent({
+									id: noteId,
+									baseContent: "v",
+									timestamp: 2000
+								})
+							)
+
+							// Client B and C create newer updates and upload them.
+							yield* waitForNextMillisecond
+							yield* syncB.executeAction(
+								actionsB.clientSpecificContent({
+									id: noteId,
+									baseContent: "v",
+									timestamp: 3000
+								})
+							)
+							yield* syncB.performSync()
+
+							yield* waitForNextMillisecond
+							yield* syncC.executeAction(
+								actionsC.clientSpecificContent({
+									id: noteId,
+									baseContent: "v",
+									timestamp: 4000
+								})
+							)
+							yield* syncC.performSync()
+
+							const serverBefore = yield* runOnServerAsUser("userA")(getNoteContent(noteId))
+							expect(serverBefore).toBe("v-clientC")
+
+							// Client A uploads its older action. Server must rollback+replay across both suffix
+							// actions so the latest (clientC) still wins.
+							yield* waitForNextMillisecond
+							yield* syncA.performSync()
+
+							const serverAfter = yield* runOnServerAsUser("userA")(getNoteContent(noteId))
+							expect(serverAfter).toBe("v-clientC")
+						})
+					)
+				}),
+			{ timeout: 120000 }
+		)
 	})

@@ -101,6 +101,41 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					return
 				}
 
+				const invalidClientIdActions = actions.filter((a) => a.client_id !== clientId)
+				if (invalidClientIdActions.length > 0) {
+					yield* Effect.logWarning("server.receiveActions.invalidClientId", {
+						clientId,
+						invalidActionCount: invalidClientIdActions.length,
+						invalidActionIds: invalidClientIdActions.slice(0, 20).map((a) => a.id),
+						invalidActionClientIds: Array.from(
+							new Set(invalidClientIdActions.slice(0, 50).map((a) => a.client_id))
+						)
+					})
+					return yield* Effect.fail(
+						new ServerInternalError({
+							message: `Invalid upload: all actions must have client_id=${clientId}`
+						})
+					)
+				}
+
+				const actionIdSet = new Set(actions.map((a) => a.id))
+				const invalidAmrs = amrs.filter((amr) => actionIdSet.has(amr.action_record_id) === false)
+				if (invalidAmrs.length > 0) {
+					yield* Effect.logWarning("server.receiveActions.invalidAmrBatch", {
+						clientId,
+						invalidAmrCount: invalidAmrs.length,
+						invalidAmrIds: invalidAmrs.slice(0, 20).map((a) => a.id),
+						invalidAmrActionRecordIds: Array.from(
+							new Set(invalidAmrs.slice(0, 50).map((a) => a.action_record_id))
+						)
+					})
+					return yield* Effect.fail(
+						new ServerInternalError({
+							message: "Invalid upload: AMRs must reference actions in the same batch"
+						})
+					)
+				}
+
 				type ReplayKey = {
 					readonly timeMs: number
 					readonly counter: number
@@ -174,6 +209,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						})
 					)
 				}
+				yield* Effect.logDebug("server.receiveActions.headOk", { clientId, basisServerIngestId })
 
 				// From here on, we need to be able to write and read the sync log regardless of the
 				// requesting user's current audience membership (membership churn + late arrival).
@@ -351,6 +387,15 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 										ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
 									`
 
+									yield* Effect.logInfo("server.materialize.applyUnapplied.start", {
+										actionCount: unappliedActions.length,
+										firstActionId: unappliedActions[0]?.id ?? null,
+										lastActionId: unappliedActions[unappliedActions.length - 1]?.id ?? null
+									})
+
+									let appliedActionCount = 0
+									let appliedAmrCount = 0
+
 									for (const actionRow of unappliedActions) {
 										const actionId = actionRow.id
 										const amrIds = yield* sql<{ readonly id: string }>`
@@ -362,6 +407,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 
 										if (amrIds.length === 0) {
 											yield* sql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionId}) ON CONFLICT DO NOTHING`
+											appliedActionCount += 1
 											continue
 										}
 
@@ -369,7 +415,14 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 											yield* sql`SELECT apply_forward_amr(${amrId})`
 										}
 										yield* sql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionId}) ON CONFLICT DO NOTHING`
+										appliedActionCount += 1
+										appliedAmrCount += amrIds.length
 									}
+
+									yield* Effect.logInfo("server.materialize.applyUnapplied.done", {
+										appliedActionCount,
+										appliedAmrCount
+									})
 								}),
 							() =>
 								sql`SELECT set_config('sync.disable_trigger', 'false', true)`.pipe(
@@ -379,7 +432,13 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 
 					const materialize = (initialRollbackTarget: string | null | undefined) =>
 						Effect.gen(function* () {
+							yield* Effect.logInfo("server.materialize.start", {
+								forcedRollbackTarget: initialRollbackTarget ?? null
+							})
 							if (initialRollbackTarget !== undefined) {
+								yield* Effect.logInfo("server.materialize.forcedRollback", {
+									targetActionId: initialRollbackTarget ?? null
+								})
 								yield* sql`SELECT rollback_to_action(${initialRollbackTarget})`
 							}
 
@@ -389,6 +448,9 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 								if (!earliest) return
 								const latestApplied = yield* getLatestApplied()
 								if (!latestApplied) {
+									yield* Effect.logInfo("server.materialize.noFrontier.applyAll", {
+										earliestUnappliedActionId: earliest.id
+									})
 									yield* applyAllUnapplied()
 									return
 								}
@@ -407,11 +469,20 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 								}
 
 								if (compareReplayKey(earliestKey, latestKey) > 0) {
+									yield* Effect.logInfo("server.materialize.fastForward", {
+										earliestUnappliedActionId: earliest.id,
+										latestAppliedActionId: latestApplied.id
+									})
 									yield* applyAllUnapplied()
 									return
 								}
 
 								const predecessorId = yield* findPredecessorId(earliestKey)
+								yield* Effect.logInfo("server.materialize.rewind", {
+									earliestUnappliedActionId: earliest.id,
+									latestAppliedActionId: latestApplied.id,
+									rollbackTargetActionId: predecessorId
+								})
 								yield* sql`SELECT rollback_to_action(${predecessorId})`
 							}
 						})

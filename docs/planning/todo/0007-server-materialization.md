@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress (prototype implemented; RLS wiring pending)
+Implemented (v1); follow-ups tracked
 
 ## Summary
 
@@ -20,6 +20,7 @@ The server never executes application business-logic actions. Instead it:
 - inserts actions + AMRs idempotently
 - rejects uploads when the client is behind the server ingestion head (client must fetch + reconcile + retry)
 - maintains a server “applied set” (`local_applied_action_ids`) and uses rollback+replay of patches to keep base tables aligned with canonical history, including late-arriving actions
+- applies patches under Postgres RLS (per-action principal), so “who can write what” stays enforced by the database
 
 This document defines the server-side materialization contract and a concrete implementation plan to make the server’s state correct under:
 
@@ -27,6 +28,18 @@ This document defines the server-side materialization contract and a concrete im
 - retries / duplicate uploads (idempotency)
 - rollbacks / reconciliation artifacts (clarify semantics)
 - RLS enforcement during patch application
+
+## Implemented (v1)
+
+- **Head gating**: rejects uploads when `basisServerIngestId` is behind the current head (for actions visible to that user under RLS).
+- **Authoritative materializer**: after ingest, the server either fast-forwards or rolls back + replays a suffix so base tables match canonical replay order.
+- **Rollback markers**: `RollbackAction` remains patch-less; the server may use rollback markers as a hint, but canonical state is defined by ordered patch application.
+- **RLS execution context**:
+  - Server sets `synchrotron.user_id` per request/transaction (derived from RPC auth).
+  - Patch apply functions set `synchrotron.user_id` to `action_records.user_id` per AMR, so replay runs under the action’s principal.
+  - Sync-table RLS can be bypassed for internal materialization via `synchrotron.internal_materializer=true` guarded by `current_user = 'synchrotron_app'`.
+- **Basic payload validation**: uploaded actions must have `client_id == payload.clientId`, and AMRs must reference actions in the same upload batch.
+- **Observability**: server logs materialization phases (forced rollback, rewind/fast-forward decision, apply counts).
 
 ## Problem Statement
 
@@ -38,18 +51,22 @@ If the server applies patches “as they arrive”, it can temporarily (or perma
 
 ### 2) Rollback handling is underspecified and currently unsafe
 
-The current server implementation reacts to incoming `RollbackAction` records by calling `rollback_to_action(target)`, but:
+Rollback markers and late-arriving actions can force the server to rewind and replay:
 
-- it does not handle genesis rollback (`target_action_id = null`)
-- it does not (re)apply the full suffix after rollback, so the base tables can diverge from the log unless a separate protocol ensures the rolled-back suffix is *intentionally discarded and replaced*
+- `RollbackAction` is a patch-less marker (replay hint), not a “history rewrite”.
+- Late-arriving actions (older replay key, newer `server_ingest_id`) require rollback+replay of patches so base tables match canonical order.
 
-We need a clear contract for what `RollbackAction` means on the server (if anything) and when the server should roll back and replay.
+v1 implements rollback+replay on the server using reverse patches (`rollback_to_action`) and forward patch replay (`apply_forward_amr`).
 
 ### 3) RLS context is not wired in
 
-The server is intended to “protect security via RLS”, meaning patch application must run in an execution context where Postgres `WITH CHECK` policies are enforced for the authenticated user/tenant.
+The server’s security boundary is Postgres RLS:
 
-Today, the RPC server does not establish any per-request DB role / session variables, so RLS is not actually part of the enforcement story yet.
+- RPC auth derives a trustworthy `user_id` (JWT recommended).
+- The server sets `synchrotron.user_id` in a transaction for each request.
+- Patch apply runs under the **action principal** (`action_records.user_id`) by setting `synchrotron.user_id` inside `apply_forward_amr` / `apply_reverse_amr`.
+
+This allows a single `receiveActions` call to safely re-materialize actions across multiple users/audiences while still enforcing base-table `WITH CHECK` rules per action.
 
 ## Goals / Non-goals
 
