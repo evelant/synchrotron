@@ -195,6 +195,166 @@ const setupRlsDatabase = Effect.gen(function* () {
 	yield* sql`SET ROLE synchrotron_app`
 })
 
+const setupRlsDatabaseSupabaseClaims = Effect.gen(function* () {
+	const sql = yield* SqlClient.SqlClient
+
+	yield* initializeDatabaseSchema
+
+	yield* sql`
+		CREATE SCHEMA IF NOT EXISTS synchrotron;
+	`
+
+	yield* sql`
+		CREATE TABLE IF NOT EXISTS projects (
+			id TEXT PRIMARY KEY
+		);
+	`
+
+	yield* sql`
+		CREATE TABLE IF NOT EXISTS project_members (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL,
+			audience_key TEXT GENERATED ALWAYS AS ('project:' || project_id) STORED,
+			UNIQUE (project_id, user_id)
+		);
+	`
+
+	yield* sql`
+		CREATE TABLE IF NOT EXISTS notes (
+			id TEXT PRIMARY KEY,
+			title TEXT NOT NULL,
+			content TEXT NOT NULL,
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			audience_key TEXT GENERATED ALWAYS AS ('project:' || project_id) STORED
+		);
+	`
+
+	yield* sql`
+		CREATE OR REPLACE VIEW synchrotron.user_audiences AS
+		SELECT user_id, audience_key
+		FROM project_members
+	`.raw
+
+	// Create a dedicated non-superuser role so RLS is enforced.
+	yield* sql`
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'synchrotron_app') THEN
+				CREATE ROLE synchrotron_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+			END IF;
+		END $$;
+	`
+
+	yield* sql`GRANT USAGE ON SCHEMA public TO synchrotron_app`
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_records TO synchrotron_app`
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_modified_rows TO synchrotron_app`
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE local_applied_action_ids TO synchrotron_app`
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE client_sync_status TO synchrotron_app`
+	yield* sql`GRANT USAGE ON SCHEMA synchrotron TO synchrotron_app`
+	yield* sql`GRANT SELECT ON TABLE synchrotron.user_audiences TO synchrotron_app`.raw
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE projects TO synchrotron_app`
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE project_members TO synchrotron_app`
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE notes TO synchrotron_app`
+	yield* sql`GRANT USAGE, SELECT ON SEQUENCE action_records_server_ingest_id_seq TO synchrotron_app`
+	yield* sql`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO synchrotron_app`
+
+	// Sync tables
+	yield* sql`ALTER TABLE action_records ENABLE ROW LEVEL SECURITY`
+	yield* sql`ALTER TABLE action_modified_rows ENABLE ROW LEVEL SECURITY`
+
+	// NOTE: pglite currently fails RLS WITH CHECK evaluation for parameterized inserts in some cases.
+	// Keep INSERT policies permissive for sync log tables in tests; rely on app table RLS for enforcement.
+	yield* sql`DROP POLICY IF EXISTS synchrotron_action_records_select ON action_records`
+	yield* sql`DROP POLICY IF EXISTS synchrotron_action_records_insert ON action_records`
+	yield* sql`
+		CREATE POLICY synchrotron_action_records_select ON action_records
+			FOR SELECT
+			USING (
+				(
+					current_setting('synchrotron.internal_materializer', true) = 'true'
+					AND current_user = 'synchrotron_app'
+				)
+				OR
+				(
+					-- Allow inserting new action_records before their AMRs are inserted (pglite RLS quirk).
+					action_records.user_id = current_setting('synchrotron.user_id', true)
+					AND NOT EXISTS (
+						SELECT 1
+						FROM action_modified_rows amr
+						WHERE amr.action_record_id = action_records.id
+					)
+				)
+				OR EXISTS (
+					SELECT 1
+					FROM action_modified_rows amr
+					JOIN synchrotron.user_audiences a
+						ON a.audience_key = amr.audience_key
+					WHERE a.user_id = current_setting('synchrotron.user_id', true)
+					AND amr.action_record_id = action_records.id
+				)
+			)
+	`
+
+	yield* sql`
+		CREATE POLICY synchrotron_action_records_insert ON action_records
+			FOR INSERT
+			WITH CHECK (true)
+	`
+
+	yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_select ON action_modified_rows`
+	yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_insert ON action_modified_rows`
+	yield* sql`
+		CREATE POLICY synchrotron_action_modified_rows_select ON action_modified_rows
+			FOR SELECT
+			USING (
+				(
+					current_setting('synchrotron.internal_materializer', true) = 'true'
+					AND current_user = 'synchrotron_app'
+				)
+				OR
+				EXISTS (
+					SELECT 1
+					FROM synchrotron.user_audiences a
+					WHERE a.user_id = current_setting('synchrotron.user_id', true)
+					AND a.audience_key = action_modified_rows.audience_key
+				)
+			)
+	`
+
+	yield* sql`
+		CREATE POLICY synchrotron_action_modified_rows_insert ON action_modified_rows
+			FOR INSERT
+			WITH CHECK (true)
+	`
+
+	// Example app table (Supabase-compatible `auth.uid()` equivalent: request.jwt.claim.sub)
+	yield* sql`ALTER TABLE notes ENABLE ROW LEVEL SECURITY`
+	yield* sql`DROP POLICY IF EXISTS notes_user_policy ON notes`
+	yield* sql`
+		CREATE POLICY notes_user_policy ON notes
+			USING (
+				EXISTS (
+					SELECT 1
+					FROM synchrotron.user_audiences a
+					WHERE a.user_id = current_setting('request.jwt.claim.sub', true)
+					AND a.audience_key = notes.audience_key
+				)
+			)
+			WITH CHECK (
+				EXISTS (
+					SELECT 1
+					FROM synchrotron.user_audiences a
+					WHERE a.user_id = current_setting('request.jwt.claim.sub', true)
+					AND a.audience_key = notes.audience_key
+				)
+			)
+	`
+
+	// Enforce RLS by switching to the limited role for the remainder of the session.
+	yield* sql`SET ROLE synchrotron_app`
+})
+
 const makeTestAction = (params: {
 	readonly id: string
 	readonly clientId: string

@@ -24,9 +24,10 @@ BEGIN
 	FROM action_records
 	WHERE id = amr_record.action_record_id;
 
-	IF action_record_user_id IS NOT NULL THEN
-		PERFORM set_config('synchrotron.user_id', action_record_user_id, true);
-	END IF;
+		IF action_record_user_id IS NOT NULL THEN
+			PERFORM set_config('synchrotron.user_id', action_record_user_id, true);
+			PERFORM set_config('request.jwt.claim.sub', action_record_user_id, true);
+		END IF;
 
 	target_table := amr_record.table_name;
 	target_id := amr_record.row_id;

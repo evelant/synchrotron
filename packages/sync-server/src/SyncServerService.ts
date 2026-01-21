@@ -117,6 +117,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				const userId = yield* SyncUserId
 				// Set the RLS context for the duration of this transaction.
 				yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+				yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
 
 				const actionTags = actions.reduce<Record<string, number>>((acc, action) => {
 					acc[action._tag] = (acc[action._tag] ?? 0) + 1
@@ -566,6 +567,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					const userId = yield* SyncUserId
 					// Set the RLS context for the duration of this transaction.
 					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+					yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
 					yield* Effect.logDebug("server.getActionsSince.start", {
 						userId,
 						clientId,
@@ -651,6 +653,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				Effect.gen(function* () {
 					const userId = yield* SyncUserId
 					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+					yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
 
 					const snapshotConfigOption = yield* Effect.serviceOption(SyncSnapshotConfig)
 					const snapshotConfig = Option.getOrElse(snapshotConfigOption, () => ({ tables: [] as const }))
