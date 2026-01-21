@@ -573,11 +573,11 @@ describe("Server RLS filtering", () => {
 		{ timeout: 30000 }
 	)
 
-	it.scoped(
-		"rejects patch apply that violates RLS WITH CHECK (notes audience membership)",
-		() =>
-			Effect.gen(function* () {
-				yield* setupRlsDatabase
+		it.scoped(
+			"rejects patch apply that violates RLS WITH CHECK (notes audience membership)",
+			() =>
+				Effect.gen(function* () {
+					yield* setupRlsDatabase
 
 				const sql = yield* SqlClient.SqlClient
 				const server = yield* SyncServerService
@@ -629,15 +629,132 @@ describe("Server RLS filtering", () => {
 				`.pipe(Effect.map((rows) => rows[0]?.count ?? 0))
 
 				expect(actionCount).toBe(0)
-			}).pipe(Effect.provide(TestLayer)),
-		{ timeout: 30000 }
-	)
+				}).pipe(Effect.provide(TestLayer)),
+			{ timeout: 30000 }
+		)
 
-	it.scoped(
-		"does not allow sync-log RLS bypass without the server DB role (internal_materializer guardrail)",
-		() =>
-			Effect.gen(function* () {
-				yield* setupRlsDatabase
+		it.scoped(
+			"supports Supabase-style RLS using request.jwt.claim.sub during server materialization",
+			() =>
+				Effect.gen(function* () {
+					yield* setupRlsDatabaseSupabaseClaims
+
+					const sql = yield* SqlClient.SqlClient
+					const server = yield* SyncServerService
+
+					const projectB = `project-${crypto.randomUUID()}`
+					const memberBId = `${projectB}-userB`
+					yield* sql`INSERT INTO projects (id) VALUES (${projectB})`
+					yield* sql`
+						INSERT INTO project_members (id, project_id, user_id)
+						VALUES (${memberBId}, ${projectB}, 'userB')
+						ON CONFLICT DO NOTHING
+					`
+
+					// Insert a remote action by userB into a project userA is not a member of.
+					// The server must still be able to apply it during rollback+replay materialization.
+					const actionBId = crypto.randomUUID()
+					const noteBId = crypto.randomUUID()
+					const clockTimeMs = 1000
+					yield* sql`
+						INSERT INTO action_records (
+							server_ingest_id,
+							id,
+							user_id,
+							client_id,
+							_tag,
+							args,
+							clock,
+							synced,
+							transaction_id,
+							created_at
+						) VALUES (
+							nextval('action_records_server_ingest_id_seq'),
+							${actionBId},
+							'userB',
+							'clientB',
+							'TestAction',
+							${JSON.stringify({ timestamp: clockTimeMs })}::jsonb,
+							${
+								JSON.stringify({
+									timestamp: clockTimeMs,
+									vector: { clientB: 1 }
+								})
+							}::jsonb,
+							1,
+							${clockTimeMs},
+							${new Date(clockTimeMs).toISOString()}
+						)
+					`
+
+					yield* sql`
+						INSERT INTO action_modified_rows (
+							id,
+							table_name,
+							row_id,
+							action_record_id,
+							audience_key,
+							operation,
+							forward_patches,
+							reverse_patches,
+							sequence
+						) VALUES (
+							${crypto.randomUUID()},
+							'notes',
+							${noteBId},
+							${actionBId},
+							${`project:${projectB}`},
+							'INSERT',
+							${
+								JSON.stringify({
+									id: noteBId,
+									title: "B",
+									content: "",
+									project_id: projectB
+								})
+							}::jsonb,
+							'{}'::jsonb,
+							0
+						)
+					`
+
+					const exit = yield* Effect.exit(
+						server
+							.receiveActions(
+								"clientA",
+								999999,
+								[
+									makeTestAction({
+										id: crypto.randomUUID(),
+										clientId: "clientA",
+										clockTimeMs: 2000,
+										clockCounter: 1
+									})
+								],
+								[]
+							)
+							.pipe(Effect.provideService(SyncUserId, "userA" as UserId))
+					)
+
+					expect(exit._tag).toBe("Success")
+
+					// Assert as the superuser so we're not testing SELECT RLS here.
+					yield* sql`RESET ROLE`
+					const notes = yield* sql<{ readonly id: string; readonly title: string }>`
+						SELECT id, title
+						FROM notes
+						ORDER BY id ASC
+					`
+					expect(notes).toEqual([{ id: noteBId, title: "B" }])
+				}).pipe(Effect.provide(TestLayer)),
+			{ timeout: 30000 }
+		)
+
+		it.scoped(
+			"does not allow sync-log RLS bypass without the server DB role (internal_materializer guardrail)",
+			() =>
+				Effect.gen(function* () {
+					yield* setupRlsDatabase
 
 				const sql = yield* SqlClient.SqlClient
 				const server = yield* SyncServerService

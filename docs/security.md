@@ -2,21 +2,28 @@
 
 Synchrotron is designed for honest clients and relies on PostgreSQL Row Level Security (RLS) for data access control. The server is authoritative for the base tables, but it never runs application action code.
 
-## RLS principal: `synchrotron.user_id`
+## RLS principal: `user_id`
 
 Every server request that reads/writes synced tables must:
 
 1. use a DB role that does **not** bypass RLS, and
-2. set the request principal in the transaction:
+2. set the request principal in the transaction.
+
+Synchrotron sets both:
+
+- `synchrotron.user_id` (library convention)
+- `request.jwt.claim.sub` (Supabase `auth.uid()` compatibility)
 
 ```sql
 select set_config('synchrotron.user_id', '<user_id>', true);
+select set_config('request.jwt.claim.sub', '<user_id>', true);
 ```
 
-RLS policies (both app tables and sync tables) should reference:
+RLS policies (both app tables and sync tables) can reference either:
 
 ```sql
 current_setting('synchrotron.user_id', true)
+current_setting('request.jwt.claim.sub', true)
 ```
 
 ## RPC authentication (JWT)
@@ -45,7 +52,7 @@ model this as a `user:<user_id>` audience.
 
 ## Server materialization (rollback+replay)
 
-- Patch apply must run under the originating principal (`action_records.user_id`), not the request principal. Synchrotron does this by setting `synchrotron.user_id` per action/AMR during replay.
+- Patch apply must run under the originating principal (`action_records.user_id`), not the request principal. Synchrotron does this by setting `synchrotron.user_id` (and `request.jwt.claim.sub`) per action/AMR during replay.
 - Sync-table RLS is for *client visibility*. The server materializer must be able to read the full canonical sync log to do rollback+replay, even if the current request user can’t see those rows (e.g. after membership revocation).
   - Recommended escape hatch for sync-table `SELECT` policies:
     - `current_setting('synchrotron.internal_materializer', true) = 'true'`

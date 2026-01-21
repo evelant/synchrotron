@@ -217,7 +217,7 @@ This caused problems (especially on the server: rollback patches could reference
 - `action_records.user_id` records the **originating authenticated principal** (who executed the action) and is used for audit + “apply under the right identity” (RLS `WITH CHECK`).
   - For per-user / owner-only apps, sync-table visibility can be filtered by `action_records.user_id`.
   - For shared/collaborative rows, sync-table visibility should be derived from `action_modified_rows.audience_key` (membership/sharing rules) rather than only the originating user (see `docs/shared-rows.md`).
-  - In both cases, the server must derive `user_id` from auth and set `synchrotron.user_id` (e.g. `set_config('synchrotron.user_id', <user_id>, true)`) for each request/transaction before reading/writing/applying patches.
+  - In both cases, the server must derive `user_id` from auth and set `synchrotron.user_id` (and `request.jwt.claim.sub` for Supabase `auth.uid()` compatibility) for each request/transaction before reading/writing/applying patches.
   - Server patch application runs under the **action’s** principal (derived from `action_records.user_id`), not the request principal. This is required for correct server-side replay under base-table RLS.
 - The server must be able to read the full sync log during rollback+replay even when the current request user can’t see it (e.g. after membership revocation). The recommended pattern is a sync-table RLS escape hatch keyed off `synchrotron.internal_materializer=true` (set only for server internal materialization, ideally also gated by DB role).
 - If base-table RLS depends on membership/ACL tables, those tables must be replayable as part of canonical history (avoid out-of-band membership churn if you want late-arrival correctness).

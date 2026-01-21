@@ -30,7 +30,7 @@ To connect clients, tests use a fixed base URL (`http://synchrotron.test`) and p
 
 If you want a “real socket” server for local development or CI environments that allow it, `packages/sync-server/test/e2e/harness.ts` still includes `makeSyncRpcServerLayer` (Node `createServer` + `NodeHttpServer`).
 
-Note: because the harness enables RLS and `SET ROLE synchrotron_app`, any direct server-side SQL assertions must also set `synchrotron.user_id` (e.g. via `set_config('synchrotron.user_id', <id>, false)`) or they will see zero rows.
+Note: because the harness enables RLS and `SET ROLE synchrotron_app`, any direct server-side SQL assertions must also set the RLS principal (at least `synchrotron.user_id`, and `request.jwt.claim.sub` if your policies use Supabase-style `auth.uid()` patterns) or they will see zero rows.
 
 ### Clients (real makeSynchrotronClientLayer)
 
