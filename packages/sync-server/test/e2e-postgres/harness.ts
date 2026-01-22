@@ -59,21 +59,34 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 			);
 		`.raw
 
-		// Notes are scoped to a project; audience_key is derived from project_id.
-		yield* sql`
-			CREATE TABLE IF NOT EXISTS notes (
-				id TEXT PRIMARY KEY,
-				content TEXT NOT NULL,
-				project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-				audience_key TEXT GENERATED ALWAYS AS ('project:' || project_id) STORED
-			);
-		`.raw
+			// Notes are scoped to a project; audience_key is derived from project_id.
+			yield* sql`
+				CREATE TABLE IF NOT EXISTS notes (
+					id TEXT PRIMARY KEY,
+					content TEXT NOT NULL,
+					project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+					audience_key TEXT GENERATED ALWAYS AS ('project:' || project_id) STORED
+				);
+			`.raw
 
-		// Convention: app-provided membership mapping for audience visibility.
-		yield* sql`
-			CREATE OR REPLACE VIEW synchrotron.user_audiences AS
-			SELECT user_id, audience_key
-			FROM project_members
+				// Admin-only per-note metadata. This is used to exercise "private divergence" where a replica
+				// with strictly more visibility emits a SYNC delta that should be filtered from other users.
+				yield* sql`
+					CREATE TABLE IF NOT EXISTS note_admin_meta (
+						id TEXT PRIMARY KEY,
+						-- Deferrable so server rollback+replay can temporarily violate FK order within a transaction.
+						-- Final state is still enforced at COMMIT.
+						note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+						last_seen_content TEXT NOT NULL,
+						audience_key TEXT NOT NULL
+					);
+				`.raw
+
+			// Convention: app-provided membership mapping for audience visibility.
+			yield* sql`
+				CREATE OR REPLACE VIEW synchrotron.user_audiences AS
+				SELECT user_id, audience_key
+				FROM project_members
 		`.raw
 
 		// Create a dedicated non-superuser role so RLS is enforced.
@@ -105,10 +118,11 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 		yield* sql`GRANT USAGE, SELECT ON SEQUENCE action_records_server_ingest_id_seq TO synchrotron_app`.raw
 		yield* sql`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO synchrotron_app`.raw
 
-		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE projects TO synchrotron_app`.raw
-		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE project_members TO synchrotron_app`.raw
-		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE notes TO synchrotron_app`.raw
-		yield* sql`GRANT SELECT ON TABLE synchrotron.user_audiences TO synchrotron_app`.raw
+			yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE projects TO synchrotron_app`.raw
+			yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE project_members TO synchrotron_app`.raw
+			yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE notes TO synchrotron_app`.raw
+			yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE note_admin_meta TO synchrotron_app`.raw
+			yield* sql`GRANT SELECT ON TABLE synchrotron.user_audiences TO synchrotron_app`.raw
 
 		// Avoid RLS recursion when a sync-table policy needs to verify action_record ownership.
 		// (SELECT policy on action_records references action_modified_rows; an insert policy on
@@ -199,11 +213,11 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 				)
 		`.raw
 
-		// Example app table RLS
-		yield* sql`ALTER TABLE notes ENABLE ROW LEVEL SECURITY`.raw
-		yield* sql`DROP POLICY IF EXISTS notes_user_policy ON notes`.raw
-		yield* sql`
-			CREATE POLICY notes_user_policy ON notes
+			// Example app table RLS
+			yield* sql`ALTER TABLE notes ENABLE ROW LEVEL SECURITY`.raw
+			yield* sql`DROP POLICY IF EXISTS notes_user_policy ON notes`.raw
+			yield* sql`
+				CREATE POLICY notes_user_policy ON notes
 				USING (
 					EXISTS (
 						SELECT 1
@@ -219,9 +233,31 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 						WHERE a.user_id = current_setting('synchrotron.user_id', true)
 						AND a.audience_key = notes.audience_key
 					)
-				)
-		`.raw
-	})
+					)
+			`.raw
+
+			yield* sql`ALTER TABLE note_admin_meta ENABLE ROW LEVEL SECURITY`.raw
+			yield* sql`DROP POLICY IF EXISTS note_admin_meta_user_policy ON note_admin_meta`.raw
+			yield* sql`
+				CREATE POLICY note_admin_meta_user_policy ON note_admin_meta
+					USING (
+						EXISTS (
+							SELECT 1
+							FROM synchrotron.user_audiences a
+							WHERE a.user_id = current_setting('synchrotron.user_id', true)
+							AND a.audience_key = note_admin_meta.audience_key
+						)
+					)
+					WITH CHECK (
+						EXISTS (
+							SELECT 1
+							FROM synchrotron.user_audiences a
+							WHERE a.user_id = current_setting('synchrotron.user_id', true)
+							AND a.audience_key = note_admin_meta.audience_key
+						)
+					)
+			`.raw
+		})
 
 export const makeInProcessSyncRpcServerPostgres = (options: {
 	readonly configProvider: ConfigProvider.ConfigProvider

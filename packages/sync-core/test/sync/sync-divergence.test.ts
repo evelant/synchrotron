@@ -64,12 +64,12 @@ describe("Sync Divergence Scenarios", () => {
 				// Client B should have created an _InternalSyncApply action due to divergence
 				const syncApplyActionsB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
 				expect(syncApplyActionsB.length).toBe(1)
-				const syncApplyAction = syncApplyActionsB[0]
-				expect(syncApplyAction).toBeDefined()
-				if (!syncApplyAction) return // Type guard
+					const syncApplyAction = syncApplyActionsB[0]
+					expect(syncApplyAction).toBeDefined()
+					if (!syncApplyAction) return // Type guard
 
-				// The SYNC action should NOT be marked as synced yet (it's a new local action)
-				expect(syncApplyAction.synced).toBe(false)
+					// The SYNC action should be sent immediately in the same sync pass.
+					expect(syncApplyAction.synced).toBe(true)
 
 				// Fetch the ActionModifiedRows associated with the SYNC action
 				const syncApplyAmrs = yield* clientB.actionModifiedRowRepo.findByActionRecordIds([
@@ -274,10 +274,10 @@ describe("Sync Divergence Scenarios", () => {
 			const localSyncOnC = syncApplyActionsC.find((a) => a.id !== syncActionBRecord.id)
 			expect(receivedSyncOnC).toBeDefined()
 			expect(localSyncOnC).toBeDefined()
-			if (!receivedSyncOnC || !localSyncOnC) return
+				if (!receivedSyncOnC || !localSyncOnC) return
 
-			expect(receivedSyncOnC.synced).toBe(true)
-			expect(localSyncOnC.synced).toBe(false)
+				expect(receivedSyncOnC.synced).toBe(true)
+				expect(localSyncOnC.synced).toBe(true)
 
 			const localSyncAmrs = yield* clientC.actionModifiedRowRepo.findByActionRecordIds([
 				localSyncOnC.id

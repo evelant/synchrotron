@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Implemented (with follow-ups possible)
 
 ## Summary
 
@@ -105,24 +105,33 @@ When we emit a SYNC containing overwrites, log a diagnostic including:
 - whether the basis likely changed (rollback+replay / late arrivals) vs “no new non-SYNC inputs” (suspicious),
 - the ordered non-SYNC action ids (or a bounded hash) used as the replay basis (optional, for debugging).
 
-### 3) Purity-bug detection (dev/test)
+Implementation status:
+
+- The client logs structured delta details (missing vs differing columns) when it keeps an outgoing SYNC delta during `applyActionRecords`.
+- Overwrites are a distinct severity class in logs: deltas that overwrite known values are logged at `ERROR` and include `hasOverwrites` / `overwriteRowCount` / `missingOnlyRowCount`.
+- We do not yet persist diagnostics.
+
+### 3) Purity-bug detection (optional dev/test)
+
+This is not required for core convergence. It’s a developer ergonomics / diagnostics tool (see `docs/planning/todo/0014-dev-test-action-purity-check.md`).
 
 The strongest signal of impurity is non-repeatability on the same snapshot:
 
 - Run the same replay twice against the same DB snapshot (transaction + savepoint/rollback) and assert identical captured patches.
 
-If this fails, emit a sync-health error and avoid emitting an overwriting SYNC for that apply pass (don’t mint arbitrary corrections from nondeterministic code).
-
 ## Tests to add
 
-- **Shared-field overwrite convergence**:
+Already covered:
+
+- **Shared-field overwrite convergence**: `packages/sync-core/test/sync/shared-field-overwrite.test.ts`
   - Two clients with deterministic but view-dependent replay of a shared field.
   - Each can emit a different overwriting SYNC.
-  - Assert replicas converge to the last SYNC in canonical order, and that a subsequent sync pass does not emit a new SYNC without new inputs.
+  - Replicas converge to the last SYNC in canonical order, and a subsequent sync pass does not emit a new SYNC without new inputs.
 
-- **Purity violation is loud**:
-  - Craft an action with nondeterministic replay (e.g. `Math.random()`).
-  - Assert we emit a diagnostic and do not emit an additional overwriting SYNC delta for that apply pass.
+Optional / next:
+
+- Persist “sync health” diagnostics (optional; probably a local-only table first).
+- Optional (dev/test): add a purity-check regression test (tracked in `docs/planning/todo/0014-dev-test-action-purity-check.md`).
 
 ## Open questions
 

@@ -225,6 +225,7 @@ This caused problems (especially on the server: rollback patches could reference
   - `Authorization: Bearer <jwt>` (`sub` → `user_id`, optional `aud`/`iss` checks; HS256 demo verifier or JWKS/RS256).
 - Synchrotron does not generate RLS policies; the application must define them for its own data tables.
 - Trust model: clients are assumed honest; the server never runs action logic and largely relies on Postgres constraints + RLS for safety.
+- Because server rollback+replay happens inside a single SQL transaction, patch application can temporarily violate foreign-key ordering even when the final state is valid. If you use FKs between synced tables, prefer `DEFERRABLE` constraints (ideally `DEFERRABLE INITIALLY DEFERRED`); the server defers constraints during materialization so commit-time enforcement still applies.
 - Clients must not receive patches that touch rows they cannot see; this implies `action_modified_rows` must be filtered by policies that track underlying row visibility (see `docs/security.md` and `docs/shared-rows.md`).
 - Args visibility is part of the contract: if a user can read an `action_records` row, they can read its `args` (no field-level redaction). Applications should avoid putting secrets in `args`; store private inputs in RLS-protected tables and pass only opaque references.
 - Patch verification (for reverse patches) can be enforced server-side with a SECURITY INVOKER function: check that every referenced row is visible under the caller's RLS policy; missing rows imply unauthorized modifications.

@@ -192,18 +192,21 @@ const makeClientLayer = (params: {
 				})
 
 				const syncRpcUrl = `${server.baseUrl}/rpc`
-				const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
-				const runOnServerAsUser =
-					(userId: string) =>
-					<A, E, R>(effect: Effect.Effect<A, E, R>) =>
-						runOnServer(
-							Effect.gen(function* () {
-								const sql = yield* SqlClient.SqlClient
-								yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, false)`
-								return yield* effect
-							})
-						)
+					const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+						Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
+					const runOnServerAsUser =
+						(userId: string) =>
+						<A, E, R>(effect: Effect.Effect<A, E, R>) =>
+							runOnServer(
+								Effect.gen(function* () {
+									const sql = yield* SqlClient.SqlClient
+									return yield* Effect.gen(function* () {
+										yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+										yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+										return yield* effect
+									}).pipe(sql.withTransaction)
+								})
+							)
 
 				const noteId = crypto.randomUUID()
 				const projectId = `project-${crypto.randomUUID()}`
@@ -415,18 +418,21 @@ const makeClientLayer = (params: {
 				})
 
 				const syncRpcUrl = `${server.baseUrl}/rpc`
-				const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
-				const runOnServerAsUser =
-					(userId: string) =>
-					<A, E, R>(effect: Effect.Effect<A, E, R>) =>
-						runOnServer(
-							Effect.gen(function* () {
-								const sql = yield* SqlClient.SqlClient
-								yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, false)`
-								return yield* effect
-							})
-						)
+					const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+						Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
+					const runOnServerAsUser =
+						(userId: string) =>
+						<A, E, R>(effect: Effect.Effect<A, E, R>) =>
+							runOnServer(
+								Effect.gen(function* () {
+									const sql = yield* SqlClient.SqlClient
+									return yield* Effect.gen(function* () {
+										yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+										yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+										return yield* effect
+									}).pipe(sql.withTransaction)
+								})
+							)
 
 				const noteId = crypto.randomUUID()
 				const projectId = `project-${crypto.randomUUID()}`
@@ -516,18 +522,21 @@ const makeClientLayer = (params: {
 				})
 
 				const syncRpcUrl = `${server.baseUrl}/rpc`
-				const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
-				const runOnServerAsUser =
-					(userId: string) =>
-					<A, E, R>(effect: Effect.Effect<A, E, R>) =>
-						runOnServer(
-							Effect.gen(function* () {
-								const sql = yield* SqlClient.SqlClient
-								yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, false)`
-								return yield* effect
-							})
-						)
+					const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+						Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
+					const runOnServerAsUser =
+						(userId: string) =>
+						<A, E, R>(effect: Effect.Effect<A, E, R>) =>
+							runOnServer(
+								Effect.gen(function* () {
+									const sql = yield* SqlClient.SqlClient
+									return yield* Effect.gen(function* () {
+										yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+										yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+										return yield* effect
+									}).pipe(sql.withTransaction)
+								})
+							)
 
 				const mkClient = (clientId: string) =>
 					Layer.build(

@@ -5,6 +5,74 @@ import type { ActionModifiedRow } from "./models"
 
 type PatchSqlValue = unknown | Fragment
 
+type PatchDialect = "pg" | "sqlite" | "other"
+
+const dialectOf = (sql: SqlClient.SqlClient): PatchDialect =>
+	sql.onDialectOrElse({
+		pg: () => "pg",
+		sqlite: () => "sqlite",
+		orElse: () => "other"
+	})
+
+// Note: Patch apply runs primarily for received SYNC actions (patch-only). Those are expected to be rare,
+// but caching avoids repeated catalog/pragma lookups when a SYNC has many AMRs for the same table.
+const shouldWriteAudienceKeyCache = new Map<string, boolean>()
+
+const shouldWriteAudienceKey = (
+	sql: SqlClient.SqlClient,
+	tableName: string
+): Effect.Effect<boolean, SqlError.SqlError> =>
+	Effect.gen(function* () {
+		const dialect = dialectOf(sql)
+		const cacheKey = `${dialect}:${tableName}`
+		if (shouldWriteAudienceKeyCache.has(cacheKey)) {
+			return shouldWriteAudienceKeyCache.get(cacheKey)!
+		}
+
+		const shouldWrite = yield* Effect.gen(function* () {
+			if (dialect === "pg") {
+				const rows = yield* sql<{ generated: boolean | number }>`
+					SELECT (attgenerated IS NOT NULL AND attgenerated <> '') AS generated
+					FROM pg_attribute
+					WHERE attrelid = to_regclass(${tableName})
+						AND attname = 'audience_key'
+						AND NOT attisdropped
+					LIMIT 1
+				`
+				const generated = rows[0]?.generated
+				const isGenerated = generated === true || generated === 1
+				return rows.length > 0 && !isGenerated
+			}
+
+			if (dialect === "sqlite") {
+				const rows = yield* sql<{ name: string; hidden?: number | null }>`
+					SELECT name, hidden FROM pragma_table_xinfo(${tableName})
+				`.pipe(
+					Effect.catchAll(() =>
+						sql<{ name: string; hidden?: number | null }>`
+							SELECT name, 0 as hidden FROM pragma_table_info(${tableName})
+						`
+					)
+				)
+				const column = rows.find((r) => r.name.toLowerCase() === "audience_key")
+				if (!column) return false
+
+				// SQLite: pragma_table_xinfo.hidden:
+				// - 0: normal
+				// - 1: hidden
+				// - 2+: generated / internal (treat as generated for write-avoidance)
+				const hidden = column.hidden ?? 0
+				const isGenerated = hidden >= 2
+				return !isGenerated
+			}
+
+			return false
+		})
+
+		shouldWriteAudienceKeyCache.set(cacheKey, shouldWrite)
+		return shouldWrite
+	})
+
 const isPrimitive = (value: unknown) =>
 	value === null ||
 	typeof value === "string" ||
@@ -106,6 +174,16 @@ const applyForwardAmr = (
 			if (!Object.prototype.hasOwnProperty.call(patches, "id")) {
 				patches["id"] = amr.row_id
 			}
+			// audience_key is stripped out of JSON patches (stored on the AMR row instead). For tables
+			// with a non-generated audience_key column, we must include it on INSERT so NOT NULL / RLS
+			// checks can succeed.
+			if (
+				amr.audience_key &&
+				!Object.prototype.hasOwnProperty.call(patches, "audience_key") &&
+				(yield* shouldWriteAudienceKey(sql, amr.table_name))
+			) {
+				patches["audience_key"] = amr.audience_key
+			}
 			yield* sql`
 				INSERT INTO ${table} ${sql.insert(toPatchSqlRecord(sql, patches))}
 				${insertIgnoreFragment(sql)}
@@ -160,6 +238,13 @@ const applyReverseAmr = (
 			const patches = { ...amr.reverse_patches }
 			if (!Object.prototype.hasOwnProperty.call(patches, "id")) {
 				patches["id"] = amr.row_id
+			}
+			if (
+				amr.audience_key &&
+				!Object.prototype.hasOwnProperty.call(patches, "audience_key") &&
+				(yield* shouldWriteAudienceKey(sql, amr.table_name))
+			) {
+				patches["audience_key"] = amr.audience_key
 			}
 			yield* sql`
 				INSERT INTO ${table} ${sql.insert(toPatchSqlRecord(sql, patches))}

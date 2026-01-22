@@ -57,7 +57,9 @@ Every table tracked by patch capture must have:
 Important implementation detail:
 
 - patch capture stores `audience_key` on `action_modified_rows.audience_key` and strips it out of JSON patches
-- patch apply does **not** set `audience_key`, so compute it in the database (generated column or trigger)
+- patch apply:
+  - does not write generated `audience_key` columns (the DB computes it)
+  - for non-generated `audience_key` columns, it populates `audience_key` from `action_modified_rows.audience_key` on INSERT / reverse-INSERT (so `NOT NULL` + RLS `WITH CHECK` can succeed)
 
 ### 4) Membership mapping: `synchrotron.user_audiences`
 

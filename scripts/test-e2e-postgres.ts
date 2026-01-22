@@ -11,10 +11,31 @@ const run = async (command: string, args: string[], env?: Record<string, string>
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-const args = process.argv.slice(2)
-const keepDocker = args.includes("--keep-docker")
-const noDocker = args.includes("--no-docker")
-const resetDocker = args.includes("--reset-docker")
+const rawArgs = process.argv.slice(2)
+
+let keepDocker = false
+let noDocker = false
+let resetDocker = false
+const forwardedVitestArgs: string[] = []
+
+for (const arg of rawArgs) {
+	// `pnpm ... -- <args>` passes a literal `--` through to this script.
+	// Treat it as a separator and never forward it to vitest.
+	if (arg === "--") continue
+	if (arg === "--keep-docker") {
+		keepDocker = true
+		continue
+	}
+	if (arg === "--no-docker") {
+		noDocker = true
+		continue
+	}
+	if (arg === "--reset-docker") {
+		resetDocker = true
+		continue
+	}
+	forwardedVitestArgs.push(arg)
+}
 
 const dockerDownCommand = resetDocker ? "docker:reset" : "docker:down"
 
@@ -179,7 +200,7 @@ try {
 	console.log(`[test:e2e:postgres] running vitest suite…`)
 	testExitCode = await run(
 		"pnpm",
-		["--filter", "@synchrotron/sync-server", "test:e2e:postgres"],
+		["-C", "packages/sync-server", "exec", "vitest", "run", "-c", "vitest.postgres.config.ts", ...forwardedVitestArgs],
 		{ E2E_ADMIN_DATABASE_URL: adminDatabaseUrl, E2E_DATABASE_URL: databaseUrl }
 	)
 } finally {

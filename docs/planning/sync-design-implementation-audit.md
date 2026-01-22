@@ -22,7 +22,7 @@ Remaining high-leverage gaps are mostly around: (1) formalizing SYNC stabilizati
 
 - `README.md`, `DESIGN.md`
 - `docs/planning/todo/0002-reliable-fetch-cursor.md` (implemented)
-- `docs/planning/todo/0003-sync-action-semantics.md` (proposed; partially implemented)
+- `docs/planning/todo/0003-sync-action-semantics.md` (implemented)
 - `packages/sync-core` (SyncService/Clock/HLC/Patch capture/adapters/repos)
 - `packages/sync-client` (RPC network service, Electric ingestion)
 - `packages/sync-server` (RPC handlers + server-side ingest/apply)

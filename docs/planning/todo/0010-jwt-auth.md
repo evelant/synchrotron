@@ -2,7 +2,7 @@
 
 ## Status
 
-Partially implemented (HS256 + JWKS verifier)
+Implemented (HS256 + JWKS verifier)
 
 ## Summary
 
@@ -10,10 +10,10 @@ Synchrotron’s security story depends on Postgres RLS, which requires the serve
 
 Today (demo v1):
 
-- `packages/sync-server/src/SyncAuthService.ts` derives `user_id` per request from `Authorization: Bearer <jwt>`:
+- `packages/sync-server/src/SyncAuthService.ts` derives `user_id` per request from `Authorization: Bearer <jwt>` (required):
   - HS256 shared secret (`SYNC_JWT_SECRET` / `GOTRUE_JWT_SECRET`)
-  - JWKS URL (`SYNC_JWT_JWKS_URL`)
-- The server sets `synchrotron.user_id` (via `set_config(..., true)` in a transaction) and stores it on `action_records.user_id`.
+  - JWKS URL (for RS256/etc) (`SYNC_JWT_JWKS_URL`)
+- The server sets `synchrotron.user_id` and `request.jwt.claim.sub` (via `set_config(..., true)` in a transaction) and stores `user_id` on `action_records.user_id`.
 - RLS policies on `action_records` / `action_modified_rows` and application tables enforce visibility + `WITH CHECK`.
 
 The recommended mechanism is JWT-based RPC auth:
@@ -98,7 +98,7 @@ This keeps JWT logic out of RPC handlers and makes the auth mechanism swappable.
 
 ### 2) JWT verification strategy
 
-#### v1: HS256 secret (already implemented)
+#### HS256 secret (implemented)
 
 Implemented in `packages/sync-server/src/SyncAuthService.ts`:
 
@@ -119,7 +119,7 @@ This is the fastest path for Supabase/GoTrue apps: they already have the shared 
 
 Most hosted auth systems (Auth0, Clerk, Firebase, Cognito, …) sign tokens with asymmetric keys and publish a JWKS endpoint.
 
-Add:
+Implemented:
 
 - `SYNC_JWT_JWKS_URL=<https://.../.well-known/jwks.json>`
 - optional: `SYNC_JWT_ALG=RS256` (default), or a list of allowed algorithms
@@ -132,10 +132,7 @@ Implementation note: `jose` supports `createRemoteJWKSet` which handles caching 
 Decisions:
 
 - **Default** `SyncAuthService` should require JWT verification (HS256 or JWKS).
-- The insecure header mode should only be available via an explicit layer or env flag, e.g.:
-  - `SYNC_ALLOW_INSECURE_USER_ID_HEADER=true`
-
-This keeps demos easy but prevents accidental “no-auth” deployments.
+- There is no “insecure identity header” fallback in the default server implementation.
 
 ### 3) Database/RLS wiring stays the same
 
@@ -147,13 +144,13 @@ This keeps demos easy but prevents accidental “no-auth” deployments.
 
 Supabase RLS commonly uses `auth.uid()`, which reads `current_setting('request.jwt.claim.sub')`.
 
-To reduce adoption friction, we can optionally set:
+Implemented: Synchrotron sets `request.jwt.claim.sub` alongside `synchrotron.user_id`:
 
 ```sql
 select set_config('request.jwt.claim.sub', '<user_id>', true);
 ```
 
-alongside `synchrotron.user_id` (both for request handling and for server rollback+replay patch apply).
+This happens for request handling and for server rollback+replay patch apply (patch SQL sets `request.jwt.claim.sub` from `action_records.user_id` per AMR).
 
 Constraint: Synchrotron does not (and should not) preserve arbitrary JWT claims per action. RLS should not depend on ephemeral JWT claims beyond the user id if you want server replay to remain valid.
 
@@ -161,17 +158,12 @@ Constraint: Synchrotron does not (and should not) preserve arbitrary JWT claims 
 
 Synchrotron should not “own” auth, but we can make the default RPC transport ergonomic:
 
-- Add an optional `SynchrotronClientConfig.syncRpcAuthToken` (bearer token) and pass it via `RpcClient.layerProtocolHttp({ transformClient })`.
+Implemented:
 
-Apps with dynamic tokens (refresh) generally need a callback/service instead of a static string.
-
-Recommendation (next):
-
-- Replace the config `syncRpcAuthToken?: string` with a token provider:
-  - `syncRpcAuthToken: Effect<Option<Redacted<string>>>` (or a small `SyncAuthToken` service)
-  - evaluated per request so tokens can refresh without restarting the whole client runtime
-
-Keep the “static string” as a convenience wrapper over the provider API.
+- `SynchrotronClientConfig.syncRpcAuthToken?: string` is supported as a convenience (static bearer token).
+- `packages/sync-client/src/SyncRpcAuthToken.ts` provides `SyncRpcAuthToken` (token provider service):
+  - default: reads the static config token (if present)
+  - apps can override with a custom layer to fetch/refresh tokens per request
 
 ## Test Plan
 
@@ -184,17 +176,14 @@ Unit / integration tests in `packages/sync-server`:
 
 Implemented:
 
-- `packages/sync-server/test/jwt-auth.test.ts` covers the JWT verifier + fallback behavior.
+ - `packages/sync-server/test/jwt-auth.test.ts` covers HS256 + JWKS verification and basic failures.
 
-Add:
+Follow-ups (optional):
 
-- Unit test for JWKS verification (known keypair + remote JWKSet fetch mocked).
-- Integration test that exercises “token rotates” by swapping JWKS keys (ensures caching/rotation works).
-- Client-side tests for token provider ergonomics (token changes without restarting the client).
+- Integration test for JWKS key rotation (ensures caching/rotation works in practice).
+- Client-side example that refreshes tokens without restarting the runtime.
 
 ## Concrete next steps
 
-1) Server: add JWKS/RS256 mode to `SyncAuthService` and choose auth mode explicitly (no silent insecure fallback).
-2) Server: optionally set `request.jwt.claim.sub` alongside `synchrotron.user_id` (reduce RLS migration friction).
-3) Client: replace static `syncRpcAuthToken` with a token provider API (keep a convenience wrapper).
-4) Docs/examples: document the expected “bring your own auth” setups (HS256 vs JWKS) and show one snippet per (Supabase + generic JWKS provider).
+1) Docs/examples: document the expected “bring your own auth” setups (HS256 vs JWKS) and show one snippet per (Supabase + generic JWKS provider).
+2) Consider optional issuer/audience defaults for Supabase/GoTrue compatibility (`aud=authenticated`).

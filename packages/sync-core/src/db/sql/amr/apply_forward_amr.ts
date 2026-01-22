@@ -1,18 +1,20 @@
 export default `CREATE OR REPLACE FUNCTION apply_forward_amr(p_amr_id TEXT) RETURNS VOID AS $$
-DECLARE
-	amr_record RECORD;
-	action_record_tag TEXT;
-	action_record_user_id TEXT;
-	column_name TEXT;
-	column_value JSONB;
-	sql_command TEXT;
-	columns_list TEXT DEFAULT '';
-	values_list TEXT DEFAULT '';
-	target_exists BOOLEAN;
-	target_table TEXT;
-	target_id TEXT;
-	forward_patches_obj JSONB;
-BEGIN
+	DECLARE
+		amr_record RECORD;
+		action_record_tag TEXT;
+		action_record_user_id TEXT;
+		column_name TEXT;
+		column_value JSONB;
+		sql_command TEXT;
+		columns_list TEXT DEFAULT '';
+		values_list TEXT DEFAULT '';
+		target_exists BOOLEAN;
+		target_table TEXT;
+		target_id TEXT;
+		forward_patches_obj JSONB;
+		target_has_audience_key BOOLEAN DEFAULT false;
+		target_audience_key_generated BOOLEAN DEFAULT false;
+	BEGIN
 	-- Get the action_modified_rows entry
 	SELECT * INTO amr_record FROM action_modified_rows WHERE id = p_amr_id;
 
@@ -32,13 +34,29 @@ BEGIN
 			PERFORM set_config('request.jwt.claim.sub', action_record_user_id, true);
 		END IF;
 
-	target_table := amr_record.table_name;
-	target_id := amr_record.row_id;
+		target_table := amr_record.table_name;
+		target_id := amr_record.row_id;
 
-	-- Normalize forward_patches for INSERT/UPDATE. We expect a JSON object, but defensive
-	-- parsing helps if something double-encoded JSON into a JSONB string.
-	forward_patches_obj := amr_record.forward_patches;
-	IF forward_patches_obj IS NULL OR forward_patches_obj = 'null'::jsonb THEN
+		-- Detect audience_key column on the target table (and whether it is generated).
+		-- Some apps store audience_key only in action_modified_rows (for filtering) and omit it from
+		-- forward_patches to avoid duplication. If the base table has a non-generated audience_key
+		-- column, we must still include it for INSERTs to satisfy RLS / NOT NULL constraints.
+		SELECT
+			true,
+			(attgenerated IS NOT NULL AND attgenerated <> '')
+		INTO
+			target_has_audience_key,
+			target_audience_key_generated
+		FROM pg_attribute
+		WHERE attrelid = to_regclass(target_table)
+		AND attname = 'audience_key'
+		AND NOT attisdropped
+		LIMIT 1;
+
+		-- Normalize forward_patches for INSERT/UPDATE. We expect a JSON object, but defensive
+		-- parsing helps if something double-encoded JSON into a JSONB string.
+		forward_patches_obj := amr_record.forward_patches;
+		IF forward_patches_obj IS NULL OR forward_patches_obj = 'null'::jsonb THEN
 		forward_patches_obj := '{}'::jsonb;
 	END IF;
 	IF jsonb_typeof(forward_patches_obj) = 'string' THEN
@@ -74,17 +92,34 @@ BEGIN
 			END IF;
 
 			-- Attempt direct INSERT. Let PK violation handle existing rows.
-			columns_list := ''; values_list := '';
-			IF NOT (forward_patches_obj ? 'id') THEN
-				columns_list := 'id'; values_list := quote_literal(target_id);
-			END IF;
+				columns_list := ''; values_list := '';
+				IF NOT (forward_patches_obj ? 'id') THEN
+					columns_list := 'id'; values_list := quote_literal(target_id);
+				END IF;
 
-		FOR column_name, column_value IN SELECT * FROM jsonb_each(forward_patches_obj)
-		LOOP
-			IF columns_list <> '' THEN columns_list := columns_list || ', '; values_list := values_list || ', '; END IF;
-			columns_list := columns_list || quote_ident(column_name);
-			IF column_value IS NULL OR column_value = 'null'::jsonb THEN
-				values_list := values_list || 'NULL';
+				-- If the target table has a non-generated audience_key column and the patches omit it,
+				-- supply it from action_modified_rows.audience_key.
+				IF amr_record.audience_key IS NOT NULL
+					AND NOT (forward_patches_obj ? 'audience_key')
+					AND target_has_audience_key
+					AND NOT target_audience_key_generated THEN
+					IF columns_list <> '' THEN columns_list := columns_list || ', '; values_list := values_list || ', '; END IF;
+					columns_list := columns_list || quote_ident('audience_key');
+					values_list := values_list || quote_nullable(amr_record.audience_key);
+				END IF;
+
+			FOR column_name, column_value IN SELECT * FROM jsonb_each(forward_patches_obj)
+			LOOP
+				-- Never attempt to write generated audience_key columns.
+				IF column_name = 'audience_key'
+					AND target_has_audience_key
+					AND target_audience_key_generated THEN
+					CONTINUE;
+				END IF;
+				IF columns_list <> '' THEN columns_list := columns_list || ', '; values_list := values_list || ', '; END IF;
+				columns_list := columns_list || quote_ident(column_name);
+				IF column_value IS NULL OR column_value = 'null'::jsonb THEN
+					values_list := values_list || 'NULL';
 			ELSIF jsonb_typeof(column_value) = 'array' AND column_name = 'tags' THEN
 				values_list := values_list || format(CASE WHEN jsonb_array_length(column_value) = 0 THEN '''{}''::text[]' ELSE quote_literal(ARRAY(SELECT jsonb_array_elements_text(column_value))) || '::text[]' END);
 			ELSIF jsonb_typeof(column_value) = 'object' THEN
@@ -119,13 +154,19 @@ BEGIN
 		sql_command := format('UPDATE %I SET ', target_table);
 		columns_list := '';
 
-		FOR column_name, column_value IN SELECT * FROM jsonb_each(forward_patches_obj)
-		LOOP
-			IF column_name <> 'id' THEN
-				IF columns_list <> '' THEN columns_list := columns_list || ', '; END IF;
-				IF column_value IS NULL OR column_value = 'null'::jsonb THEN
-					columns_list := columns_list || format('%I = NULL', column_name);
-				ELSIF jsonb_typeof(column_value) = 'array' AND column_name = 'tags' THEN
+			FOR column_name, column_value IN SELECT * FROM jsonb_each(forward_patches_obj)
+			LOOP
+				IF column_name <> 'id' THEN
+					-- Never attempt to write generated audience_key columns.
+					IF column_name = 'audience_key'
+						AND target_has_audience_key
+						AND target_audience_key_generated THEN
+						CONTINUE;
+					END IF;
+					IF columns_list <> '' THEN columns_list := columns_list || ', '; END IF;
+					IF column_value IS NULL OR column_value = 'null'::jsonb THEN
+						columns_list := columns_list || format('%I = NULL', column_name);
+					ELSIF jsonb_typeof(column_value) = 'array' AND column_name = 'tags' THEN
 					columns_list := columns_list || format('%I = %L::text[]', column_name, CASE WHEN jsonb_array_length(column_value) = 0 THEN '{}' ELSE ARRAY(SELECT jsonb_array_elements_text(column_value)) END);
 				ELSIF jsonb_typeof(column_value) = 'object' THEN
 					-- For JSONB objects, preserve the structure

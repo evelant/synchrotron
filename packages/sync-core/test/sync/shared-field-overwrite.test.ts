@@ -54,16 +54,17 @@ describe("Shared-field overwrite convergence", () => {
 
 				yield* waitForNextMillisecond
 
-				// Client B receives the base action and A's SYNC in one batch, computes a different
-				// shared-field value ("Base-clientB"), and emits a second overwriting SYNC.
-				yield* clientB.syncService.performSync()
-				const syncActionsOnB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-				const unsyncedSyncOnB = syncActionsOnB.filter((a) => a.synced === false)
-				expect(unsyncedSyncOnB.length).toBe(1)
-				yield* clientB.syncService.performSync()
+					// Client B receives the base action and A's SYNC in one batch, computes a different
+					// shared-field value ("Base-clientB"), and emits a second overwriting SYNC.
+					yield* clientB.syncService.performSync()
+					const syncActionsOnB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
+					// B should have both the received SYNC from A and its own newly-emitted SYNC.
+					expect(syncActionsOnB.length).toBe(2)
+					const localSyncOnB = syncActionsOnB.find((a) => a.client_id === "clientB")
+					expect(localSyncOnB?.synced).toBe(true)
 
-				// Client A fast-forwards the later SYNC (no replay of the underlying action) and converges.
-				yield* clientA.syncService.performSync()
+					// Client A fast-forwards the later SYNC (no replay of the underlying action) and converges.
+					yield* clientA.syncService.performSync()
 				const noteAAfterB = yield* clientA.noteRepo.findById(note.id)
 				expect(noteAAfterB.pipe(Option.map((n) => n.content)).pipe(Option.getOrThrow)).toBe(
 					"Base-clientB"
@@ -80,4 +81,3 @@ describe("Shared-field overwrite convergence", () => {
 		{ timeout: 30000 }
 	)
 })
-

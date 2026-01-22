@@ -315,6 +315,86 @@ describe("SQLite ClientDbAdapter (sqlite-node)", () => {
 	)
 
 	it.scoped(
+		"applies INSERT patches by injecting audience_key when required",
+		() =>
+			Effect.gen(function* () {
+				const sql = yield* SqlClient.SqlClient
+				const clientDbAdapter = yield* ClientDbAdapter
+
+				yield* sql`
+					CREATE TABLE amr_insert_requires_audience_key (
+						id TEXT PRIMARY KEY,
+						value TEXT NOT NULL,
+						audience_key TEXT NOT NULL
+					)
+				`.raw
+
+				const amr = {
+					id: "amr-insert-1",
+					table_name: "amr_insert_requires_audience_key",
+					row_id: "row-1",
+					action_record_id: "action-1",
+					audience_key: "audience:test",
+					operation: "INSERT",
+					forward_patches: { value: "value-1" },
+					reverse_patches: {},
+					sequence: 0
+				} as const
+
+				yield* clientDbAdapter.withPatchTrackingDisabled(applyForwardAmrs([amr]))
+
+				const rows =
+					yield* sql<{ value: string; audience_key: string }>`
+						SELECT value, audience_key
+						FROM amr_insert_requires_audience_key
+						WHERE id = 'row-1'
+					`
+				expect(rows[0]?.value).toBe("value-1")
+				expect(rows[0]?.audience_key).toBe("audience:test")
+			}).pipe(Effect.provide(makeSqliteTestLayers("sqlite-client")))
+	)
+
+	it.scoped(
+		"does not write generated audience_key columns during INSERT patch apply",
+		() =>
+			Effect.gen(function* () {
+				const sql = yield* SqlClient.SqlClient
+				const clientDbAdapter = yield* ClientDbAdapter
+
+				yield* sql`
+					CREATE TABLE amr_insert_generated_audience_key (
+						id TEXT PRIMARY KEY,
+						value TEXT NOT NULL,
+						audience_key TEXT GENERATED ALWAYS AS ('audience:' || id) STORED
+					)
+				`.raw
+
+				const amr = {
+					id: "amr-insert-2",
+					table_name: "amr_insert_generated_audience_key",
+					row_id: "row-2",
+					action_record_id: "action-2",
+					audience_key: "audience:should-not-be-written",
+					operation: "INSERT",
+					forward_patches: { value: "value-2" },
+					reverse_patches: {},
+					sequence: 0
+				} as const
+
+				yield* clientDbAdapter.withPatchTrackingDisabled(applyForwardAmrs([amr]))
+
+				const rows =
+					yield* sql<{ value: string; audience_key: string }>`
+						SELECT value, audience_key
+						FROM amr_insert_generated_audience_key
+						WHERE id = 'row-2'
+					`
+				expect(rows[0]?.value).toBe("value-2")
+				expect(rows[0]?.audience_key).toBe("audience:row-2")
+			}).pipe(Effect.provide(makeSqliteTestLayers("sqlite-client")))
+	)
+
+	it.scoped(
 		"decodes action_records / action_modified_rows inserted via raw SQL (ingestion-style)",
 		() =>
 			Effect.gen(function* () {

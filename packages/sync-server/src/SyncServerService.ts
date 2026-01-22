@@ -189,8 +189,19 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					return Number(value)
 				}
 
-				const toJsonbString = (value: unknown): string =>
-					typeof value === "string" ? value : JSON.stringify(value)
+				const normalizeJson = (value: unknown): unknown => {
+					if (typeof value !== "string") return value
+					let current: unknown = value
+					// Handle "double encoded" JSON strings (JSON string containing JSON text).
+					for (let i = 0; i < 2 && typeof current === "string"; i++) {
+						try {
+							current = JSON.parse(current)
+						} catch {
+							break
+						}
+					}
+					return current
+				}
 
 				const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
 					if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
@@ -250,15 +261,16 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				}
 				yield* Effect.logDebug("server.receiveActions.headOk", { clientId, basisServerIngestId })
 
-				// From here on, we need to be able to write and read the sync log regardless of the
-				// requesting user's current audience membership (membership churn + late arrival).
-				// Sync-table RLS policies should allow a bypass when this flag is set.
-				yield* sql`SELECT set_config('synchrotron.internal_materializer', 'true', true)`
+					// From here on, we need to be able to write and read the sync log regardless of the
+					// requesting user's current audience membership (membership churn + late arrival).
+					// Sync-table RLS policies should allow a bypass when this flag is set.
+					yield* sql`SELECT set_config('synchrotron.internal_materializer', 'true', true)`
+					// Allow app schemas to use deferrable FK constraints without being sensitive to the
+					// transient ordering of rollback+replay inside a single transaction.
+					yield* sql`SET CONSTRAINTS ALL DEFERRED`.raw
 
-				// Insert ActionRecords and AMRs idempotently.
-				for (const actionRecord of actions) {
-					const argsJson = toJsonbString(actionRecord.args)
-					const clockJson = toJsonbString(actionRecord.clock)
+					// Insert ActionRecords and AMRs idempotently.
+					for (const actionRecord of actions) {
 					yield* sql`
 						INSERT INTO action_records (
 							server_ingest_id,
@@ -277,8 +289,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							${userId},
 							${actionRecord.client_id},
 							${actionRecord._tag},
-							${argsJson}::jsonb,
-							${clockJson}::jsonb,
+							${sql.json(normalizeJson(actionRecord.args))},
+							${sql.json(normalizeJson(actionRecord.clock))},
 							1,
 							${actionRecord.transaction_id},
 							${new Date(actionRecord.created_at).toISOString()}
@@ -288,8 +300,6 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				}
 
 				for (const modifiedRow of amrs) {
-					const forwardJson = toJsonbString(modifiedRow.forward_patches)
-					const reverseJson = toJsonbString(modifiedRow.reverse_patches)
 					yield* sql`
 						INSERT INTO action_modified_rows (
 							id,
@@ -308,8 +318,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							${modifiedRow.action_record_id},
 							${modifiedRow.audience_key},
 							${modifiedRow.operation},
-							${forwardJson}::jsonb,
-							${reverseJson}::jsonb,
+							${sql.json(normalizeJson(modifiedRow.forward_patches))},
+							${sql.json(normalizeJson(modifiedRow.reverse_patches))},
 							${modifiedRow.sequence}
 						)
 						ON CONFLICT (id) DO NOTHING

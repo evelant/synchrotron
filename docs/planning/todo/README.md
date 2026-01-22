@@ -6,16 +6,17 @@ This folder contains **internal planning docs** for Synchrotron. These are not u
 
 | ID | Topic | Status | Next |
 | --- | --- | --- | --- |
-| `0010` | JWT auth for RPC (`user_id` for RLS) | Partially implemented | Add JWKS/RS256 + explicit auth mode (no silent insecure fallback); add client token provider API; optionally set `request.jwt.claim.sub` for `auth.uid()` compatibility. |
-| `0003` | SYNC action semantics (batch delta) | Proposed | Implement diagnostics + dev/test purity checks; add tests for private divergence and fixed-point behavior. |
-| `006` | SYNC conflicts (shared-field overwrites) | Proposed | Add tests + warnings/diagnostics; document app-level constraints for “view-dependent writes to shared fields”. |
+| `0014` | Dev/test action purity check | Proposed (optional) | Add an opt-in “replay twice” purity check (diagnostics only), likely for CI/dev. |
 | `0013` | Transport abstraction | Proposed (on hold) | Revisit after core semantics + server correctness stabilize. |
 
 ## Implemented (with follow-ups possible)
 
 | ID | Topic | Status |
 | --- | --- | --- |
+| `0003` | SYNC action semantics (batch delta) | Implemented |
+| `006` | SYNC conflicts (shared-field overwrites) | Implemented |
 | `0007` | Server materialization (authoritative patch apply) | Implemented |
+| `0010` | JWT auth for RPC (`user_id` for RLS) | Implemented |
 | `0011` | Shared rows via `audience_key` + membership mapping | Implemented |
 | `0004` | RLS policies + visibility model | Implemented |
 | `0012` | Membership churn vs server replay | Implemented |

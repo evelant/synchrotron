@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Implemented (with follow-ups possible)
 
 ## Summary
 
@@ -10,14 +10,14 @@ Synchrotron replays deterministic actions, but “deterministic” is relative t
 
 To converge in the presence of partial visibility, we introduce **SYNC actions**: system actions that carry **patches only** (no action logic) to reconcile outcomes when replay produces additional writes that were not present in the originating action’s patch set due to visibility differences.
 
-In the current design/prototype, SYNC actions are emitted as **reconciliation deltas for an apply batch** (not as “corrections” tied to a single base action). Conceptually, a SYNC action is a new action appended to the end of a sync pass.
+As implemented today, SYNC actions are emitted as **reconciliation deltas for an apply batch** (not as “corrections” tied to a single base action). Concretely this is `_InternalSyncApply`: a placeholder is created for the batch, then either deleted (no delta) or kept with AMRs trimmed to the uncovered delta.
 
 This document formalizes the intended SYNC semantics so they are:
 
 - **Additive / monotonic** in the common case (private-data divergence)
 - Mostly **invisible** across users (because RLS filters patch visibility)
 - Compatible with rollback + replay (SYNC participates in history like any other action)
-- Robust to **accidental action impurity** (detect loudly, converge anyway, prevent ping-pong)
+- Robust to **accidental action impurity** (diagnostics + bounded convergence); an optional dev/test purity check is tracked separately (see `docs/planning/todo/0014-dev-test-action-purity-check.md`).
 
 ## Problem Statement
 
@@ -74,11 +74,11 @@ A SYNC action record:
 - Stores a small `basis` payload in `args` describing what was applied when the delta was computed (see below).
 - Has associated `action_modified_rows` that represent the **delta patches**.
 
-Recommended `args` shape (prototype-friendly):
+Current `args` shape (implemented):
 
 - `appliedActionIds: string[]` (or a stable hash if this list is too large)
-- `timestamp: number` (captured nondeterminism; used for logging/observability)
-- Optional: `basis: { lastSeenServerIngestId?: number; observedMaxClock?: HLC; ... }` (if needed for debugging)
+- `timestamp: number` (currently `0` for `_InternalSyncApply`)
+- Optional: `basis: { lastSeenServerIngestId?: number; observedMaxClock?: HLC; ... }` (not implemented yet)
 
 ### Emission rule
 
@@ -178,9 +178,29 @@ If we detect evidence of impurity (non-repeatable replay on the same snapshot, o
    - emit an error log/event including action ids, tags, and a diff preview (known vs replay values),
    - optionally persist a local diagnostic record so apps can show a “sync is unhealthy” banner.
 
-Optional mitigation in development/test:
+Optional mitigation in development/test (tracked in `docs/planning/todo/0014-dev-test-action-purity-check.md`):
 
-- run actions twice against the same DB snapshot (transaction + savepoint/rollback) and assert identical captured patches; this provides a strong “purity violation” signal without needing cross-client state comparisons.
+- Run actions twice against the same DB snapshot (transaction + savepoint/rollback) and assert identical captured patches; this provides a strong “purity violation” signal without needing cross-client state comparisons.
+
+## Current Implementation (Where We Are Today)
+
+**Client**
+
+- Placeholder `_InternalSyncApply` is created per apply batch and patch capture is scoped to it while replaying remote non-SYNC actions.
+- Incoming SYNC actions are applied as patches with patch capture disabled (so they don’t recursively generate more SYNC).
+- The outgoing delta is computed by comparing generated patches (from replay) to the known patch set (base + received SYNC):
+  - if everything is covered, the placeholder SYNC is deleted
+  - otherwise, its AMRs are trimmed to only uncovered row effects and its clock is incremented so it sorts after the batch
+- Outgoing SYNC is marked locally-applied for rollback correctness.
+
+See `packages/sync-core/src/SyncService.ts` (`applyActionRecords`).
+
+**Existing coverage**
+
+- Divergence creates SYNC and keeps the placeholder when needed: `packages/sync-core/test/sync/sync-divergence.test.ts`
+- Incoming SYNC is applied directly (and can suppress redundant deltas): `packages/sync-core/test/sync/sync-divergence.test.ts`
+- Outgoing SYNC ordering and local-applied marking: `packages/sync-core/test/sync/sync-delta-semantics.test.ts`
+- Idempotent re-apply of received SYNC: `packages/sync-core/test/sync/ingest-idempotency.test.ts`
 
 ## RLS Requirements (Underspecified Today)
 
@@ -195,19 +215,24 @@ This project needs a concrete, recommended pattern for RLS on the sync tables.
 
 ## Testing Plan
 
-- Additive private divergence:
-  - One user replays a batch with additional private rows and emits SYNC that only touches those rows.
-  - Users who cannot see those rows do not receive patches and their visible state remains consistent.
-- No ping-pong within a single user view:
-  - Two replicas with identical visibility, once they have applied the same history, should reach a fixed point (a repeated sync pass produces no new SYNC).
-- Ordering:
-  - Ensure SYNC actions sort after the observed remote batch in the canonical replay order (receive/merge, then increment).
-	- Purity violation:
-	  - Craft a nondeterministic action that produces different patches on two runs against the same snapshot; assert we detect it (dev/test purity check), surface a diagnostic, and avoid emitting an additional overwriting SYNC delta for that apply pass.
+Covered today (SyncService unit/integration tests):
+
+- Divergence creates an outgoing SYNC delta and associates AMRs with it: `packages/sync-core/test/sync/sync-divergence.test.ts`
+- Incoming SYNC is applied as patches and can suppress redundant outgoing deltas: `packages/sync-core/test/sync/sync-divergence.test.ts`
+- Outgoing SYNC sorts after the corrected batch (observe remotes, then increment): `packages/sync-core/test/sync/sync-delta-semantics.test.ts`
+	- Idempotency: re-applying the same received SYNC does not create another outgoing SYNC: `packages/sync-core/test/sync/ingest-idempotency.test.ts`
+
+Also covered (Postgres/RLS e2e):
+
+- Private divergence under real RLS: a replica with strictly more visibility emits an additive SYNC delta that is filtered from other users: `packages/sync-server/test/e2e-postgres/sync-rpc.e2e.test.ts`.
+
+Optional / next:
+
+- Optional (dev/test): action purity check (replay twice) is tracked separately in `docs/planning/todo/0014-dev-test-action-purity-check.md`.
 
 ## Open Questions
 
 - What is the minimal `basis` metadata we should store in `args` (full list vs hashes)?
-- Should “purity violation” be a hard error (abort sync) or a soft error with patch-only fallback (still converges)?
+- Optional (dev/test): if we implement the purity check (TODO `0014`), should a purity violation be diagnostics-only, or should it abort sync / suppress overwriting deltas?
 - What is the minimal schema/support we want for observability (e.g. `delta_hash`, diagnostics table)?
 - What RLS policy pattern do we recommend for `action_modified_rows` given `(table_name, row_id)`?

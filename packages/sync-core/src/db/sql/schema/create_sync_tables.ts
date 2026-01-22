@@ -24,10 +24,19 @@ CREATE SEQUENCE IF NOT EXISTS action_records_server_ingest_id_seq;
 
 CREATE OR REPLACE FUNCTION compute_action_record_clock_order_columns()
 RETURNS TRIGGER AS $$
+DECLARE
+	clock_obj JSONB;
 BEGIN
 	IF NEW.clock IS NOT NULL THEN
-		NEW.clock_time_ms = COALESCE((NEW.clock->>'timestamp')::BIGINT, 0);
-		NEW.clock_counter = COALESCE((NEW.clock->'vector'->>NEW.client_id)::BIGINT, 0);
+		-- Defensive: some callers may double-encode JSON and store clocks as JSONB strings.
+		-- Normalize to a JSON object so ordering fields are computed correctly.
+		clock_obj := NEW.clock;
+		IF jsonb_typeof(clock_obj) = 'string' THEN
+			clock_obj := (clock_obj #>> '{}')::jsonb;
+		END IF;
+
+		NEW.clock_time_ms = COALESCE((clock_obj->>'timestamp')::BIGINT, 0);
+		NEW.clock_counter = COALESCE((clock_obj->'vector'->>NEW.client_id)::BIGINT, 0);
 	ELSE
 		NEW.clock_time_ms = 0;
 		NEW.clock_counter = 0;

@@ -28,9 +28,16 @@ Synchrotron’s patch capture:
 - copies `NEW/OLD.audience_key` onto `action_modified_rows.audience_key` (indexed, used by RLS),
 - strips `audience_key` out of the JSON patches (so patches stay generic and RLS checks stay fast).
 
-### Compute it on insert (recommended)
+### Ensure it exists at write time
 
-Patch-apply inserts rows without specifying `audience_key`, so `audience_key` should be computed by the DB.
+Because `audience_key` is stripped out of JSON patches, **replicas do not rely on patches to set it**.
+
+When applying an INSERT patch:
+
+- If the base table has a **generated** `audience_key` column, Synchrotron will not try to write it (the DB computes it).
+- If the base table has a **non-generated** `audience_key` column, Synchrotron will populate it from `action_modified_rows.audience_key` (so `NOT NULL` / RLS `WITH CHECK` can succeed).
+
+The requirement is: the originating write must still set a correct `audience_key` on the row, so patch capture can copy it into `action_modified_rows.audience_key`.
 
 Postgres (generated column):
 
@@ -45,7 +52,7 @@ If you model tables with `@effect/sql`, mark the generated column as select-only
 audience_key: Model.FieldOnly("select")(Schema.optional(Schema.String))
 ```
 
-If you can’t use generated columns, compute it with a trigger or in application code.
+If you can’t use generated columns (e.g. the audience is derived via a join), store `audience_key` as a normal column and set it in application code or a `BEFORE` trigger.
 
 ### No “audience moves” via UPDATE
 

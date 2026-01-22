@@ -557,38 +557,40 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 									rollbackTarget = predecessor[0]?.id ?? null
 								}
 
-								if (rollbackTarget !== undefined) {
-									yield* Effect.logInfo("performSync.case1.rematerialize", {
-										remoteCount: remoteActions.length,
-										rollbackTarget: rollbackTarget ?? null,
-										hasRollbackAction: rollbackActions.length > 0,
-										lateArrival: forcedRollbackTarget === undefined && needsRollbackForLateArrival
-									})
+									if (rollbackTarget !== undefined) {
+										yield* Effect.logInfo("performSync.case1.rematerialize", {
+											remoteCount: remoteActions.length,
+											rollbackTarget: rollbackTarget ?? null,
+											hasRollbackAction: rollbackActions.length > 0,
+											lateArrival: forcedRollbackTarget === undefined && needsRollbackForLateArrival
+										})
 
-									yield* rollbackToAction(rollbackTarget).pipe(sqlClient.withTransaction)
-									for (const rb of rollbackActions) {
-										yield* actionRecordRepo.markLocallyApplied(rb.id)
+										yield* rollbackToAction(rollbackTarget).pipe(sqlClient.withTransaction)
+										for (const rb of rollbackActions) {
+											yield* actionRecordRepo.markLocallyApplied(rb.id)
+										}
+
+										const actionsToReplay = yield* actionRecordRepo.findUnappliedLocally()
+										const replayWithoutRollbacks = actionsToReplay.filter(
+											(a) => a._tag !== "RollbackAction"
+										)
+										if (replayWithoutRollbacks.length > 0) {
+											yield* applyActionRecords(replayWithoutRollbacks)
+										}
+
+										yield* advanceAppliedRemoteServerIngestCursor()
+										yield* sendLocalActions()
+										return remoteActions
 									}
 
-									const actionsToReplay = yield* actionRecordRepo.findUnappliedLocally()
-									const replayWithoutRollbacks = actionsToReplay.filter(
-										(a) => a._tag !== "RollbackAction"
-									)
-									if (replayWithoutRollbacks.length > 0) {
-										yield* applyActionRecords(replayWithoutRollbacks)
+									// Fast-forward: apply only newly received non-rollback actions in canonical order.
+									if (unappliedNonRollback.length > 0) {
+										yield* applyActionRecords(unappliedNonRollback)
 									}
-
 									yield* advanceAppliedRemoteServerIngestCursor()
+									yield* sendLocalActions()
 									return remoteActions
 								}
-
-								// Fast-forward: apply only newly received non-rollback actions in canonical order.
-								if (unappliedNonRollback.length > 0) {
-									yield* applyActionRecords(unappliedNonRollback)
-								}
-								yield* advanceAppliedRemoteServerIngestCursor()
-								return remoteActions
-							}
 						if (hasPending && !hasRemote) {
 							yield* Effect.logInfo("performSync.case2.sendPending", {
 								pendingCount: pendingActions.length
@@ -950,90 +952,108 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				yield* Effect.logDebug(
 					`Overall Divergence check (strict): Generated ${generatedPatches.length} patches, Original ${originalPatches.length} patches. Identical: ${arePatchesIdentical}`
 				)
-				yield* Effect.logDebug(
-					`SYNC delta check (generated - known): delta rows=${deltaRowKeys.length}, covered rows=${coveredRowKeys.length}`
-				)
+						yield* Effect.logDebug(
+							`SYNC delta check (generated - known): delta rows=${deltaRowKeys.length}, covered rows=${coveredRowKeys.length}`
+						)
 
-					if (hasSyncDelta) {
-						const deltaDetails = deltaRowKeys.map(({ table_name, row_id }) => {
-							const key = `${table_name}|${row_id}`
-							const generated = generatedFinalEffects.get(key)
-							const known = knownFinalEffects.get(key)
+						if (hasSyncDelta) {
+							const deltaDetails = deltaRowKeys.map(({ table_name, row_id }) => {
+								const key = `${table_name}|${row_id}`
+								const generated = generatedFinalEffects.get(key)
+								const known = knownFinalEffects.get(key)
 
-							const missingColumns: string[] = []
-							const differingColumns: string[] = []
-							const missingColumnDetails: Array<{
-								column: string
-								generatedKind: string
-								generatedPreview: string
-							}> = []
-							const differingColumnDetails: Array<{
-								column: string
-								generatedKind: string
-								generatedPreview: string
-								knownKind: string
-								knownPreview: string
-							}> = []
+								const missingColumns: string[] = []
+								const differingColumns: string[] = []
+								const missingColumnDetails: Array<{
+									column: string
+									generatedKind: string
+									generatedPreview: string
+								}> = []
+								const differingColumnDetails: Array<{
+									column: string
+									generatedKind: string
+									generatedPreview: string
+									knownKind: string
+									knownPreview: string
+								}> = []
 
-							if (generated?.operation === "DELETE") {
-								if (known?.operation !== "DELETE") {
-									differingColumns.push("_operation")
-									differingColumnDetails.push({
-										column: "_operation",
-										generatedKind: "string",
-										generatedPreview: valuePreview(generated.operation),
-										knownKind: "string",
-										knownPreview: valuePreview(known?.operation ?? "UNKNOWN")
-									})
-								}
-							} else {
-								for (const [columnKey, replayValue] of Object.entries(generated?.columns ?? {})) {
-									if (!known || !Object.prototype.hasOwnProperty.call(known.columns, columnKey)) {
-										missingColumns.push(columnKey)
-										missingColumnDetails.push({
-											column: columnKey,
-											generatedKind: valueKind(replayValue),
-											generatedPreview: valuePreview(replayValue)
-										})
-										continue
-									}
-									if (!deepObjectEquals(replayValue, known.columns[columnKey])) {
-										differingColumns.push(columnKey)
+								if (generated?.operation === "DELETE") {
+									if (known?.operation !== "DELETE") {
+										differingColumns.push("_operation")
 										differingColumnDetails.push({
-											column: columnKey,
-											generatedKind: valueKind(replayValue),
-											generatedPreview: valuePreview(replayValue),
-											knownKind: valueKind(known.columns[columnKey]),
-											knownPreview: valuePreview(known.columns[columnKey])
+											column: "_operation",
+											generatedKind: "string",
+											generatedPreview: valuePreview(generated.operation),
+											knownKind: "string",
+											knownPreview: valuePreview(known?.operation ?? "UNKNOWN")
 										})
 									}
+								} else {
+									for (const [columnKey, replayValue] of Object.entries(generated?.columns ?? {})) {
+										if (!known || !Object.prototype.hasOwnProperty.call(known.columns, columnKey)) {
+											missingColumns.push(columnKey)
+											missingColumnDetails.push({
+												column: columnKey,
+												generatedKind: valueKind(replayValue),
+												generatedPreview: valuePreview(replayValue)
+											})
+											continue
+										}
+										if (!deepObjectEquals(replayValue, known.columns[columnKey])) {
+											differingColumns.push(columnKey)
+											differingColumnDetails.push({
+												column: columnKey,
+												generatedKind: valueKind(replayValue),
+												generatedPreview: valuePreview(replayValue),
+												knownKind: valueKind(known.columns[columnKey]),
+												knownPreview: valuePreview(known.columns[columnKey])
+											})
+										}
+									}
 								}
-							}
 
-							return {
-								table_name,
-								row_id,
-								generatedOperation: generated?.operation ?? "UNKNOWN",
-								knownOperation: known?.operation ?? "UNKNOWN",
-								missingColumns,
-								differingColumns,
-								missingColumnDetails,
-								differingColumnDetails
-							}
-						})
+								// "Overwrite" means we are changing a value that was already known for this row.
+								// Missing columns / missing rows are the common "private divergence" case and are expected under RLS.
+								const hasKnownRow = Boolean(known)
+								const operationMismatch = hasKnownRow && generated?.operation !== known?.operation
+								const isOverwrite = operationMismatch || (hasKnownRow && differingColumns.length > 0)
 
-					yield* Effect.logWarning("applyActionRecords.syncDeltaDetected", {
-						applyBatchId,
-						syncActionRecordId: syncRecord.id,
-						deltaRowCount: deltaRowKeys.length,
-						coveredRowCount: coveredRowKeys.length,
-						deltaDetails
-					})
-				}
+								return {
+									table_name,
+									row_id,
+									generatedOperation: generated?.operation ?? "UNKNOWN",
+									knownOperation: known?.operation ?? "UNKNOWN",
+									missingColumns,
+									differingColumns,
+									missingColumnDetails,
+									differingColumnDetails,
+									isOverwrite
+								}
+							})
 
-				if (!hasSyncDelta) {
-					yield* Effect.logInfo(
-						"No outgoing SYNC delta remains after accounting for received patches (base + SYNC). Deleting placeholder SYNC action."
+							const overwriteRowCount = deltaDetails.filter((d) => d.isOverwrite).length
+							const missingOnlyRowCount = deltaDetails.length - overwriteRowCount
+							const hasOverwrites = overwriteRowCount > 0
+
+							// Missing-only deltas are the expected RLS/private-data divergence case.
+							// Overwrites are a distinct severity class: they can indicate shared-field divergence or action impurity.
+							const logDelta = hasOverwrites ? Effect.logError : Effect.logWarning
+
+							yield* logDelta("applyActionRecords.syncDeltaDetected", {
+								applyBatchId,
+								syncActionRecordId: syncRecord.id,
+								deltaRowCount: deltaRowKeys.length,
+								coveredRowCount: coveredRowKeys.length,
+								hasOverwrites,
+								overwriteRowCount,
+								missingOnlyRowCount,
+								deltaDetails
+							})
+					}
+
+					if (!hasSyncDelta) {
+						yield* Effect.logInfo(
+							"No outgoing SYNC delta remains after accounting for received patches (base + SYNC). Deleting placeholder SYNC action."
 					)
 					yield* actionModifiedRowRepo.deleteByActionRecordIds(syncRecord.id)
 					yield* actionRecordRepo.deleteById(syncRecord.id)
@@ -1053,7 +1073,15 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 					yield* Effect.logDebug(
 						`Updating placeholder SYNC action ${syncRecord.id} clock due to divergence: ${JSON.stringify(newSyncClock)}`
 					)
-					yield* sqlClient`UPDATE action_records SET clock = ${JSON.stringify(newSyncClock)} WHERE id = ${syncRecord.id}`
+					const clockValue = sqlClient.onDialectOrElse({
+						pg: () => {
+							const json = (sqlClient as any).json as undefined | ((value: unknown) => unknown)
+							return typeof json === "function" ? json(newSyncClock) : JSON.stringify(newSyncClock)
+						},
+						sqlite: () => JSON.stringify(newSyncClock),
+						orElse: () => JSON.stringify(newSyncClock)
+					})
+					yield* sqlClient`UPDATE action_records SET clock = ${clockValue} WHERE id = ${syncRecord.id}`
 					// The delta patches are already applied locally (they came from replay). Track this so rollbacks are correct.
 					yield* actionRecordRepo.markLocallyApplied(syncRecord.id)
 				}
