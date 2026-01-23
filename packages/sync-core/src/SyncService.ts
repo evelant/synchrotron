@@ -1,13 +1,21 @@
 import { SqlClient, type SqlError } from "@effect/sql"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
-import { Effect, Option, ParseResult, Schema } from "effect" // Import ReadonlyArray
+import { Effect, Option, ParseResult, Schedule, Schema } from "effect" // Import ReadonlyArray
 import { ActionModifiedRowRepo, compareActionModifiedRows } from "./ActionModifiedRowRepo"
 import { ActionRecordRepo } from "./ActionRecordRepo"
 import { ClientDbAdapter } from "./ClientDbAdapter"
 import { ClockService } from "./ClockService"
 import { DeterministicId } from "./DeterministicId"
 import { Action, ActionModifiedRow, ActionRecord } from "./models" // Import ActionModifiedRow type from models
-import { NetworkRequestError, SyncNetworkService } from "./SyncNetworkService"
+import {
+	NetworkRequestError,
+	RemoteActionFetchError,
+	SendLocalActionsBehindHead,
+	SendLocalActionsDenied,
+	SendLocalActionsInternal,
+	SendLocalActionsInvalid,
+	SyncNetworkService
+} from "./SyncNetworkService"
 import { deepObjectEquals } from "./utils"
 import { applyForwardAmrs, applyReverseAmrs } from "./PatchApplier"
 // Error types
@@ -80,6 +88,298 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 			const advanceAppliedRemoteServerIngestCursor = () =>
 				getMaxAppliedRemoteServerIngestId().pipe(
 					Effect.flatMap((maxApplied) => clockService.advanceLastSeenServerIngestId(maxApplied))
+				)
+
+			const preserveSnapshotArrays = sqlClient.onDialectOrElse({
+				pg: () => true,
+				sqlite: () => false,
+				orElse: () => false
+			})
+
+			const sanitizeSnapshotRow = (row: Record<string, unknown>) => {
+				const out: Record<string, unknown> = {}
+				for (const [key, value] of Object.entries(row)) {
+					if (key === "audience_key") continue
+					if (value === undefined) continue
+					if (value instanceof Date) {
+						out[key] = value.toISOString()
+						continue
+					}
+					if (Array.isArray(value)) {
+						out[key] = preserveSnapshotArrays ? value : JSON.stringify(value)
+						continue
+					}
+					if (typeof value === "object" && value !== null) {
+						out[key] = JSON.stringify(value)
+						continue
+					}
+					out[key] = value
+				}
+				return out
+			}
+
+			const applyBootstrapSnapshotInTx = (snapshot: {
+				readonly serverIngestId: number
+				readonly serverClock: ActionRecord["clock"]
+				readonly tables: ReadonlyArray<{
+					readonly tableName: string
+					readonly rows: ReadonlyArray<Record<string, unknown>>
+				}>
+			}) =>
+				clientDbAdapter
+					.withCaptureContext(
+						null,
+						clientDbAdapter.withPatchTrackingDisabled(
+							Effect.gen(function* () {
+								for (const table of snapshot.tables) {
+									yield* sqlClient`DELETE FROM ${sqlClient(table.tableName)}`.pipe(Effect.asVoid)
+									for (const row of table.rows) {
+										const sanitized = sanitizeSnapshotRow(row)
+										if (Object.keys(sanitized).length === 0) continue
+										yield* sqlClient`
+											INSERT INTO ${sqlClient(table.tableName)}
+											${sqlClient.insert(sanitized)}
+										`.pipe(Effect.asVoid)
+									}
+								}
+
+								const serverClockJson = JSON.stringify(snapshot.serverClock)
+								yield* sqlClient`
+									INSERT INTO client_sync_status (
+										client_id,
+										current_clock,
+										last_synced_clock,
+										last_seen_server_ingest_id
+									) VALUES (
+										${clientId},
+										${serverClockJson},
+										${serverClockJson},
+										${snapshot.serverIngestId}
+									)
+									ON CONFLICT (client_id) DO UPDATE SET
+										current_clock = excluded.current_clock,
+										last_synced_clock = excluded.last_synced_clock,
+										last_seen_server_ingest_id = excluded.last_seen_server_ingest_id
+								`.pipe(Effect.asVoid)
+							})
+						)
+					)
+
+			const applyBootstrapSnapshot = (snapshot: Parameters<typeof applyBootstrapSnapshotInTx>[0]) =>
+				applyBootstrapSnapshotInTx(snapshot).pipe(sqlClient.withTransaction)
+
+			const hardResync = () =>
+				newTraceId.pipe(
+					Effect.flatMap((resyncId) =>
+						Effect.gen(function* () {
+							yield* Effect.logInfo("hardResync.start", { resyncId, clientId })
+
+							const snapshot = yield* syncNetworkService.fetchBootstrapSnapshot().pipe(
+								Effect.mapError(
+									(error) =>
+										new SyncError({
+											message:
+												error instanceof Error ? error.message : String(error),
+											cause: error
+										})
+								)
+							)
+
+							yield* clientDbAdapter
+								.withCaptureContext(
+									null,
+									clientDbAdapter.withPatchTrackingDisabled(
+										Effect.gen(function* () {
+											yield* Effect.logInfo("hardResync.clearSyncTables", { resyncId, clientId })
+											yield* sqlClient`DELETE FROM action_modified_rows`.pipe(Effect.asVoid)
+											yield* sqlClient`DELETE FROM action_records`.pipe(Effect.asVoid)
+											yield* sqlClient`DELETE FROM local_applied_action_ids`.pipe(Effect.asVoid)
+											yield* sqlClient`DELETE FROM local_quarantined_actions`.pipe(Effect.asVoid)
+										})
+									)
+								)
+								.pipe(sqlClient.withTransaction)
+
+							yield* Effect.logInfo("hardResync.applySnapshot", {
+								resyncId,
+								clientId,
+								serverIngestId: snapshot.serverIngestId,
+								tableCount: snapshot.tables.length
+							})
+							yield* applyBootstrapSnapshot(snapshot)
+
+							yield* Effect.logInfo("hardResync.done", {
+								resyncId,
+								clientId,
+								serverIngestId: snapshot.serverIngestId
+							})
+						}).pipe(
+							Effect.annotateLogs({ clientId, resyncId, operation: "hardResync" }),
+							Effect.withSpan("SyncService.hardResync", { attributes: { clientId, resyncId } })
+						)
+					)
+				)
+
+			const rebase = () =>
+				newTraceId.pipe(
+					Effect.flatMap((rebaseId) =>
+						Effect.gen(function* () {
+							yield* Effect.logInfo("rebase.start", { rebaseId, clientId })
+
+							const snapshot = yield* syncNetworkService.fetchBootstrapSnapshot().pipe(
+								Effect.mapError(
+									(error) =>
+										new SyncError({
+											message:
+												error instanceof Error ? error.message : String(error),
+											cause: error
+										})
+								)
+							)
+
+							yield* Effect.logInfo("rebase.snapshot.received", {
+								rebaseId,
+								clientId,
+								serverIngestId: snapshot.serverIngestId,
+								tableCount: snapshot.tables.length
+							})
+
+							yield* Effect.gen(function* () {
+								const pendingActions = yield* actionRecordRepo.allUnsyncedActive()
+								const pendingActionIds = pendingActions.map((a) => a.id)
+
+								const pendingSyncActionIds = pendingActions
+									.filter((a) => a._tag === "_InternalSyncApply")
+									.map((a) => a.id)
+
+								const pendingSyncAmrs =
+									pendingSyncActionIds.length === 0
+										? ([] as const)
+										: yield* actionModifiedRowRepo.findByActionRecordIds(pendingSyncActionIds)
+
+								const pendingSyncAmrsByActionId = new Map<string, readonly ActionModifiedRow[]>()
+								{
+									const buckets = new Map<string, ActionModifiedRow[]>()
+									for (const amr of pendingSyncAmrs) {
+										const existing = buckets.get(amr.action_record_id) ?? []
+										existing.push(amr)
+										buckets.set(amr.action_record_id, existing)
+									}
+									for (const [actionId, rows] of buckets) {
+										pendingSyncAmrsByActionId.set(actionId, rows)
+									}
+								}
+
+								yield* Effect.logInfo("rebase.pending", {
+									rebaseId,
+									clientId,
+									pendingActionCount: pendingActions.length,
+									pendingSyncActionCount: pendingSyncActionIds.length,
+									pendingSyncAmrCount: pendingSyncAmrs.length
+								})
+
+								yield* clientDbAdapter.withCaptureContext(
+									null,
+									clientDbAdapter.withPatchTrackingDisabled(
+										Effect.gen(function* () {
+											yield* sqlClient`DELETE FROM action_modified_rows`.pipe(Effect.asVoid)
+											yield* sqlClient`DELETE FROM action_records`.pipe(Effect.asVoid)
+											yield* sqlClient`DELETE FROM local_applied_action_ids`.pipe(Effect.asVoid)
+											yield* sqlClient`DELETE FROM local_quarantined_actions`.pipe(Effect.asVoid)
+										})
+									)
+								)
+
+								yield* applyBootstrapSnapshotInTx(snapshot)
+
+								for (const pending of pendingActions) {
+									const nextClock = yield* clockService.incrementClock
+
+									yield* actionRecordRepo.insert(
+										ActionRecord.insert.make({
+											id: pending.id,
+											client_id: clientId,
+											clock: nextClock,
+											_tag: pending._tag,
+											args: pending.args,
+											created_at: pending.created_at,
+											synced: false,
+											transaction_id: pending.transaction_id,
+											user_id: pending.user_id ?? null
+										})
+									)
+
+									if (pending._tag === "_InternalSyncApply") {
+										const syncAmrs = pendingSyncAmrsByActionId.get(pending.id) ?? []
+
+										for (const amr of syncAmrs) {
+											yield* sqlClient`
+												INSERT INTO action_modified_rows ${sqlClient.insert({
+													id: amr.id,
+													table_name: amr.table_name,
+													row_id: amr.row_id,
+													action_record_id: amr.action_record_id,
+													audience_key: amr.audience_key,
+													operation: amr.operation,
+													forward_patches: JSON.stringify(amr.forward_patches),
+													reverse_patches: JSON.stringify(amr.reverse_patches),
+													sequence: amr.sequence
+												})}
+												ON CONFLICT (id) DO NOTHING
+											`.pipe(Effect.asVoid)
+										}
+
+										if (syncAmrs.length > 0) {
+											yield* clientDbAdapter.withCaptureContext(
+												null,
+												clientDbAdapter.withPatchTrackingDisabled(
+													applyForwardAmrs(syncAmrs).pipe(
+														Effect.provideService(SqlClient.SqlClient, sqlClient)
+													)
+												)
+											)
+										}
+
+										yield* actionRecordRepo.markLocallyApplied(pending.id)
+										continue
+									}
+
+									if (pending._tag === "RollbackAction") {
+										yield* actionRecordRepo.markLocallyApplied(pending.id)
+										continue
+									}
+
+									const actionCreator = actionRegistry.getActionCreator(pending._tag)
+									if (!actionCreator) {
+										return yield* Effect.fail(
+											new SyncError({
+												message: `Missing action creator: ${pending._tag}`
+											})
+										)
+									}
+
+									yield* clientDbAdapter.withCaptureContext(
+										pending.id,
+										deterministicId.withActionContext(
+											pending.id,
+											actionCreator(pending.args).execute()
+										)
+									)
+
+									yield* actionRecordRepo.markLocallyApplied(pending.id)
+								}
+							}).pipe(sqlClient.withTransaction)
+
+							yield* Effect.logInfo("rebase.done", {
+								rebaseId,
+								clientId,
+								serverIngestId: snapshot.serverIngestId
+							})
+						}).pipe(
+							Effect.annotateLogs({ clientId, rebaseId, operation: "rebase" }),
+							Effect.withSpan("SyncService.rebase", { attributes: { clientId, rebaseId } })
+						)
+					)
 				)
 		/**
 		 * Execute an action and record it for later synchronization
@@ -285,32 +585,40 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		 * - Case 3: Both local and remote actions exist, perform reconciliation.
 		 * Returns the actions that were effectively processed (applied, sent, or reconciled).
 		 */
-		const performSync = () =>
-			newTraceId.pipe(
-					Effect.flatMap((syncSessionId) =>
-						Effect.gen(function* () {
-							yield* Effect.logInfo("performSync.start", { syncSessionId })
-							// Ensure `client_sync_status` exists before reading cursor state (last_seen_server_ingest_id, etc).
-							const lastSeenServerIngestId = yield* clockService.getLastSeenServerIngestId
-							yield* Effect.logDebug("performSync.cursor", { lastSeenServerIngestId })
+				const performSync = () =>
+					performSyncWithPolicy(true)
 
-							const sanitizeSnapshotRow = (row: Record<string, unknown>) => {
-								const out: Record<string, unknown> = {}
-								for (const [key, value] of Object.entries(row)) {
-									if (key === "audience_key") continue
-									if (value === undefined) continue
-									if (value instanceof Date) {
-										out[key] = value.toISOString()
-										continue
-									}
-									if (typeof value === "object" && value !== null) {
-										out[key] = JSON.stringify(value)
-										continue
-									}
-									out[key] = value
+				type PerformSyncResult = readonly ActionRecord[]
+				type PerformSyncError =
+					| SendLocalActionsBehindHead
+					| SendLocalActionsInternal
+					| NetworkRequestError
+					| RemoteActionFetchError
+					| SyncError
+
+				const performSyncWithPolicy = (allowRebase: boolean): Effect.Effect<PerformSyncResult, PerformSyncError, never> =>
+					newTraceId.pipe(
+							Effect.flatMap((syncSessionId) =>
+								Effect.gen(function* () {
+								yield* Effect.logInfo("performSync.start", { syncSessionId })
+								const quarantineRows = yield* sqlClient<{ readonly count: number | string }>`
+									SELECT count(*) as count FROM local_quarantined_actions
+								`
+								const quarantinedCountRaw = quarantineRows[0]?.count ?? 0
+								const quarantinedCount =
+									typeof quarantinedCountRaw === "number"
+										? quarantinedCountRaw
+										: Number(quarantinedCountRaw ?? 0)
+								const uploadsDisabled = quarantinedCount > 0
+								if (uploadsDisabled) {
+									yield* Effect.logWarning("performSync.uploadsDisabled.quarantined", {
+										syncSessionId,
+										quarantinedCount
+									})
 								}
-								return out
-							}
+								// Ensure `client_sync_status` exists before reading cursor state (last_seen_server_ingest_id, etc).
+								const lastSeenServerIngestId = yield* clockService.getLastSeenServerIngestId
+								yield* Effect.logDebug("performSync.cursor", { lastSeenServerIngestId })
 
 							const bootstrapFromSnapshotIfNeeded = () =>
 								Effect.gen(function* () {
@@ -339,31 +647,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 										}))
 									})
 
-									yield* clientDbAdapter
-										.withCaptureContext(
-											null,
-											clientDbAdapter.withPatchTrackingDisabled(
-												Effect.gen(function* () {
-													for (const table of snapshot.tables) {
-														yield* sqlClient`DELETE FROM ${sqlClient(table.tableName)}`.pipe(
-															Effect.asVoid
-														)
-														for (const row of table.rows) {
-															const sanitized = sanitizeSnapshotRow(row)
-															if (Object.keys(sanitized).length === 0) continue
-															yield* sqlClient`
-																INSERT INTO ${sqlClient(table.tableName)}
-																${sqlClient.insert(sanitized)}
-															`.pipe(Effect.asVoid)
-														}
-													}
-												})
-											)
-										)
-										.pipe(sqlClient.withTransaction)
-
-									yield* clockService.advanceLastSeenServerIngestId(snapshot.serverIngestId)
-									yield* clockService.observeRemoteClocks([snapshot.serverClock])
+									yield* applyBootstrapSnapshot(snapshot)
 
 									yield* Effect.logInfo("performSync.bootstrap.done", {
 										clientId,
@@ -380,13 +664,15 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 									)
 								)
 
-							yield* bootstrapFromSnapshotIfNeeded()
-							// 1. Get pending local actions
-							const pendingActions = yield* actionRecordRepo.findBySynced(false)
-							yield* Effect.logDebug("performSync.pendingActions", {
-								count: pendingActions.length,
-							actions: pendingActions.map((a) => ({ id: a.id, _tag: a._tag, client_id: a.client_id }))
-						})
+								yield* bootstrapFromSnapshotIfNeeded()
+								// 1. Get pending local actions
+								const pendingActions = uploadsDisabled
+									? ([] as const)
+									: yield* actionRecordRepo.findBySynced(false)
+								yield* Effect.logDebug("performSync.pendingActions", {
+									count: pendingActions.length,
+								actions: pendingActions.map((a) => ({ id: a.id, _tag: a._tag, client_id: a.client_id }))
+							})
 
 							// 2. Remote ingress (transport-specific). Some implementations also persist the fetched
 							// rows into local `action_records` / `action_modified_rows` (RPC fetch+insert, Electric).
@@ -574,31 +860,35 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 										const replayWithoutRollbacks = actionsToReplay.filter(
 											(a) => a._tag !== "RollbackAction"
 										)
-										if (replayWithoutRollbacks.length > 0) {
-											yield* applyActionRecords(replayWithoutRollbacks)
+											if (replayWithoutRollbacks.length > 0) {
+												yield* applyActionRecords(replayWithoutRollbacks)
+											}
+
+											yield* advanceAppliedRemoteServerIngestCursor()
+											if (!uploadsDisabled) {
+												yield* sendLocalActions()
+											}
+											return remoteActions
 										}
 
+									// Fast-forward: apply only newly received non-rollback actions in canonical order.
+										if (unappliedNonRollback.length > 0) {
+											yield* applyActionRecords(unappliedNonRollback)
+										}
 										yield* advanceAppliedRemoteServerIngestCursor()
-										yield* sendLocalActions()
+										if (!uploadsDisabled) {
+											yield* sendLocalActions()
+										}
 										return remoteActions
 									}
-
-									// Fast-forward: apply only newly received non-rollback actions in canonical order.
-									if (unappliedNonRollback.length > 0) {
-										yield* applyActionRecords(unappliedNonRollback)
-									}
-									yield* advanceAppliedRemoteServerIngestCursor()
-									yield* sendLocalActions()
-									return remoteActions
-								}
 						if (hasPending && !hasRemote) {
 							yield* Effect.logInfo("performSync.case2.sendPending", {
 								pendingCount: pendingActions.length
 							})
 							yield* advanceAppliedRemoteServerIngestCursor()
-							return yield* sendLocalActions()
+							return uploadsDisabled ? ([] as const) : yield* sendLocalActions()
 						}
-							if (hasPending && hasRemote) {
+						if (hasPending && hasRemote) {
 								const sortedPending = clockService.sortClocks(
 									pendingActions.map((a) => ({
 										action: a,
@@ -641,19 +931,21 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 										const appliedRemotes = yield* applyActionRecords(remoteActions)
 										yield* advanceAppliedRemoteServerIngestCursor()
 										// 2. Send pending actions
-										yield* sendLocalActions()
+										if (!uploadsDisabled) {
+											yield* sendLocalActions()
+										}
 										// For now, returning applied remotes as they were processed first in this flow.
 										return appliedRemotes
 								} else {
 										yield* Effect.logInfo("performSync.case3.reconcileThenSendPending", {
 											pendingCount: pendingActions.length,
 											remoteCount: remoteActions.length
-										})
-										const allLocalActions = yield* actionRecordRepo.all()
-											yield* reconcile(pendingActions, remoteActions, allLocalActions)
-											yield* advanceAppliedRemoteServerIngestCursor()
-											return yield* sendLocalActions()
-										}
+											})
+											const allLocalActions = yield* actionRecordRepo.all()
+												yield* reconcile(pendingActions, remoteActions, allLocalActions)
+												yield* advanceAppliedRemoteServerIngestCursor()
+												return uploadsDisabled ? ([] as const) : yield* sendLocalActions()
+											}
 								} else {
 									return yield* Effect.fail(
 										new SyncError({
@@ -661,26 +953,134 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 										})
 									)
 								}
-							}
-						return yield* Effect.dieMessage("Unreachable code reached in performSync")
+						}
+					return yield* Effect.dieMessage("Unreachable code reached in performSync")
 					}).pipe(
-						Effect.catchAll((error) =>
-							Effect.gen(function* () {
-								const message = error instanceof Error ? error.message : String(error)
-								yield* Effect.logError(`Sync failed: ${message}`, error)
-								if (error instanceof SyncError) {
-									return yield* Effect.fail(error)
-								}
-								return yield* Effect.fail(
-									new SyncError({ message: `Sync failed: ${message}`, cause: error })
-								)
+						Effect.tapError((error) => {
+							if ((error as any)?._tag === "SendLocalActionsBehindHead") {
+								return Effect.logWarning("performSync.behindHead", {
+									syncSessionId,
+									clientId,
+									basisServerIngestId: (error as any).basisServerIngestId ?? null,
+									firstUnseenServerIngestId: (error as any).firstUnseenServerIngestId ?? null,
+									firstUnseenActionId: (error as any).firstUnseenActionId ?? null
+								})
+							}
+							return Effect.logError("performSync.failed", {
+								syncSessionId,
+								clientId,
+								errorTag: (error as any)?._tag ?? null,
+								message: error instanceof Error ? error.message : String(error)
 							})
+						}),
+						Effect.retry(
+							Schedule.recurs(3).pipe(
+								Schedule.whileInput((error) => (error as any)?._tag === "SendLocalActionsBehindHead")
+							)
 						),
-						Effect.annotateLogs({ clientId, syncSessionId }),
-						Effect.withSpan("SyncService.performSync", { attributes: { clientId, syncSessionId } })
+							Effect.catchAll((error) => {
+								if (
+									error instanceof SendLocalActionsBehindHead ||
+									error instanceof SendLocalActionsDenied ||
+									error instanceof SendLocalActionsInvalid ||
+								error instanceof SendLocalActionsInternal ||
+								error instanceof NetworkRequestError ||
+								error instanceof RemoteActionFetchError ||
+								error instanceof SyncError
+							) {
+								return Effect.fail(error)
+							}
+							const message = error instanceof Error ? error.message : String(error)
+							return Effect.fail(new SyncError({ message: `Sync failed: ${message}`, cause: error }))
+							}),
+								Effect.annotateLogs({ clientId, syncSessionId }),
+								Effect.withSpan("SyncService.performSync", { attributes: { clientId, syncSessionId } })
+							)
 					)
+				).pipe(
+					Effect.catchTag("SendLocalActionsDenied", (error): Effect.Effect<PerformSyncResult, PerformSyncError, never> =>
+						quarantineUnsyncedActions(error).pipe(Effect.as([] as const))
+					),
+					Effect.catchTag("SendLocalActionsInvalid", (error): Effect.Effect<PerformSyncResult, PerformSyncError, never> => {
+						if (!allowRebase) {
+							return quarantineUnsyncedActions(error).pipe(Effect.as([] as const))
+						}
+
+						return Effect.logWarning("performSync.invalid.rebaseOnce", {
+							clientId,
+							message: error.message,
+							code: (error as any).code ?? null
+						}).pipe(
+							Effect.zipRight(
+								rebase().pipe(
+									Effect.catchAll((rebaseError) =>
+										Effect.logError("performSync.invalid.rebaseFailed", {
+											clientId,
+											message: rebaseError instanceof Error ? rebaseError.message : String(rebaseError)
+										}).pipe(Effect.asVoid)
+									)
+								)
+							),
+							Effect.zipRight(performSyncWithPolicy(false))
+						)
+					})
 				)
-			)
+
+				const quarantineUnsyncedActions = (
+					failure: SendLocalActionsDenied | SendLocalActionsInvalid
+				): Effect.Effect<number, SyncError, never> =>
+					Effect.gen(function* () {
+						const actionsToQuarantine = yield* actionRecordRepo.allUnsyncedActive()
+						if (actionsToQuarantine.length === 0) return 0
+
+					const failureTag = failure._tag
+					const failureCode =
+						failure instanceof SendLocalActionsDenied || failure instanceof SendLocalActionsInvalid
+							? (failure as any).code ?? null
+							: null
+					const failureMessage = failure.message
+
+					for (const action of actionsToQuarantine) {
+						yield* sqlClient`
+							INSERT INTO local_quarantined_actions ${sqlClient.insert({
+								action_record_id: action.id,
+								failure_tag: failureTag,
+								failure_code: failureCode,
+								failure_message: failureMessage
+							})}
+							ON CONFLICT (action_record_id) DO UPDATE SET
+								failure_tag = excluded.failure_tag,
+								failure_code = excluded.failure_code,
+								failure_message = excluded.failure_message,
+								quarantined_at = excluded.quarantined_at
+						`.pipe(Effect.asVoid)
+					}
+
+					yield* Effect.logWarning("sync.quarantine.applied", {
+						clientId,
+						failureTag,
+						failureCode,
+						quarantinedActionCount: actionsToQuarantine.length,
+						quarantinedActionTags: actionsToQuarantine.reduce<Record<string, number>>((acc, action) => {
+							acc[action._tag] = (acc[action._tag] ?? 0) + 1
+							return acc
+						}, {})
+					})
+
+						return actionsToQuarantine.length
+					}).pipe(
+						sqlClient.withTransaction,
+						Effect.catchAll((error) =>
+							Effect.fail(
+								new SyncError({
+									message: "Failed to quarantine unsynced actions",
+									cause: error
+								})
+							)
+						),
+						Effect.annotateLogs({ clientId, operation: "quarantineUnsyncedActions" }),
+						Effect.withSpan("SyncService.quarantineUnsyncedActions", { attributes: { clientId } })
+					)
 
 		const reconcile = (
 			pendingActions: readonly ActionRecord[],
@@ -1162,12 +1562,32 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		/**
 		 * Attempt to send all unsynced actions to the server.
 		 */
-		const sendLocalActions = () =>
-			newTraceId.pipe(
-					Effect.flatMap((sendBatchId) =>
-						Effect.gen(function* () {
-								const actionsToSendRaw = yield* actionRecordRepo.allUnsynced()
-								const amrs = yield* actionModifiedRowRepo.allUnsynced()
+			const sendLocalActions = () =>
+				newTraceId.pipe(
+						Effect.flatMap((sendBatchId) =>
+							Effect.gen(function* () {
+									const quarantineRows = yield* sqlClient<{ readonly count: number | string }>`
+										SELECT count(*) as count FROM local_quarantined_actions
+									`
+								const quarantinedCountRaw = quarantineRows[0]?.count ?? 0
+								const quarantinedCount =
+									typeof quarantinedCountRaw === "number"
+										? quarantinedCountRaw
+										: Number(quarantinedCountRaw ?? 0)
+								if (quarantinedCount > 0) {
+									yield* Effect.logWarning("sendLocalActions.skipped.quarantined", {
+										sendBatchId,
+										quarantinedCount
+									})
+									return []
+								}
+
+								const actionsToSendRaw = yield* actionRecordRepo.allUnsyncedActive()
+								const actionIdsToSend = actionsToSendRaw.map((a) => a.id)
+								const amrs =
+									actionIdsToSend.length === 0
+										? ([] as const)
+										: yield* actionModifiedRowRepo.findByActionRecordIds(actionIdsToSend)
 								if (actionsToSendRaw.length === 0) {
 									yield* Effect.logDebug("sendLocalActions.noop", { sendBatchId })
 									return []
@@ -1225,43 +1645,25 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 								})
 							}
 
-								yield* syncNetworkService
-									.sendLocalActions(actionsToSend, amrs, basisServerIngestId)
-									.pipe(
-									Effect.withSpan("SyncNetworkService.sendLocalActions", {
-										attributes: {
-											clientId,
+							yield* syncNetworkService.sendLocalActions(actionsToSend, amrs, basisServerIngestId).pipe(
+								Effect.withSpan("SyncNetworkService.sendLocalActions", {
+									attributes: {
+										clientId,
 										sendBatchId,
 										actionCount: actionsToSend.length,
 										amrCount: amrs.length
 									}
-									}),
-								Effect.catchAll((error) =>
-									Effect.gen(function* () {
-										const errorMessage = error instanceof Error ? error.message : String(error)
-										yield* Effect.logError("sendLocalActions.sendFailed", {
-											sendBatchId,
-											actionCount: actionsToSend.length,
-											amrCount: amrs.length,
-											actionTags,
-											errorMessage,
-											error
-										})
-										if (error instanceof NetworkRequestError) {
-											yield* Effect.logWarning("sendLocalActions.networkError", {
-												sendBatchId,
-												message: error.message,
-												cause: error.cause ?? null
-											})
-										}
-										return yield* Effect.fail(
-											new SyncError({
-												message: `Failed to send actions to server: ${errorMessage}`,
-												cause: error
-											})
-										)
+								}),
+								Effect.tapError((error) =>
+									Effect.logError("sendLocalActions.sendFailed", {
+										sendBatchId,
+										actionCount: actionsToSend.length,
+										amrCount: amrs.length,
+										actionTags,
+										errorTag: (error as any)?._tag ?? null,
+										errorMessage: error instanceof Error ? error.message : String(error)
 									})
-							)
+								)
 							)
 							for (const action of actionsToSend) {
 								yield* actionRecordRepo.markAsSynced(action.id)
@@ -1276,12 +1678,19 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						return actionsToSend // Return the actions that were handled
 					}).pipe(
 						Effect.catchAll((error) => {
+							if (
+								error instanceof SendLocalActionsBehindHead ||
+								error instanceof SendLocalActionsDenied ||
+								error instanceof SendLocalActionsInvalid ||
+								error instanceof SendLocalActionsInternal ||
+								error instanceof NetworkRequestError ||
+								error instanceof SyncError
+							) {
+								return Effect.fail(error)
+							}
 							const message = error instanceof Error ? error.message : String(error)
 							return Effect.fail(
-								new SyncError({
-									message: `Failed during sendLocalActions: ${message}`,
-									cause: error
-								})
+								new SyncError({ message: `Failed during sendLocalActions: ${message}`, cause: error })
 							)
 						}),
 						Effect.annotateLogs({ clientId, sendBatchId, operation: "sendLocalActions" }),
@@ -1289,18 +1698,107 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							attributes: { clientId, sendBatchId }
 						})
 					)
+					)
 				)
-			)
 
-		return {
-			executeAction,
-			performSync,
-			cleanupOldActionRecords,
-			applyActionRecords
-		}
-	}),
-	dependencies: [
-		ActionRecordRepo.Default,
+			const getQuarantinedActions = () =>
+				Effect.gen(function* () {
+					const rows = yield* sqlClient<{
+						readonly action_record_id: string
+						readonly failure_tag: string
+						readonly failure_code: string | null
+						readonly failure_message: string
+						readonly quarantined_at: string
+						readonly action_tag: string
+					}>`
+						SELECT
+							q.action_record_id,
+							q.failure_tag,
+							q.failure_code,
+							q.failure_message,
+							q.quarantined_at,
+							ar._tag as action_tag
+						FROM local_quarantined_actions q
+						JOIN action_records ar ON ar.id = q.action_record_id
+						ORDER BY q.quarantined_at DESC
+					`
+					return rows
+				}).pipe(
+					Effect.annotateLogs({ clientId, operation: "getQuarantinedActions" }),
+					Effect.withSpan("SyncService.getQuarantinedActions", { attributes: { clientId } })
+				)
+
+			const discardQuarantinedActions = () =>
+				newTraceId.pipe(
+					Effect.flatMap((discardId) =>
+						Effect.gen(function* () {
+							const unsyncedIds = yield* sqlClient<{ readonly id: string }>`
+								SELECT id FROM action_records WHERE synced = 0
+							`
+							if (unsyncedIds.length === 0) {
+								yield* sqlClient`DELETE FROM local_quarantined_actions`.pipe(Effect.asVoid)
+								yield* Effect.logInfo("discardQuarantinedActions.noop", { discardId })
+								return { discardedActionCount: 0 } as const
+							}
+
+							const rollbackTargetRow = yield* sqlClient<{ readonly id: string }>`
+								SELECT ar.id
+								FROM action_records ar
+								JOIN local_applied_action_ids la ON la.action_record_id = ar.id
+								WHERE ar.synced = 1
+								ORDER BY ar.clock_time_ms DESC, ar.clock_counter DESC, ar.client_id DESC, ar.id DESC
+								LIMIT 1
+							`
+							const rollbackTargetId = rollbackTargetRow[0]?.id ?? null
+
+							yield* Effect.logWarning("discardQuarantinedActions.rollback", {
+								discardId,
+								rollbackTargetId,
+								discardedActionCount: unsyncedIds.length
+							})
+
+							yield* rollbackToAction(rollbackTargetId)
+
+							const ids = unsyncedIds.map((r) => r.id)
+							yield* sqlClient`
+								DELETE FROM action_modified_rows
+								WHERE ${sqlClient.in("action_record_id", ids)}
+							`.pipe(Effect.asVoid)
+							yield* sqlClient`
+								DELETE FROM action_records
+								WHERE ${sqlClient.in("id", ids)}
+							`.pipe(Effect.asVoid)
+							yield* sqlClient`DELETE FROM local_quarantined_actions`.pipe(Effect.asVoid)
+
+							yield* Effect.logInfo("discardQuarantinedActions.done", {
+								discardId,
+								discardedActionCount: ids.length
+							})
+
+							return { discardedActionCount: ids.length } as const
+						}).pipe(
+							sqlClient.withTransaction,
+							Effect.annotateLogs({ clientId, discardId, operation: "discardQuarantinedActions" }),
+							Effect.withSpan("SyncService.discardQuarantinedActions", {
+								attributes: { clientId, discardId }
+							})
+						)
+					)
+				)
+
+			return {
+				executeAction,
+				performSync,
+				cleanupOldActionRecords,
+				applyActionRecords,
+				hardResync,
+				rebase,
+				getQuarantinedActions,
+				discardQuarantinedActions
+			}
+		}),
+		dependencies: [
+			ActionRecordRepo.Default,
 		ActionModifiedRowRepo.Default, // Add ActionModifiedRowRepo dependency
 		ActionRegistry.Default, // Added ActionRegistry
 		DeterministicId.Default

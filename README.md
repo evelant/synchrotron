@@ -62,7 +62,7 @@ Synchrotron moves the merge boundary up a level:
 - Triggers capture per-row forward/reverse patches into `action_modified_rows`
 - `action_records` and `action_modified_rows` are delivered to clients either via Electric SQL shape streams (filtered by RLS) or via an RPC transport (`SyncNetworkService`)
 - Remote actions are fetched/streamed incrementally by a server-generated ingestion cursor (`server_ingest_id`) so clients don't miss late-arriving actions; replay order remains clock-based
-- The server is authoritative: it materializes base tables by applying patches in canonical order (rollback+replay on late arrival) and can reject uploads from clients that are behind the server ingestion head (client must fetch+reconcile+retry)
+- The server is authoritative: it materializes base tables by applying patches in canonical order (rollback+replay on late arrival) and can reject uploads from clients that are behind the server ingestion head (client must fetch+reconcile+retry; `performSync()` does a small bounded retry; RPC error `_tag` = `SendLocalActionsBehindHead`)
 - Applying a remote batch re-runs the action code on the client; if replay produces _additional_ effects beyond the received patches (including any received SYNC patches), the client emits a new patch-only SYNC action at the end of the sync pass (clocked after the observed remote actions)
 - If remote history interleaves with local unsynced actions, the client rolls back to the common ancestor and replays everything in HLC order
 
@@ -71,7 +71,7 @@ Synchrotron moves the merge boundary up a level:
 - RLS hardening: expand policies + tests beyond the v1 demo (`packages/sync-server/test/rls-filtering.test.ts`).
 - Tighten SYNC semantics + diagnostics (see `DESIGN.md`).
 - Add end-to-end tests with the example app
-- Add pruning for old action records to prevent unbounded growth. Add a "rebase" function for clients that are offline long enough that they would need pruned actions to catch up.
+- Add pruning/compaction for old action records to prevent unbounded growth, and use `SyncService.rebase()` for clients that are offline long enough that they would need pruned history to catch up.
 - Improve the APIs. They're proof-of-concept level at the moment and could be significantly nicer.
 - Consider a non-Effect facade. Effect is great, but not every codebase can adopt it; a Promise-based wrapper should be straightforward.
 - Add support for multiple clients in the same window (PGlite workers)
@@ -140,6 +140,11 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
     - React Native (native) uses `react-native-mmkv` via `@synchrotron/sync-client/react-native` (install `react-native-mmkv` in your app).
     - React Native (web) uses `localStorage`.
     - If the local database is cleared but the `clientId` is retained, the client bootstraps from a server snapshot of the canonical base-table state (no full action-log replay) and advances its remote fetch cursor to the snapshot head (see `docs/bootstrap.md`).
+    - Recovery primitives:
+      - `SyncService.hardResync()` discards local state and re-fetches a bootstrap snapshot.
+      - `SyncService.rebase()` keeps pending local actions (preserving action ids for deterministic ID stability), rehydrates a fresh snapshot, then re-runs those pending actions before syncing again.
+      - If the server rejects an upload as `SendLocalActionsInvalid`, the client will automatically attempt a single `rebase()` and retry once.
+      - If uploads are still rejected (or rejected as `SendLocalActionsDenied`), the client quarantines all unsynced actions in `local_quarantined_actions`, suspends further uploads, but continues ingesting remote actions. Apps can inspect via `SyncService.getQuarantinedActions()` and resolve via `SyncService.discardQuarantinedActions()` (rollback + drop local unsynced work) or `SyncService.hardResync()`.
 7.  **RLS User Context (Server):** To enforce Postgres RLS on both app tables and sync tables, the server must run requests under a non-bypass DB role and set the principal in the transaction (`synchrotron.user_id`, and `request.jwt.claim.sub` for Supabase `auth.uid()` compatibility). The demo RPC server derives `user_id` from verified auth (`Authorization: Bearer <jwt>`). Server-side materialization applies patches under the originating action principal (`action_records.user_id`), not the request principal.
     - Real apps should use verified auth (JWT) and have the server derive `user_id` from the token. See `docs/security.md`.
     - Note: `action_records.user_id` is the originating user (audit + `WITH CHECK`). For shared/collaborative data, sync-table visibility should be derived from `action_modified_rows.audience_key` (membership/sharing rules) rather than only the originating user. See `docs/shared-rows.md` and `docs/security.md`.

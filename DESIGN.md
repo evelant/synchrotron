@@ -34,7 +34,7 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
   - `vector`: map of `client_id -> counter` used for causality hints
   - local mutation increments the local counter
   - receiving remote clocks merges vectors by max; entries never reset
-  - uploads include `basisServerIngestId` (client's last seen `server_ingest_id` cursor); the server rejects uploads when the client is behind the server ingestion head (fetch+reconcile+retry)
+- uploads include `basisServerIngestId` (client's last seen `server_ingest_id` cursor); the server rejects uploads when the client is behind the server ingestion head (fetch+reconcile+retry; `performSync()` does a small bounded retry; RPC error `_tag` = `SendLocalActionsBehindHead`)
 
 ## Data model
 
@@ -207,8 +207,11 @@ This caused problems (especially on the server: rollback patches could reference
 - Use up-to-date signals to ensure the complete set of `action_modified_rows` for a transaction has arrived before applying. The sync loop will not apply remote actions until their patches are present, to preserve rollback correctness and avoid spurious outgoing SYNC deltas.
 - This may use Electric's experimental `multishapestream` / `transactionmultishapestream` APIs, depending on how you stream the shapes.
 - Bootstrap / restore options:
-  - Fast bootstrap snapshot (recommended): hydrate base tables from the server’s canonical state and set `last_seen_server_ingest_id` to the snapshot head cursor. The RPC transport provides this via `FetchBootstrapSnapshot` (tables + head `server_ingest_id` + `serverClock`); the client applies it with patch tracking disabled, advances the cursor, then resumes incremental action fetch from that point.
+  - Fast bootstrap snapshot (recommended): hydrate base tables from the server’s canonical state and reset `client_sync_status` from the snapshot metadata. The RPC transport provides this via `FetchBootstrapSnapshot` (tables + head `server_ingest_id` + `serverClock`); the client applies it with patch tracking disabled, sets `last_seen_server_ingest_id` to the snapshot head cursor (and uses `serverClock` as the new clock baseline), then resumes incremental action fetch from that point.
   - Action-log restore (fallback): if snapshot bootstrapping isn’t configured, fetch actions with `includeSelf=true` starting at `sinceServerIngestId=0`, then apply from the local action tables to rebuild materialized state (O(history)).
+  - Recovery primitives:
+    - Hard resync: discard local base state + sync log and re-apply a bootstrap snapshot (escape hatch for corrupted/unknown local state).
+    - Rebase (soft resync): discard local base state + *synced* history, apply a fresh snapshot, then re-run pending local actions (preserving `action_records.id` so `DeterministicId`-generated row ids remain stable) before attempting to sync again. This is the intended recovery path for future server-side action-log compaction/retention windows.
 
 ## Security and privacy
 
@@ -275,6 +278,11 @@ Complex types are stored as JSON. Relationships are represented by normal primar
 
 - Action execution is transactional: any failure rolls back the transaction (including the action record).
 - Sync should retry on transient conflicts (e.g. exponential backoff, replay-on-reject).
+- Upload rejection policy:
+  - `SendLocalActionsBehindHead` is treated as transient and retried (fetch → reconcile → resend).
+  - `SendLocalActionsInvalid` triggers a single automatic `rebase()` + retry. If it still fails, the client quarantines all local unsynced actions.
+  - `SendLocalActionsDenied` quarantines all local unsynced actions immediately (rebase will not fix authorization).
+  - While quarantined (`local_quarantined_actions` non-empty), uploads are suspended but remote ingestion continues; the app must resolve by either discarding local unsynced work (rollback + drop) or running a hard resync.
 
 ## Testing
 

@@ -94,6 +94,19 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 				sql`SELECT * FROM action_records WHERE synced = 0 ORDER BY clock_time_ms ASC, clock_counter ASC, client_id ASC, id ASC`
 		})
 
+		const allUnsyncedActive = SqlSchema.findAll({
+			Request: Schema.Void,
+			Result: ActionRecord,
+			execute: () => sql`
+				SELECT ar.*
+				FROM action_records ar
+				LEFT JOIN local_quarantined_actions q ON q.action_record_id = ar.id
+				WHERE ar.synced = 0
+				AND q.action_record_id IS NULL
+				ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
+			`
+		})
+
 		const markAsSynced = (id: string) =>
 			sql`UPDATE action_records SET synced = 1 WHERE id = ${id}`
 
@@ -152,6 +165,7 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 			findByTransactionId,
 			findLatestSynced,
 			allUnsynced,
+			allUnsyncedActive,
 			findLatest,
 			findByTag,
 			findOlderThan,

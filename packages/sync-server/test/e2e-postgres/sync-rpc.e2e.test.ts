@@ -1393,10 +1393,11 @@ describe("E2E (Postgres): SyncNetworkRpc over real Postgres", () => {
 								Effect.map((value) => ({ ok: true as const, value })),
 								Effect.catchAll((error) => Effect.succeed({ ok: false as const, error }))
 							)
-							expect(sendAttempt.ok).toBe(false)
-							if (!sendAttempt.ok) {
-								expect(sendAttempt.error.message).toContain("behind the server ingestion head")
-							}
+								expect(sendAttempt.ok).toBe(false)
+								if (!sendAttempt.ok) {
+									expect(sendAttempt.error._tag).toBe("SendLocalActionsBehindHead")
+									expect(sendAttempt.error.message).toContain("behind the server ingestion head")
+								}
 
 							const serverCountBefore = yield* runOnServerAsUser("userA")(getNoteCount)
 							expect(serverCountBefore).toBe(1)

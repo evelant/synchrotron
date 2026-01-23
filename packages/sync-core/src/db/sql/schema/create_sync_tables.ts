@@ -104,4 +104,14 @@ CREATE TABLE IF NOT EXISTS client_sync_status (
 CREATE TABLE IF NOT EXISTS local_applied_action_ids (
 	action_record_id TEXT PRIMARY KEY
 );
+
+-- Client-local table to quarantine unsyncable pending actions.
+-- These actions are never uploaded until the app resolves them (discard or resync).
+CREATE TABLE IF NOT EXISTS local_quarantined_actions (
+	action_record_id TEXT PRIMARY KEY REFERENCES action_records(id) ON DELETE CASCADE,
+	failure_tag TEXT NOT NULL,
+	failure_code TEXT,
+	failure_message TEXT NOT NULL,
+	quarantined_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
 `

@@ -20,6 +20,58 @@ export class NetworkRequestError extends Schema.TaggedError<NetworkRequestError>
 		cause: Schema.optional(Schema.Unknown)
 	}
 ) {}
+
+/**
+ * Typed failure reasons for `SendLocalActions`.
+ *
+ * These errors are intended to be thrown by the server and transported to clients via Effect RPC.
+ */
+export class SendLocalActionsBehindHead extends Schema.TaggedError<SendLocalActionsBehindHead>()(
+	"SendLocalActionsBehindHead",
+	{
+		message: Schema.String,
+		basisServerIngestId: Schema.Number,
+		firstUnseenServerIngestId: Schema.Number,
+		firstUnseenActionId: Schema.optional(Schema.String)
+	}
+) {}
+
+export class SendLocalActionsDenied extends Schema.TaggedError<SendLocalActionsDenied>()(
+	"SendLocalActionsDenied",
+	{
+		message: Schema.String,
+		code: Schema.optional(Schema.String)
+	}
+) {}
+
+export class SendLocalActionsInvalid extends Schema.TaggedError<SendLocalActionsInvalid>()(
+	"SendLocalActionsInvalid",
+	{
+		message: Schema.String,
+		code: Schema.optional(Schema.String)
+	}
+) {}
+
+export class SendLocalActionsInternal extends Schema.TaggedError<SendLocalActionsInternal>()(
+	"SendLocalActionsInternal",
+	{
+		message: Schema.String
+	}
+) {}
+
+export type SendLocalActionsFailure =
+	| SendLocalActionsBehindHead
+	| SendLocalActionsDenied
+	| SendLocalActionsInvalid
+	| SendLocalActionsInternal
+
+export const SendLocalActionsFailureSchema = Schema.Union(
+	SendLocalActionsBehindHead,
+	SendLocalActionsDenied,
+	SendLocalActionsInvalid,
+	SendLocalActionsInternal
+)
+
 export interface FetchResult {
 	actions: readonly ActionRecord[]
 	modifiedRows: readonly ActionModifiedRow[]
@@ -87,7 +139,7 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 		actions: readonly ActionRecord[],
 		amrs: readonly ActionModifiedRow[],
 		basisServerIngestId: number
-	): Effect.Effect<boolean, NetworkRequestError | BadArgument, never> =>
+	): Effect.Effect<boolean, SendLocalActionsFailure | NetworkRequestError | BadArgument, never> =>
 		Effect.gen(function* () {
 			// TODO: Implement actual network request to send actions to remote server
 			yield* Effect.logInfo(`Sending ${actions.length} local actions to server`)

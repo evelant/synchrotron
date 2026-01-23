@@ -75,4 +75,13 @@ CREATE TABLE IF NOT EXISTS client_sync_status (
 CREATE TABLE IF NOT EXISTS local_applied_action_ids (
 	action_record_id TEXT PRIMARY KEY
 );
+
+CREATE TABLE IF NOT EXISTS local_quarantined_actions (
+	action_record_id TEXT PRIMARY KEY,
+	failure_tag TEXT NOT NULL,
+	failure_code TEXT,
+	failure_message TEXT NOT NULL,
+	quarantined_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	FOREIGN KEY (action_record_id) REFERENCES action_records(id) ON DELETE CASCADE
+);
 `

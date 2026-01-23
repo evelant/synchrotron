@@ -11,6 +11,7 @@
     "pinned": false,
     "priority": 0,
     "severity": "info",
-    "resolved": false
+    "resolved": false,
+    "kanbanColumn": "todo"
   }
 ]

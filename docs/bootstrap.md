@@ -19,7 +19,7 @@ The RPC server exposes `FetchBootstrapSnapshot`, returning:
 - `serverClock`: server HLC at snapshot time
 - `tables`: `{ tableName, rows[] }` for configured tables
 
-After applying the snapshot, the client sets `last_seen_server_ingest_id = serverIngestId`, observes `serverClock`, and continues normal incremental sync (`FetchRemoteActions` from that cursor onward).
+After applying the snapshot, the client resets `client_sync_status` from the snapshot metadata (including `last_seen_server_ingest_id = serverIngestId` and using `serverClock` as the new clock baseline), then continues normal incremental sync (`FetchRemoteActions` from that cursor onward).
 
 If the server is not configured for snapshots, the client falls back to “action-log restore” via `includeSelf=true` on the first fetch (works, but scales with history).
 
@@ -41,4 +41,3 @@ Notes:
 
 - Tables are fetched/applied in the order listed. If you snapshot multiple tables with foreign keys, list parent tables first.
 - Snapshot reads run under normal RLS (`synchrotron.user_id`), so each user only receives rows they can see.
-

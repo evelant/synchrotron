@@ -1,10 +1,18 @@
 import { KeyValueStore } from "@effect/platform"
 import { SqlClient, SqlSchema } from "@effect/sql"
+import type { SqlError } from "@effect/sql/SqlError"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
+import {
+	SendLocalActionsBehindHead,
+	SendLocalActionsDenied,
+	SendLocalActionsInternal,
+	SendLocalActionsInvalid,
+	type SendLocalActionsFailure
+} from "@synchrotron/sync-core/SyncNetworkService"
 import { Cause, Data, Effect, Option, Schema } from "effect"
 import { SyncSnapshotConfig } from "./SyncSnapshotConfig"
 import { SyncUserId } from "./SyncUserId"
@@ -41,6 +49,48 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			const actionRecordRepo = yield* ActionRecordRepo
 			const actionModifiedRowRepo = yield* ActionModifiedRowRepo
 			const keyValueStore = yield* KeyValueStore.KeyValueStore
+
+		const isSendLocalActionsFailure = (error: unknown): error is SendLocalActionsFailure =>
+			error instanceof SendLocalActionsBehindHead ||
+			error instanceof SendLocalActionsDenied ||
+			error instanceof SendLocalActionsInvalid ||
+			error instanceof SendLocalActionsInternal
+
+		const sqlStateFromCause = (cause: unknown): string | undefined => {
+			if (!cause || typeof cause !== "object") return undefined
+			const anyCause: any = cause
+			if (typeof anyCause.code === "string") return anyCause.code
+			if (typeof anyCause.sqlState === "string") return anyCause.sqlState
+			return undefined
+		}
+
+		const classifyUploadSqlError = (error: SqlError): SendLocalActionsFailure => {
+			const cause = (error as any).cause as unknown
+			const code = sqlStateFromCause(cause)
+			const message = error.message ?? "SQL error during SendLocalActions"
+
+			// Postgres SQLSTATE:
+			// - 42501: insufficient_privilege (includes RLS policy violations)
+			// - 28***: invalid authorization specification / authentication failures
+			if (
+				code === "42501" ||
+				(typeof code === "string" && code.startsWith("28")) ||
+				message.toLowerCase().includes("row-level security") ||
+				message.toLowerCase().includes("permission denied")
+			) {
+				return new SendLocalActionsDenied({ message, code })
+			}
+
+			// 22***: data exception, 23***: integrity constraint violation
+			if (
+				(typeof code === "string" && (code.startsWith("22") || code.startsWith("23"))) ||
+				message.toLowerCase().includes("violates")
+			) {
+				return new SendLocalActionsInvalid({ message, code })
+			}
+
+			return new SendLocalActionsInternal({ message })
+		}
 
 		const toNumber = (value: unknown): number => {
 			if (typeof value === "number") return value
@@ -107,14 +157,14 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 		 * Receives actions from a client, performs conflict checks, handles rollbacks,
 		 * inserts data, and applies patches to the server state.
 		 */
-		const receiveActions = (
-			clientId: string,
-			basisServerIngestId: number,
-			actions: readonly ActionRecord[],
-			amrs: readonly ActionModifiedRow[]
-		) =>
-			Effect.gen(function* () {
-				const userId = yield* SyncUserId
+			const receiveActions = (
+				clientId: string,
+				basisServerIngestId: number,
+				actions: readonly ActionRecord[],
+				amrs: readonly ActionModifiedRow[]
+			): Effect.Effect<void, SendLocalActionsFailure, SyncUserId> =>
+				Effect.gen(function* () {
+					const userId = yield* SyncUserId
 				// Set the RLS context for the duration of this transaction.
 				yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
 				yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
@@ -151,7 +201,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						)
 					})
 					return yield* Effect.fail(
-						new ServerInternalError({
+						new SendLocalActionsInvalid({
 							message: `Invalid upload: all actions must have client_id=${clientId}`
 						})
 					)
@@ -169,7 +219,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						)
 					})
 					return yield* Effect.fail(
-						new ServerInternalError({
+						new SendLocalActionsInvalid({
 							message: "Invalid upload: AMRs must reference actions in the same batch"
 						})
 					)
@@ -189,10 +239,10 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					return Number(value)
 				}
 
-				const normalizeJson = (value: unknown): unknown => {
-					if (typeof value !== "string") return value
-					let current: unknown = value
-					// Handle "double encoded" JSON strings (JSON string containing JSON text).
+					const normalizeJson = (value: unknown): unknown => {
+						if (typeof value !== "string") return value
+						let current: unknown = value
+						// Handle "double encoded" JSON strings (JSON string containing JSON text).
 					for (let i = 0; i < 2 && typeof current === "string"; i++) {
 						try {
 							current = JSON.parse(current)
@@ -200,12 +250,17 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							break
 						}
 					}
-					return current
-				}
+						return current
+					}
 
-				const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
-					if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
-					if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
+					const jsonbInput = (value: unknown): string => {
+						const normalized = normalizeJson(value)
+						return typeof normalized === "string" ? normalized : JSON.stringify(normalized)
+					}
+
+					const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
+						if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
+						if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
 					if (a.clientId !== b.clientId) return a.clientId < b.clientId ? -1 : 1
 					if (a.id !== b.id) return a.id < b.id ? -1 : 1
 					return 0
@@ -235,27 +290,24 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					ORDER BY server_ingest_id ASC, id ASC
 					LIMIT 1
 				`.pipe(
-					Effect.mapError(
-						(e) =>
-							new ServerInternalError({
-								message: "Head check query failed",
-								cause: e
-							})
-					)
+					Effect.mapError(classifyUploadSqlError)
 				)
 				if (unseen.length > 0) {
 					const first = unseen[0]
+					const firstUnseenServerIngestId = first ? toNumber(first.server_ingest_id) : basisServerIngestId
 					yield* Effect.logWarning("server.receiveActions.behindHead", {
 						clientId,
 						basisServerIngestId,
 						firstUnseenActionId: first?.id ?? null,
-						firstUnseenServerIngestId: first ? toNumber(first.server_ingest_id) : null
+						firstUnseenServerIngestId
 					})
 					return yield* Effect.fail(
-						new ServerConflictError({
+						new SendLocalActionsBehindHead({
 							message:
 								"Client is behind the server ingestion head. Fetch remote actions, reconcile locally, then retry upload.",
-							conflictingActions: []
+							basisServerIngestId,
+							firstUnseenServerIngestId,
+							firstUnseenActionId: first?.id ?? undefined
 						})
 					)
 				}
@@ -284,19 +336,19 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							transaction_id,
 							created_at
 						) VALUES (
-							nextval('action_records_server_ingest_id_seq'),
-							${actionRecord.id},
-							${userId},
-							${actionRecord.client_id},
-							${actionRecord._tag},
-							${sql.json(normalizeJson(actionRecord.args))},
-							${sql.json(normalizeJson(actionRecord.clock))},
-							1,
-							${actionRecord.transaction_id},
-							${new Date(actionRecord.created_at).toISOString()}
-						)
+								nextval('action_records_server_ingest_id_seq'),
+								${actionRecord.id},
+								${userId},
+								${actionRecord.client_id},
+								${actionRecord._tag},
+								${jsonbInput(actionRecord.args)},
+								${jsonbInput(actionRecord.clock)},
+								1,
+								${actionRecord.transaction_id},
+								${new Date(actionRecord.created_at).toISOString()}
+							)
 						ON CONFLICT (id) DO NOTHING
-					`
+					`.pipe(Effect.mapError(classifyUploadSqlError))
 				}
 
 				for (const modifiedRow of amrs) {
@@ -314,16 +366,16 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						) VALUES (
 							${modifiedRow.id},
 							${modifiedRow.table_name},
-							${modifiedRow.row_id},
-							${modifiedRow.action_record_id},
-							${modifiedRow.audience_key},
-							${modifiedRow.operation},
-							${sql.json(normalizeJson(modifiedRow.forward_patches))},
-							${sql.json(normalizeJson(modifiedRow.reverse_patches))},
-							${modifiedRow.sequence}
-						)
-						ON CONFLICT (id) DO NOTHING
-					`
+								${modifiedRow.row_id},
+								${modifiedRow.action_record_id},
+								${modifiedRow.audience_key},
+								${modifiedRow.operation},
+								${jsonbInput(modifiedRow.forward_patches)},
+								${jsonbInput(modifiedRow.reverse_patches)},
+								${modifiedRow.sequence}
+							)
+							ON CONFLICT (id) DO NOTHING
+						`.pipe(Effect.mapError(classifyUploadSqlError))
 				}
 
 				const incomingRollbacks = actions.filter((a) => a._tag === "RollbackAction")
@@ -348,8 +400,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							`
 							if (targetRows.length !== targetIds.length) {
 								return yield* Effect.fail(
-									new ServerInternalError({
-										message: "Rollback target action(s) not found on server"
+									new SendLocalActionsInvalid({
+										message: "Invalid upload: rollback target action(s) not found on server"
 									})
 								)
 							}
@@ -545,27 +597,26 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					amrCount: amrs.length,
 					actionTags
 				})
-			}).pipe(
+				}).pipe(
 					sql.withTransaction,
 					Effect.catchAll((error) => {
-						if (error instanceof ServerConflictError || error instanceof ServerInternalError) {
-							return Effect.fail(error)
+						if (isSendLocalActionsFailure(error)) return Effect.fail(error)
+						if ((error as any)?._tag === "SqlError") {
+							return Effect.fail(classifyUploadSqlError(error as any as SqlError))
 						}
 
 						const unknownError = error as unknown
-						const message =
-							unknownError instanceof Error ? unknownError.message : String(unknownError)
-						return Effect.fail(
-							new ServerInternalError({
-								message: `Unexpected error during receiveActions: ${message}`,
-								cause: unknownError
-							})
-						)
-					}),
-					Effect.annotateLogs({ serverOperation: "receiveActions", requestingClientId: clientId }),
-					Effect.withSpan("SyncServerService.receiveActions", {
-						attributes: { clientId, actionCount: actions.length, amrCount: amrs.length }
-					})
+						const message = unknownError instanceof Error ? unknownError.message : String(unknownError)
+					return Effect.fail(
+						new SendLocalActionsInternal({
+							message: `Unexpected error during receiveActions: ${message}`
+						})
+					)
+				}),
+				Effect.annotateLogs({ serverOperation: "receiveActions", requestingClientId: clientId }),
+				Effect.withSpan("SyncServerService.receiveActions", {
+					attributes: { clientId, actionCount: actions.length, amrCount: amrs.length }
+				})
 			)
 
 		const getActionsSince = (

@@ -1,6 +1,6 @@
 import { FetchHttpClient } from "@effect/platform"
 import * as Headers from "@effect/platform/Headers"
-import { RpcClient, RpcMiddleware, RpcSerialization } from "@effect/rpc"
+import { RpcClient, RpcClientError, RpcMiddleware, RpcSerialization } from "@effect/rpc"
 import { SqlClient } from "@effect/sql"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
@@ -136,10 +136,10 @@ export const SyncNetworkServiceLive = Layer.scoped(
 						amrCount: amrs.length
 					})
 					return result
-			}).pipe(
-				Effect.tapErrorCause((c) =>
-					Effect.logError(
-						"sync.network.sendLocalActions.error",
+				}).pipe(
+					Effect.tapErrorCause((c) =>
+						Effect.logError(
+							"sync.network.sendLocalActions.error",
 						{
 							clientId,
 							cause: Cause.pretty(c),
@@ -147,17 +147,18 @@ export const SyncNetworkServiceLive = Layer.scoped(
 								Chunk.map((d) => JSON.stringify(d, undefined, 2)),
 								Chunk.toArray
 							)
-						}
+							}
+						)
+					),
+					Effect.catchTag("RpcClientError", (error: RpcClientError.RpcClientError) =>
+						Effect.fail(
+							new NetworkRequestError({
+								message: error.message,
+								cause: error.cause ?? error
+							})
+						)
 					)
-				),
-				Effect.mapError(
-					(error) =>
-						new NetworkRequestError({
-							message: error instanceof Error ? error.message : String(error),
-							cause: error
-						})
 				)
-			)
 		const fetchRemoteActions = () =>
 			Effect.gen(function* () {
 				yield* Effect.logInfo("sync.network.fetchRemoteActions.start", { clientId })

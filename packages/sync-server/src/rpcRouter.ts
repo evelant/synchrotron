@@ -9,12 +9,13 @@ import {
 	SyncNetworkRpcGroup
 } from "@synchrotron/sync-core/SyncNetworkRpc"
 import {
-	NetworkRequestError,
-	RemoteActionFetchError
+	RemoteActionFetchError,
+	type SendLocalActionsFailure,
+	SendLocalActionsDenied
 } from "@synchrotron/sync-core/SyncNetworkService"
 import { Cause, Effect, Layer } from "effect"
 import { SyncAuthService } from "./SyncAuthService"
-import { ServerConflictError, ServerInternalError, SyncServerService } from "./SyncServerService"
+import { ServerInternalError, SyncServerService } from "./SyncServerService"
 import { SyncUserId, type UserId } from "./SyncUserId"
 
 export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
@@ -127,15 +128,17 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 				Effect.withSpan("RpcHandler.FetchBootstrapSnapshot")
 			)
 
-			const SendLocalActionsHandler = (payload: SendLocalActions, options: { readonly headers: PlatformHeaders }) =>
+			const SendLocalActionsHandler = (
+				payload: SendLocalActions,
+				options: { readonly headers: PlatformHeaders }
+			): Effect.Effect<boolean, SendLocalActionsFailure, never> =>
 				Effect.gen(function* (_) {
 					const clientId = payload.clientId
 					const userId = (yield* auth.requireUserId(options.headers).pipe(
 						Effect.mapError(
 							(e) =>
-								new NetworkRequestError({
-									message: e.message,
-									cause: e.cause
+								new SendLocalActionsDenied({
+									message: e.message
 								})
 						)
 					)) as UserId
@@ -173,22 +176,6 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 				Effect.tapErrorCause((c) =>
 					Effect.logError("rpc.SendLocalActions.error", { cause: Cause.pretty(c) })
 				),
-				Effect.catchTags({
-					ServerConflictError: (e: ServerConflictError) =>
-						Effect.fail(
-							new NetworkRequestError({
-								message: `Conflict receiving actions: ${e.message}`,
-								cause: e
-							})
-						),
-					ServerInternalError: (e: ServerInternalError) =>
-						Effect.fail(
-							new NetworkRequestError({
-								message: `Server internal error receiving actions: ${e.message}`,
-								cause: e.cause
-							})
-						)
-				}),
 				Effect.annotateLogs({ rpcMethod: "SendLocalActions", clientId: payload.clientId }),
 				Effect.withSpan("RpcHandler.SendLocalActions")
 			)

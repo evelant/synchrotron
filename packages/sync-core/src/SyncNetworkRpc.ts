@@ -2,7 +2,10 @@ import { Rpc, RpcGroup, RpcMiddleware } from "@effect/rpc"
 import { Schema } from "effect"
 import { HLC } from "./HLC"
 import { ActionModifiedRow, ActionRecord } from "./models"
-import { NetworkRequestError, RemoteActionFetchError } from "./SyncNetworkService"
+import {
+	RemoteActionFetchError,
+	SendLocalActionsFailureSchema
+} from "./SyncNetworkService"
 
 const FetchResultSchema = Schema.Struct({
 	actions: Schema.Array(ActionRecord),
@@ -71,7 +74,7 @@ export class SendLocalActions extends Schema.TaggedRequest<SendLocalActions>()("
 		amrs: Schema.Array(ActionModifiedRow)
 	},
 	success: Schema.Boolean,
-	failure: NetworkRequestError
+	failure: SendLocalActionsFailureSchema
 }) {}
 
 export class SyncNetworkRpcGroup extends RpcGroup.make(

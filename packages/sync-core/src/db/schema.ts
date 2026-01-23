@@ -6,7 +6,8 @@ const requiredSyncTables = [
 	"action_records",
 	"action_modified_rows",
 	"client_sync_status",
-	"local_applied_action_ids"
+	"local_applied_action_ids",
+	"local_quarantined_actions"
 ] as const
 
 /**

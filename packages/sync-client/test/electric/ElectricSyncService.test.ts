@@ -112,15 +112,19 @@ describe("ElectricSyncService", () => {
 		;(mod as any).TransactionalMultiShapeStream.instances.length = 0
 	})
 
-		it("triggers SyncService.performSync only when both shapes are up-to-date", async () => {
-			const syncCalls = Ref.unsafeMake(0)
-			const stubSyncService = SyncService.of({
-				_tag: "SyncService",
-				executeAction: () => Effect.dieMessage("not used"),
-				performSync: () => Ref.update(syncCalls, (n) => n + 1).pipe(Effect.as([] as const)),
-				cleanupOldActionRecords: () => Effect.succeed(true),
-				applyActionRecords: () => Effect.dieMessage("not used")
-			})
+			it("triggers SyncService.performSync only when both shapes are up-to-date", async () => {
+				const syncCalls = Ref.unsafeMake(0)
+				const stubSyncService = SyncService.of({
+					_tag: "SyncService",
+					executeAction: () => Effect.dieMessage("not used"),
+					performSync: () => Ref.update(syncCalls, (n) => n + 1).pipe(Effect.as([] as const)),
+					cleanupOldActionRecords: (_retentionDays?: number) => Effect.succeed(true),
+					applyActionRecords: (_remoteActions: readonly any[]) => Effect.dieMessage("not used"),
+					hardResync: () => Effect.dieMessage("not used"),
+					rebase: () => Effect.dieMessage("not used"),
+					getQuarantinedActions: () => Effect.succeed([] as const),
+					discardQuarantinedActions: () => Effect.succeed({ discardedActionCount: 0 } as const)
+				})
 
 		const testLayer = ElectricSyncService.Default.pipe(
 			Layer.provideMerge(Layer.succeed(SyncService, stubSyncService)),

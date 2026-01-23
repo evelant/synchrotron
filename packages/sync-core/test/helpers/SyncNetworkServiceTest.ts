@@ -7,7 +7,10 @@ import type { ActionRecord } from "@synchrotron/sync-core/models"
 import { ActionModifiedRow } from "@synchrotron/sync-core/models" // Import ActionModifiedRow model
 import {
 	NetworkRequestError,
+	type BootstrapSnapshot,
 	RemoteActionFetchError,
+	SendLocalActionsBehindHead,
+	type SendLocalActionsFailure,
 	SyncNetworkService
 	// Remove TestNetworkState import from here, define it below
 } from "@synchrotron/sync-core/SyncNetworkService"
@@ -27,6 +30,13 @@ export interface TestNetworkState {
 	shouldFail: boolean
 	/** Mocked result for fetchRemoteActions */
 	fetchResult: Effect.Effect<FetchResult, RemoteActionFetchError, never> | undefined
+	/** Mocked result for fetchBootstrapSnapshot */
+	bootstrapSnapshot: Effect.Effect<BootstrapSnapshot, RemoteActionFetchError, never> | undefined
+	/**
+	 * Optional queue of mocked `sendLocalActions` results.
+	 * When non-empty, each send call consumes one result (FIFO).
+	 */
+	sendResults: Array<Effect.Effect<boolean, SendLocalActionsFailure | NetworkRequestError, never>>
 }
 
 export interface SyncNetworkServiceTestHelpersService {
@@ -34,6 +44,12 @@ export interface SyncNetworkServiceTestHelpersService {
 	readonly setShouldFail: (fail: boolean) => Effect.Effect<void, never, never>
 	readonly setFetchResult: (
 		fetchResult: TestNetworkState["fetchResult"]
+	) => Effect.Effect<void, never, never>
+	readonly setBootstrapSnapshot: (
+		bootstrapSnapshot: TestNetworkState["bootstrapSnapshot"]
+	) => Effect.Effect<void, never, never>
+	readonly setSendResults: (
+		results: ReadonlyArray<Effect.Effect<boolean, SendLocalActionsFailure | NetworkRequestError, never>>
 	) => Effect.Effect<void, never, never>
 }
 
@@ -75,8 +91,11 @@ export const createTestSyncNetworkServiceLayer = (
 				networkDelay: 0,
 				shouldFail: false,
 				fetchResult: undefined,
+				bootstrapSnapshot: undefined,
+				sendResults: [],
 				...config.initialState // fetchResult will be included if provided in config
 			}
+			state.sendResults = state.sendResults ?? []
 
 			/**
 			 * Set simulated network delay
@@ -100,6 +119,21 @@ export const createTestSyncNetworkServiceLayer = (
 			const setFetchResult = (fetchResult: TestNetworkState["fetchResult"]) =>
 				Effect.sync(() => {
 					state.fetchResult = fetchResult
+				})
+
+			/**
+			 * Override fetchBootstrapSnapshot with a mocked result (or clear the override).
+			 */
+			const setBootstrapSnapshot = (bootstrapSnapshot: TestNetworkState["bootstrapSnapshot"]) =>
+				Effect.sync(() => {
+					state.bootstrapSnapshot = bootstrapSnapshot
+				})
+
+			const setSendResults = (
+				results: ReadonlyArray<Effect.Effect<boolean, SendLocalActionsFailure | NetworkRequestError, never>>
+			) =>
+				Effect.sync(() => {
+					state.sendResults = [...results]
 				})
 
 			/**
@@ -203,20 +237,18 @@ export const createTestSyncNetworkServiceLayer = (
 							ORDER BY server_ingest_id ASC, id ASC
 							LIMIT 1
 						`
-						if (unseen.length > 0) {
-							const first = unseen[0]
-							return yield* Effect.fail(
-								new NetworkRequestError({
-									message:
-										"Client is behind the server ingestion head. Fetch remote actions, reconcile locally, then retry upload.",
-									cause: {
+							if (unseen.length > 0) {
+								const first = unseen[0]
+								return yield* Effect.fail(
+									new SendLocalActionsBehindHead({
+										message:
+											"Client is behind the server ingestion head. Fetch remote actions, reconcile locally, then retry upload.",
 										basisServerIngestId,
-										firstUnseenActionId: first?.id ?? null,
-										firstUnseenServerIngestId: first ? toNumber(first.server_ingest_id) : null
-									}
-								})
-							)
-						}
+										firstUnseenActionId: first?.id ?? undefined,
+										firstUnseenServerIngestId: first ? toNumber(first.server_ingest_id) : basisServerIngestId
+									})
+								)
+							}
 
 						// Insert ActionRecords and AMRs idempotently.
 						for (const actionRecord of incomingActions) {
@@ -452,10 +484,35 @@ export const createTestSyncNetworkServiceLayer = (
 				const service: SyncNetworkService = SyncNetworkService.of({
 					_tag: "SyncNetworkService",
 					fetchBootstrapSnapshot: () =>
-						Effect.fail(
-							new RemoteActionFetchError({
-								message: "Bootstrap snapshot is not implemented for SyncNetworkServiceTest"
-							})
+						Effect.gen(function* () {
+							if (state.shouldFail && !state.bootstrapSnapshot) {
+								return yield* Effect.fail(
+									new RemoteActionFetchError({ message: "Simulated network failure" })
+								)
+							}
+
+							if (state.networkDelay > 0 && !state.bootstrapSnapshot) {
+								yield* TestClock.adjust(state.networkDelay)
+							}
+
+							if (!state.bootstrapSnapshot) {
+								return yield* Effect.fail(
+									new RemoteActionFetchError({
+										message:
+											"Bootstrap snapshot is not configured for SyncNetworkServiceTest (set via SyncNetworkServiceTestHelpers.setBootstrapSnapshot)"
+									})
+								)
+							}
+
+							return yield* state.bootstrapSnapshot
+						}).pipe(
+							Effect.mapError(
+								(error) =>
+									new RemoteActionFetchError({
+										message: error instanceof Error ? error.message : String(error),
+										cause: error
+									})
+							)
 						),
 					fetchRemoteActions: () =>
 						// Interface expects only RemoteActionFetchError
@@ -559,12 +616,17 @@ export const createTestSyncNetworkServiceLayer = (
 						actions: readonly ActionRecord[],
 						amrs: readonly ActionModifiedRow[],
 						basisServerIngestId: number
-					) =>
-						Effect.gen(function* () {
-							if (state.shouldFail) {
-								return yield* Effect.fail(
-									new NetworkRequestError({
-										message: "Simulated network failure"
+						) =>
+							Effect.gen(function* () {
+								const nextSend = state.sendResults.shift()
+								if (nextSend) {
+									return yield* nextSend
+								}
+
+								if (state.shouldFail) {
+									return yield* Effect.fail(
+										new NetworkRequestError({
+											message: "Simulated network failure"
 									})
 								)
 							}
@@ -603,11 +665,13 @@ export const createTestSyncNetworkServiceLayer = (
 			})
 
 			// Test helper methods
-			const testHelpers = SyncNetworkServiceTestHelpers.of({
-				setNetworkDelay,
-				setShouldFail,
-				setFetchResult
-			})
+				const testHelpers = SyncNetworkServiceTestHelpers.of({
+					setNetworkDelay,
+					setShouldFail,
+					setFetchResult,
+					setBootstrapSnapshot,
+					setSendResults
+				})
 			return Layer.merge(
 				Layer.succeed(SyncNetworkService, service),
 				Layer.succeed(SyncNetworkServiceTestHelpers, testHelpers)

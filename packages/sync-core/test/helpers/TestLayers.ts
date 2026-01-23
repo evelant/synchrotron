@@ -58,6 +58,7 @@ export const initializeDbForTests = (schema: string) =>
 		yield* sql`DROP TABLE IF EXISTS test_patches`
 		yield* sql`DROP TABLE IF EXISTS notes`
 		yield* sql`DROP TABLE IF EXISTS local_applied_action_ids` // Drop new table too
+		yield* sql`DROP TABLE IF EXISTS local_quarantined_actions`
 
 		// Create the notes table (Removed DEFAULT NOW() from updated_at)
 		yield* sql`

@@ -2,10 +2,13 @@ import { KeyValueStore } from "@effect/platform"
 import { SqlClient } from "@effect/sql"
 import { describe, expect, it } from "@effect/vitest"
 import { makeSynchrotronClientLayer } from "@synchrotron/sync-client"
+import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
+import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ClientDbAdapter } from "@synchrotron/sync-core/ClientDbAdapter"
 import { ClientIdOverride } from "@synchrotron/sync-core/ClientIdOverride"
 import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { SendLocalActionsBehindHead, SyncNetworkService } from "@synchrotron/sync-core/SyncNetworkService"
 import { SyncService } from "@synchrotron/sync-core/SyncService"
 import { ConfigProvider, Effect, Layer, Runtime, Schema } from "effect"
 import { SignJWT } from "jose"
@@ -626,6 +629,117 @@ const makeClientLayer = (params: {
 					})
 				)
 			}),
+			{ timeout: 30000 }
+		)
+
+	it.scoped(
+		"SendLocalActions rejects with typed BehindHead error over RPC",
+		() =>
+			Effect.gen(function* () {
+				const secret = "supersecretvalue-supersecretvalue"
+				const token = yield* Effect.promise(() =>
+					signHs256Jwt({ secret, sub: "userA", aud: "authenticated" })
+				)
+
+				const server = yield* makeInProcessSyncRpcServer({
+					dataDir: `memory://server-${crypto.randomUUID()}`,
+					baseUrl: TestSyncRpcBaseUrl,
+					configProvider: ConfigProvider.fromMap(
+						new Map([
+							["SYNC_JWT_SECRET", secret],
+							["SYNC_JWT_AUD", "authenticated"]
+						])
+					)
+				})
+
+				const syncRpcUrl = `${server.baseUrl}/rpc`
+				const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
+
+				const projectId = `project-${crypto.randomUUID()}`
+				yield* runOnServer(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient
+						yield* sql`INSERT INTO projects (id) VALUES (${projectId}) ON CONFLICT DO NOTHING`
+						yield* sql`
+							INSERT INTO project_members (id, project_id, user_id)
+							VALUES (${`${projectId}-userA`}, ${projectId}, 'userA')
+							ON CONFLICT DO NOTHING
+						`
+					})
+				)
+
+				const remoteNoteId = crypto.randomUUID()
+				const localNoteId = crypto.randomUUID()
+
+				yield* withInProcessFetch(
+					server.baseUrl,
+					server.handler,
+					Effect.gen(function* () {
+						const clientBContext = yield* Layer.build(
+							makeClientLayer({
+								clientId: "clientB",
+								syncRpcUrl,
+								syncRpcAuthToken: token,
+								pgliteDataDir: `memory://clientB-${crypto.randomUUID()}`
+							})
+						)
+						yield* setupClientNotes.pipe(Effect.provide(clientBContext))
+						const actionsB = yield* defineClientActions.pipe(Effect.provide(clientBContext))
+						const syncB = yield* SyncService.pipe(Effect.provide(clientBContext))
+						yield* syncB.executeAction(
+							actionsB.createNoteWithId({
+								id: remoteNoteId,
+								content: "remote",
+								project_id: projectId,
+								timestamp: 1000
+							})
+						)
+						yield* syncB.performSync()
+
+						const clientAContext = yield* Layer.build(
+							makeClientLayer({
+								clientId: "clientA",
+								syncRpcUrl,
+								syncRpcAuthToken: token,
+								pgliteDataDir: `memory://clientA-${crypto.randomUUID()}`
+							})
+						)
+						yield* setupClientNotes.pipe(Effect.provide(clientAContext))
+						const actionsA = yield* defineClientActions.pipe(Effect.provide(clientAContext))
+						const syncA = yield* SyncService.pipe(Effect.provide(clientAContext))
+						yield* syncA.executeAction(
+							actionsA.createNoteWithId({
+								id: localNoteId,
+								content: "local",
+								project_id: projectId,
+								timestamp: 2000
+							})
+						)
+
+						const actionRecordRepo = yield* ActionRecordRepo.pipe(Effect.provide(clientAContext))
+						const actionModifiedRowRepo = yield* ActionModifiedRowRepo.pipe(Effect.provide(clientAContext))
+						const network = yield* SyncNetworkService.pipe(Effect.provide(clientAContext))
+
+						const actionsToSend = yield* actionRecordRepo.allUnsynced()
+						const amrsToSend = yield* actionModifiedRowRepo.allUnsynced()
+
+						const sendAttempt = yield* network.sendLocalActions(actionsToSend, amrsToSend, 0).pipe(
+							Effect.map((value) => ({ ok: true as const, value })),
+							Effect.catchAll((error) => Effect.succeed({ ok: false as const, error }))
+						)
+							expect(sendAttempt.ok).toBe(false)
+							if (!sendAttempt.ok) {
+								expect(sendAttempt.error._tag).toBe("SendLocalActionsBehindHead")
+								expect(sendAttempt.error).toBeInstanceOf(SendLocalActionsBehindHead)
+								if (sendAttempt.error instanceof SendLocalActionsBehindHead) {
+									expect(sendAttempt.error.basisServerIngestId).toBe(0)
+									expect(sendAttempt.error.firstUnseenServerIngestId).toBeGreaterThan(0)
+								}
+							}
+						})
+					)
+				}),
 		{ timeout: 30000 }
 	)
 })
