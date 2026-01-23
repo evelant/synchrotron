@@ -212,6 +212,10 @@ This caused problems (especially on the server: rollback patches could reference
   - Recovery primitives:
     - Hard resync: discard local base state + sync log and re-apply a bootstrap snapshot (escape hatch for corrupted/unknown local state).
     - Rebase (soft resync): discard local base state + *synced* history, apply a fresh snapshot, then re-run pending local actions (preserving `action_records.id` so `DeterministicId`-generated row ids remain stable) before attempting to sync again. This is the intended recovery path for future server-side action-log compaction/retention windows.
+  - History discontinuity detection (epoch + retention watermark):
+    - `sync_server_meta.server_epoch` is a server-generated UUID “generation token” returned with sync RPC responses. Clients persist it in `client_sync_status.server_epoch`. If it ever changes, the client treats the server history as discontinuous (restore/reset/breaking migration) and must `hardResync()` (no pending actions) or `rebase()` (pending actions).
+    - `minRetainedServerIngestId` is returned with sync RPC responses and represents the earliest `action_records.server_ingest_id` still retained on the server. If `client_sync_status.last_seen_server_ingest_id + 1 < minRetainedServerIngestId`, the server cannot serve an incremental delta; clients must `hardResync()` / `rebase()`.
+    - Clients attempt discontinuity recovery at most once per `performSync()`; persistent discontinuity requires app/user intervention.
 
 ## Security and privacy
 
@@ -272,12 +276,16 @@ Complex types are stored as JSON. Relationships are represented by normal primar
 - The action/patch log grows over time; long-term pruning needs a "rebase" strategy.
 - Think of this like a Git rebase: periodically take a snapshot/new base, then replay any remaining local actions on top.
 - A simple policy is to drop action records older than a window (e.g. one week) and force late clients to rebase from a snapshot/current state.
+- The server can implement retention/compaction as deletion of old `action_records`/`action_modified_rows` rows. The client detects this via `minRetainedServerIngestId` and automatically hard-resyncs/rebases.
 - Deletes are often easiest as soft-deletes plus later garbage collection, because other clients may still replay actions that reference a row.
 
 ## Error handling
 
 - Action execution is transactional: any failure rolls back the transaction (including the action record).
 - Sync should retry on transient conflicts (e.g. exponential backoff, replay-on-reject).
+- Server history discontinuities:
+  - `SyncHistoryEpochMismatch` and `FetchRemoteActionsCompacted` trigger a single automatic `hardResync()` (no pending actions) or `rebase()` (pending actions), then retry `performSync()` once.
+  - If a client already has quarantined local actions, discontinuity recovery requires app/user intervention (discard quarantined work or hard resync), to avoid silently losing blocked local work.
 - Upload rejection policy:
   - `SendLocalActionsBehindHead` is treated as transient and retried (fetch → reconcile → resend).
   - `SendLocalActionsInvalid` triggers a single automatic `rebase()` + retry. If it still fails, the client quarantines all local unsynced actions.

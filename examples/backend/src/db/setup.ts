@@ -31,6 +31,7 @@ const ensureExampleRlsRole = Effect.gen(function* () {
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_modified_rows TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE local_applied_action_ids TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE client_sync_status TO synchrotron_app`.raw
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE sync_server_meta TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE projects TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE project_members TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE todos TO synchrotron_app`.raw

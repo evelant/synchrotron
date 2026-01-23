@@ -115,6 +115,7 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_modified_rows TO synchrotron_app`.raw
 		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE local_applied_action_ids TO synchrotron_app`.raw
 		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE client_sync_status TO synchrotron_app`.raw
+		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE sync_server_meta TO synchrotron_app`.raw
 		yield* sql`GRANT USAGE, SELECT ON SEQUENCE action_records_server_ingest_id_seq TO synchrotron_app`.raw
 		yield* sql`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO synchrotron_app`.raw
 

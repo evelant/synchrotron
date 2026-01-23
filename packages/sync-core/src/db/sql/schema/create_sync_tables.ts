@@ -96,9 +96,22 @@ CREATE TABLE IF NOT EXISTS client_sync_status (
 	client_id TEXT PRIMARY KEY,
 	current_clock JSONB NOT NULL,
 	last_synced_clock JSONB NOT NULL,
+	-- Server sync history generation token (epoch). Used to detect server resets / restores.
+	server_epoch TEXT,
 	-- Server ingestion watermark used for incremental remote fetch.
 	last_seen_server_ingest_id BIGINT NOT NULL DEFAULT 0
 );
+
+-- Server-side singleton table for sync history metadata.
+-- - \`server_epoch\` changes only on hard discontinuities (DB restore/reset, breaking migrations).
+-- - \`min_retained_server_ingest_id\` is derived at runtime from the action log (rolling retention).
+CREATE TABLE IF NOT EXISTS sync_server_meta (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	server_epoch UUID NOT NULL DEFAULT gen_random_uuid(),
+	updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO sync_server_meta (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 -- Create client-local table to track applied actions
 CREATE TABLE IF NOT EXISTS local_applied_action_ids (

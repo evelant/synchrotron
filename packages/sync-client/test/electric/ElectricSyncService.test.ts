@@ -197,11 +197,19 @@ describe("ElectricSyncService", () => {
 				_tag: "SyncNetworkService",
 				fetchBootstrapSnapshot: () =>
 					Effect.succeed({
+						serverEpoch: "test-epoch",
+						minRetainedServerIngestId: 0,
 						serverIngestId: 0,
 						serverClock: { timestamp: 0, vector: {} },
 						tables: []
 					}),
-				fetchRemoteActions: () => Effect.succeed({ actions: [], modifiedRows: [] } as const),
+				fetchRemoteActions: () =>
+					Effect.succeed({
+						serverEpoch: "test-epoch",
+						minRetainedServerIngestId: 0,
+						actions: [],
+						modifiedRows: []
+					} as const),
 				sendLocalActions: () => Effect.succeed(true)
 			})
 

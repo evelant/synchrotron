@@ -55,6 +55,7 @@ export const initializeDbForTests = (schema: string) =>
 		yield* sql`DROP TABLE IF EXISTS action_modified_rows`
 		yield* sql`DROP TABLE IF EXISTS action_records`
 		yield* sql`DROP TABLE IF EXISTS client_sync_status`
+		yield* sql`DROP TABLE IF EXISTS sync_server_meta`
 		yield* sql`DROP TABLE IF EXISTS test_patches`
 		yield* sql`DROP TABLE IF EXISTS notes`
 		yield* sql`DROP TABLE IF EXISTS local_applied_action_ids` // Drop new table too

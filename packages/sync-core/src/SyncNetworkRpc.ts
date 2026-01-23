@@ -3,11 +3,14 @@ import { Schema } from "effect"
 import { HLC } from "./HLC"
 import { ActionModifiedRow, ActionRecord } from "./models"
 import {
+	FetchRemoteActionsFailureSchema,
 	RemoteActionFetchError,
 	SendLocalActionsFailureSchema
 } from "./SyncNetworkService"
 
 const FetchResultSchema = Schema.Struct({
+	serverEpoch: Schema.String,
+	minRetainedServerIngestId: Schema.Number,
 	actions: Schema.Array(ActionRecord),
 	modifiedRows: Schema.Array(ActionModifiedRow)
 })
@@ -18,6 +21,8 @@ const SnapshotTableSchema = Schema.Struct({
 })
 
 const BootstrapSnapshotSchema = Schema.Struct({
+	serverEpoch: Schema.String,
+	minRetainedServerIngestId: Schema.Number,
 	serverIngestId: Schema.Number,
 	serverClock: HLC,
 	tables: Schema.Array(SnapshotTableSchema)
@@ -51,7 +56,7 @@ export class FetchRemoteActions extends Schema.TaggedRequest<FetchRemoteActions>
 			includeSelf: Schema.optional(Schema.Boolean)
 		},
 		success: FetchResultSchema,
-		failure: RemoteActionFetchError
+		failure: FetchRemoteActionsFailureSchema
 	}
 ) {}
 

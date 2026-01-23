@@ -1,6 +1,8 @@
 import { KeyValueStore } from "@effect/platform"
 import type { Headers as PlatformHeaders } from "@effect/platform/Headers"
 import { HLC } from "@synchrotron/sync-core/HLC"
+import type { HLC as HLCType } from "@synchrotron/sync-core/HLC"
+import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import {
 	FetchBootstrapSnapshot,
 	FetchRemoteActions,
@@ -10,6 +12,7 @@ import {
 } from "@synchrotron/sync-core/SyncNetworkRpc"
 import {
 	RemoteActionFetchError,
+	FetchRemoteActionsCompacted,
 	type SendLocalActionsFailure,
 	SendLocalActionsDenied
 } from "@synchrotron/sync-core/SyncNetworkService"
@@ -23,7 +26,19 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 		const serverService = yield* SyncServerService
 		const auth = yield* SyncAuthService
 
-		const FetchRemoteActionsHandler = (payload: FetchRemoteActions, options: { readonly headers: PlatformHeaders }) =>
+		const FetchRemoteActionsHandler = (
+			payload: FetchRemoteActions,
+			options: { readonly headers: PlatformHeaders }
+		): Effect.Effect<
+			{
+				readonly serverEpoch: string
+				readonly minRetainedServerIngestId: number
+				readonly actions: readonly ActionRecord[]
+				readonly modifiedRows: readonly ActionModifiedRow[]
+			},
+			RemoteActionFetchError | FetchRemoteActionsCompacted,
+			never
+		> =>
 			Effect.gen(function* (_) {
 				const clientId = payload.clientId
 				const userId = (yield* auth.requireUserId(options.headers).pipe(
@@ -51,6 +66,8 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 				yield* Effect.logDebug("rpc.FetchRemoteActions.result", {
 					userId,
 					clientId,
+					serverEpoch: result.serverEpoch,
+					minRetainedServerIngestId: result.minRetainedServerIngestId,
 					actionCount: result.actions.length,
 					amrCount: result.modifiedRows.length,
 					firstActionId: result.actions[0]?.id ?? null
@@ -58,6 +75,8 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 
 				// return { actions: [], modifiedRows: [] }
 			return {
+				serverEpoch: result.serverEpoch,
+				minRetainedServerIngestId: result.minRetainedServerIngestId,
 				actions: result.actions.map((a) => ({ ...a, clock: HLC.make(a.clock) })),
 				// actions: [],
 				modifiedRows: result.modifiedRows
@@ -81,7 +100,20 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 		const FetchBootstrapSnapshotHandler = (
 			payload: FetchBootstrapSnapshot,
 			options: { readonly headers: PlatformHeaders }
-		) =>
+		): Effect.Effect<
+			{
+				readonly serverEpoch: string
+				readonly minRetainedServerIngestId: number
+				readonly serverIngestId: number
+				readonly serverClock: HLCType
+				readonly tables: ReadonlyArray<{
+					readonly tableName: string
+					readonly rows: ReadonlyArray<Record<string, unknown>>
+				}>
+			},
+			RemoteActionFetchError,
+			never
+		> =>
 			Effect.gen(function* () {
 				const clientId = payload.clientId
 				const userId = (yield* auth.requireUserId(options.headers).pipe(
@@ -103,11 +135,15 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 				yield* Effect.logDebug("rpc.FetchBootstrapSnapshot.result", {
 					userId,
 					clientId,
+					serverEpoch: snapshot.serverEpoch,
+					minRetainedServerIngestId: snapshot.minRetainedServerIngestId,
 					serverIngestId: snapshot.serverIngestId,
 					tableCount: snapshot.tables.length
 				})
 
 				return {
+					serverEpoch: snapshot.serverEpoch,
+					minRetainedServerIngestId: snapshot.minRetainedServerIngestId,
 					serverIngestId: snapshot.serverIngestId,
 					serverClock: HLC.make(snapshot.serverClock),
 					tables: snapshot.tables

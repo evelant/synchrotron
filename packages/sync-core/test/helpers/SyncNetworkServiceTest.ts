@@ -6,6 +6,8 @@ import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
 import { ActionModifiedRow } from "@synchrotron/sync-core/models" // Import ActionModifiedRow model
 import {
+	FetchRemoteActionsCompacted,
+	type FetchResult,
 	NetworkRequestError,
 	type BootstrapSnapshot,
 	RemoteActionFetchError,
@@ -14,13 +16,7 @@ import {
 	SyncNetworkService
 	// Remove TestNetworkState import from here, define it below
 } from "@synchrotron/sync-core/SyncNetworkService"
-import { Cause, Context, Effect, Layer, TestClock } from "effect"
-
-// Define FetchResult type
-interface FetchResult {
-	actions: readonly ActionRecord[]
-	modifiedRows: readonly ActionModifiedRow[]
-}
+import { Context, Effect, Layer, TestClock } from "effect"
 
 // Define TestNetworkState interface including fetchResult
 export interface TestNetworkState {
@@ -29,7 +25,9 @@ export interface TestNetworkState {
 	/** Whether network operations should fail */
 	shouldFail: boolean
 	/** Mocked result for fetchRemoteActions */
-	fetchResult: Effect.Effect<FetchResult, RemoteActionFetchError, never> | undefined
+	fetchResult:
+		| Effect.Effect<FetchResult, RemoteActionFetchError | FetchRemoteActionsCompacted, never>
+		| undefined
 	/** Mocked result for fetchBootstrapSnapshot */
 	bootstrapSnapshot: Effect.Effect<BootstrapSnapshot, RemoteActionFetchError, never> | undefined
 	/**
@@ -142,7 +140,7 @@ export const createTestSyncNetworkServiceLayer = (
 			const getServerData = (
 				sinceServerIngestId: number,
 				includeSelf: boolean = false
-			): Effect.Effect<FetchResult, SqlError> => // Updated return type
+			): Effect.Effect<FetchResult, SqlError | FetchRemoteActionsCompacted> => // Updated return type
 				Effect.gen(function* () {
 					// Log the database path being queried
 					// @ts-expect-error - Accessing private property for debugging
@@ -150,6 +148,32 @@ export const createTestSyncNetworkServiceLayer = (
 					yield* Effect.logDebug(
 						`getServerData: Querying server DB at ${dbPath} (since=${sinceServerIngestId}, includeSelf=${includeSelf})`
 					)
+
+					const epochRows = yield* serverSql<{ readonly server_epoch: string }>`
+						SELECT server_epoch::text AS server_epoch
+						FROM sync_server_meta
+						WHERE id = 1
+					`
+					const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
+
+					const minRows = yield* serverSql<{
+						readonly min_server_ingest_id: number | string | bigint | null
+					}>`
+						SELECT COALESCE(MIN(server_ingest_id), 0) AS min_server_ingest_id
+						FROM action_records
+					`
+					const minRetainedServerIngestId = Number(minRows[0]?.min_server_ingest_id ?? 0)
+					if (sinceServerIngestId + 1 < minRetainedServerIngestId) {
+						return yield* Effect.fail(
+							new FetchRemoteActionsCompacted({
+								message:
+									"Requested action log delta is older than the server's retained history (compacted)",
+								sinceServerIngestId,
+								minRetainedServerIngestId,
+								serverEpoch
+							})
+						)
+					}
 
 					const actions = yield* (includeSelf
 						? serverSql<ActionRecord>`
@@ -179,7 +203,12 @@ export const createTestSyncNetworkServiceLayer = (
             `
 					}
 
-					return { actions, modifiedRows } // Return both
+					return {
+						serverEpoch,
+						minRetainedServerIngestId,
+						actions,
+						modifiedRows
+					} satisfies FetchResult
 				}).pipe(Effect.annotateLogs("clientId", `${clientId} (server simulation)`))
 
 				const insertActionsOnServer = (
@@ -514,8 +543,11 @@ export const createTestSyncNetworkServiceLayer = (
 									})
 							)
 						),
-					fetchRemoteActions: () =>
-						// Interface expects only RemoteActionFetchError
+					fetchRemoteActions: (): Effect.Effect<
+						FetchResult,
+						RemoteActionFetchError | FetchRemoteActionsCompacted,
+						never
+					> =>
 						Effect.gen(function* () {
 								const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
 
@@ -526,11 +558,11 @@ export const createTestSyncNetworkServiceLayer = (
 									typeof localState?.has_any_action_records === "boolean"
 										? localState.has_any_action_records
 										: localState?.has_any_action_records === 1
-								const includeSelf = !hasAnyActionRecords && sinceServerIngestId === 0
-								const effectiveSinceServerIngestId = includeSelf ? 0 : sinceServerIngestId
-								yield* Effect.logInfo(
-									`Fetching remote data since server_ingest_id=${effectiveSinceServerIngestId} for client ${clientId} (includeSelf=${includeSelf})`
-								)
+				const includeSelf = !hasAnyActionRecords && sinceServerIngestId === 0
+				const effectiveSinceServerIngestId = includeSelf ? 0 : sinceServerIngestId
+				yield* Effect.logInfo(
+					`Fetching remote data since server_ingest_id=${effectiveSinceServerIngestId} for client ${clientId} (includeSelf=${includeSelf})`
+				)
 						if (state.shouldFail && !state.fetchResult) {
 							// Only fail if no mock result provided
 							return yield* Effect.fail(
@@ -545,7 +577,7 @@ export const createTestSyncNetworkServiceLayer = (
 							yield* TestClock.adjust(state.networkDelay)
 						}
 
-							// Use mocked result if provided, otherwise fetch from server
+			// Use mocked result if provided, otherwise fetch from server
 							const fetchedData = state.fetchResult
 								? yield* state.fetchResult
 								: yield* getServerData(effectiveSinceServerIngestId, includeSelf)
@@ -597,20 +629,25 @@ export const createTestSyncNetworkServiceLayer = (
 							)
 						)
 
-						// Return the fetched data so SyncService knows what was received
-						return fetchedData
-					}).pipe(
-						Effect.catchAllCause((error) =>
-							Effect.fail(
-								new RemoteActionFetchError({
-									message: `Failed to fetch remote actions ${Cause.pretty(error)}`,
-									cause: error
-								})
-							)
+							// Return the fetched data so SyncService knows what was received
+							return fetchedData
+						}).pipe(
+						Effect.catchAll(
+							(error): Effect.Effect<never, RemoteActionFetchError | FetchRemoteActionsCompacted, never> =>
+								error instanceof FetchRemoteActionsCompacted
+									? Effect.fail(error)
+									: Effect.fail(
+											new RemoteActionFetchError({
+												message: `Failed to fetch remote actions: ${
+													error instanceof Error ? error.message : String(error)
+												}`,
+												cause: error
+											})
+										)
 						),
-						Effect.annotateLogs("clientId", clientId),
-						Effect.withLogSpan("test fetchRemoteActions")
-					),
+							Effect.annotateLogs("clientId", clientId),
+							Effect.withLogSpan("test fetchRemoteActions")
+						),
 
 					sendLocalActions: (
 						actions: readonly ActionRecord[],

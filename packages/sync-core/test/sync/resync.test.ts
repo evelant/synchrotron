@@ -8,6 +8,19 @@ import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 describe("Resync primitives (hard resync + rebase)", () => {
 	const serverNotesSnapshot = (serverSql: PgliteClient.PgliteClient) =>
 		Effect.gen(function* () {
+			const epochRows = yield* serverSql<{ readonly server_epoch: string }>`
+				SELECT server_epoch::text AS server_epoch
+				FROM sync_server_meta
+				WHERE id = 1
+			`
+			const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
+
+			const minRows = yield* serverSql<{ readonly min_server_ingest_id: number | string | bigint | null }>`
+				SELECT COALESCE(MIN(server_ingest_id), 0) as min_server_ingest_id
+				FROM action_records
+			`
+			const minRetainedServerIngestId = Number(minRows[0]?.min_server_ingest_id ?? 0)
+
 			const headRows = yield* serverSql<{ readonly max_server_ingest_id: number | string }>`
 				SELECT COALESCE(MAX(server_ingest_id), 0) as max_server_ingest_id
 				FROM action_records
@@ -19,6 +32,8 @@ describe("Resync primitives (hard resync + rebase)", () => {
 			`
 
 			return {
+				serverEpoch,
+				minRetainedServerIngestId,
 				serverIngestId,
 				serverClock: HLC.make(),
 				tables: [{ tableName: "notes", rows: notes }]

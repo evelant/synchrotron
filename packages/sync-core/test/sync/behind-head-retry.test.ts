@@ -51,7 +51,22 @@ describe("SyncService: behind-head retry", () => {
 							)
 							.pipe(Effect.orDie)
 						yield* clientB.syncService.performSync().pipe(Effect.orDie)
-						return { actions: [], modifiedRows: [] } as const
+						const epochRows = yield* serverSql<{ readonly server_epoch: string }>`
+							SELECT server_epoch::text AS server_epoch
+							FROM sync_server_meta
+							WHERE id = 1
+						`.pipe(Effect.orDie)
+						const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
+
+						const minRows = yield* serverSql<{
+							readonly min_server_ingest_id: number | string | bigint | null
+						}>`
+							SELECT COALESCE(MIN(server_ingest_id), 0) AS min_server_ingest_id
+							FROM action_records
+						`.pipe(Effect.orDie)
+						const minRetainedServerIngestId = Number(minRows[0]?.min_server_ingest_id ?? 0)
+
+						return { serverEpoch, minRetainedServerIngestId, actions: [], modifiedRows: [] } as const
 					}
 
 					const actions = yield* serverSql<ActionRecord>`
@@ -70,8 +85,23 @@ describe("SyncService: behind-head retry", () => {
 								`.pipe(Effect.orDie)
 							: ([] as const)
 
-					return { actions, modifiedRows } as const
-				})
+						const epochRows = yield* serverSql<{ readonly server_epoch: string }>`
+							SELECT server_epoch::text AS server_epoch
+							FROM sync_server_meta
+							WHERE id = 1
+						`.pipe(Effect.orDie)
+						const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
+
+						const minRows = yield* serverSql<{
+							readonly min_server_ingest_id: number | string | bigint | null
+						}>`
+							SELECT COALESCE(MIN(server_ingest_id), 0) AS min_server_ingest_id
+							FROM action_records
+						`.pipe(Effect.orDie)
+						const minRetainedServerIngestId = Number(minRows[0]?.min_server_ingest_id ?? 0)
+
+						return { serverEpoch, minRetainedServerIngestId, actions, modifiedRows } as const
+					})
 
 				yield* clientA.syncNetworkServiceTestHelpers.setFetchResult(fetchOverride)
 
@@ -92,4 +122,3 @@ describe("SyncService: behind-head retry", () => {
 		20_000
 	)
 })
-

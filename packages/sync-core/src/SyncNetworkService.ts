@@ -13,6 +13,39 @@ export class RemoteActionFetchError extends Schema.TaggedError<RemoteActionFetch
 	}
 ) {}
 
+/**
+ * The server cannot provide an incremental action log delta because the client's cursor is older
+ * than the server's retained history window (e.g. action log compaction / retention deletion).
+ *
+ * Clients should recover via:
+ * - `hardResync()` if they have no pending local actions
+ * - `rebase()` if they do have pending local actions
+ */
+export class FetchRemoteActionsCompacted extends Schema.TaggedError<FetchRemoteActionsCompacted>()(
+	"FetchRemoteActionsCompacted",
+	{
+		message: Schema.String,
+		sinceServerIngestId: Schema.Number,
+		minRetainedServerIngestId: Schema.Number,
+		serverEpoch: Schema.String
+	}
+) {}
+
+/**
+ * The client has a different view of the server's sync history generation than the server.
+ *
+ * This indicates a discontinuity like a DB restore/reset, or a breaking migration that invalidates
+ * the action log semantics. Clients should hard resync (no pending) or rebase (pending).
+ */
+export class SyncHistoryEpochMismatch extends Schema.TaggedError<SyncHistoryEpochMismatch>()(
+	"SyncHistoryEpochMismatch",
+	{
+		message: Schema.String,
+		localEpoch: Schema.NullOr(Schema.String),
+		serverEpoch: Schema.String
+	}
+) {}
+
 export class NetworkRequestError extends Schema.TaggedError<NetworkRequestError>()(
 	"NetworkRequestError",
 	{
@@ -72,12 +105,23 @@ export const SendLocalActionsFailureSchema = Schema.Union(
 	SendLocalActionsInternal
 )
 
+export type FetchRemoteActionsFailure = RemoteActionFetchError | FetchRemoteActionsCompacted
+
+export const FetchRemoteActionsFailureSchema = Schema.Union(
+	RemoteActionFetchError,
+	FetchRemoteActionsCompacted
+)
+
 export interface FetchResult {
+	readonly serverEpoch: string
+	readonly minRetainedServerIngestId: number
 	actions: readonly ActionRecord[]
 	modifiedRows: readonly ActionModifiedRow[]
 }
 
 export interface BootstrapSnapshot {
+	readonly serverEpoch: string
+	readonly minRetainedServerIngestId: number
 	readonly serverIngestId: number
 	readonly serverClock: HLC
 	readonly tables: ReadonlyArray<{
@@ -112,7 +156,7 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 						message: "Bootstrap snapshot is not implemented for this transport"
 					})
 				),
-			fetchRemoteActions: (): Effect.Effect<FetchResult, RemoteActionFetchError | BadArgument> =>
+			fetchRemoteActions: (): Effect.Effect<FetchResult, FetchRemoteActionsFailure | BadArgument> =>
 				Effect.gen(function* () {
 					const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
 					// TODO: Implement actual network request to fetch remote actions
@@ -123,7 +167,12 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 
 					// For now return empty array as placeholder
 					// Need to return both actions and modifiedRows
-					return { actions: [], modifiedRows: [] } as FetchResult
+					return {
+						serverEpoch: "unknown",
+						minRetainedServerIngestId: 0,
+						actions: [],
+						modifiedRows: []
+					} satisfies FetchResult
 				}).pipe(
 					Effect.catchAll((error) =>
 						Effect.fail(

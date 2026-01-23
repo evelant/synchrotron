@@ -6,6 +6,7 @@ import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
 import { SyncNetworkRpcGroup, SyncRpcAuthMiddleware } from "@synchrotron/sync-core/SyncNetworkRpc"
 import {
+	FetchRemoteActionsCompacted,
 	NetworkRequestError,
 	RemoteActionFetchError,
 	SyncNetworkService
@@ -182,22 +183,24 @@ export const SyncNetworkServiceLive = Layer.scoped(
 					includeSelf
 				})
 
-				const actions = yield* client.FetchRemoteActions({
+				const remote = yield* client.FetchRemoteActions({
 					clientId,
 					sinceServerIngestId: effectiveSinceServerIngestId,
 					includeSelf
 				})
 				yield* Effect.logInfo("sync.network.fetchRemoteActions.result", {
 					clientId,
-					actionCount: actions.actions.length,
-					amrCount: actions.modifiedRows.length,
-					actionTags: actions.actions.reduce<Record<string, number>>((acc, a) => {
+					serverEpoch: remote.serverEpoch,
+					minRetainedServerIngestId: remote.minRetainedServerIngestId,
+					actionCount: remote.actions.length,
+					amrCount: remote.modifiedRows.length,
+					actionTags: remote.actions.reduce<Record<string, number>>((acc, a) => {
 						acc[a._tag] = (acc[a._tag] ?? 0) + 1
 						return acc
 					}, {})
 				})
 				yield* Effect.all(
-					actions.actions.map(
+					remote.actions.map(
 						(a) =>
 							sql`
 								INSERT INTO action_records ${sql.insert({
@@ -217,7 +220,7 @@ export const SyncNetworkServiceLive = Layer.scoped(
 					)
 				)
 				yield* Effect.all(
-					actions.modifiedRows.map(
+					remote.modifiedRows.map(
 						(a) =>
 							sql`
 								INSERT INTO action_modified_rows ${sql.insert({
@@ -237,19 +240,31 @@ export const SyncNetworkServiceLive = Layer.scoped(
 				)
 				yield* Effect.logDebug("sync.network.fetchRemoteActions.persisted", {
 					clientId,
-					actionCount: actions.actions.length,
-					amrCount: actions.modifiedRows.length,
-					actions: summarizeActions(actions.actions),
-					amrs: summarizeAmrs(actions.modifiedRows)
+					actionCount: remote.actions.length,
+					amrCount: remote.modifiedRows.length,
+					actions: summarizeActions(remote.actions),
+					amrs: summarizeAmrs(remote.modifiedRows)
 				})
-				return actions
+				return remote
 			}).pipe(
-				Effect.mapError(
-					(error) =>
+				Effect.catchTag("FetchRemoteActionsCompacted", (error: FetchRemoteActionsCompacted) =>
+					Effect.fail(error)
+				),
+				Effect.catchTag("RpcClientError", (error: RpcClientError.RpcClientError) =>
+					Effect.fail(
+						new RemoteActionFetchError({
+							message: error.message,
+							cause: error.cause ?? error
+						})
+					)
+				),
+				Effect.catchAll((error) =>
+					Effect.fail(
 						new RemoteActionFetchError({
 							message: error instanceof Error ? error.message : String(error),
 							cause: error
 						})
+					)
 				)
 			)
 
@@ -259,6 +274,8 @@ export const SyncNetworkServiceLive = Layer.scoped(
 				const snapshot = yield* client.FetchBootstrapSnapshot({ clientId })
 				yield* Effect.logInfo("sync.network.fetchBootstrapSnapshot.result", {
 					clientId,
+					serverEpoch: snapshot.serverEpoch,
+					minRetainedServerIngestId: snapshot.minRetainedServerIngestId,
 					serverIngestId: snapshot.serverIngestId,
 					tableCount: snapshot.tables.length,
 					rowCounts: snapshot.tables.map((t) => ({ tableName: t.tableName, rowCount: t.rows.length }))

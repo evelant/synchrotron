@@ -7,6 +7,7 @@ import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import {
+	FetchRemoteActionsCompacted,
 	SendLocalActionsBehindHead,
 	SendLocalActionsDenied,
 	SendLocalActionsInternal,
@@ -28,12 +29,16 @@ export class ServerInternalError extends Data.TaggedError("ServerInternalError")
 }> {}
 
 export interface FetchActionsResult {
+	readonly serverEpoch: string
+	readonly minRetainedServerIngestId: number
 	readonly actions: readonly ActionRecord[]
 	readonly modifiedRows: readonly ActionModifiedRow[]
 	readonly serverClock: HLC
 }
 
 export interface BootstrapSnapshotResult {
+	readonly serverEpoch: string
+	readonly minRetainedServerIngestId: number
 	readonly serverIngestId: number
 	readonly serverClock: HLC
 	readonly tables: ReadonlyArray<{
@@ -119,6 +124,41 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			}
 			return { timestamp: 0, vector: {} }
 		}
+
+		const ensureServerEpoch = () =>
+			Effect.gen(function* () {
+				const rows = yield* sql<{ readonly server_epoch: string }>`
+					SELECT server_epoch::text AS server_epoch
+					FROM sync_server_meta
+					WHERE id = 1
+				`
+				const existing = rows[0]?.server_epoch
+				if (existing && existing.length > 0) return existing
+
+				const inserted = yield* sql<{ readonly server_epoch: string }>`
+					INSERT INTO sync_server_meta (id) VALUES (1)
+					ON CONFLICT (id) DO UPDATE SET id = excluded.id
+					RETURNING server_epoch::text AS server_epoch
+				`
+				const epoch = inserted[0]?.server_epoch
+				if (epoch && epoch.length > 0) return epoch
+				return crypto.randomUUID()
+			})
+
+		const minRetainedServerIngestId = () =>
+			Effect.gen(function* () {
+				// Compute against the full action log, not the RLS-filtered view, since compaction is global.
+				// Ensure we reset the bypass flag before issuing any user-scoped SELECTs.
+				yield* sql`SELECT set_config('synchrotron.internal_materializer', 'true', true)`
+				const rows = yield* sql<{
+					readonly min_server_ingest_id: number | string | bigint | null
+				}>`
+					SELECT COALESCE(MIN(server_ingest_id), 0) AS min_server_ingest_id
+					FROM action_records
+				`
+				yield* sql`SELECT set_config('synchrotron.internal_materializer', 'false', true)`
+				return toNumber(rows[0]?.min_server_ingest_id ?? 0)
+			})
 
 		const findActionsSince = SqlSchema.findAll({
 			Request: Schema.Struct({
@@ -629,6 +669,21 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					// Set the RLS context for the duration of this transaction.
 					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
 					yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+
+					const serverEpoch = yield* ensureServerEpoch()
+					const minRetained = yield* minRetainedServerIngestId()
+					if (sinceServerIngestId + 1 < minRetained) {
+						return yield* Effect.fail(
+							new FetchRemoteActionsCompacted({
+								message:
+									"Requested action log delta is older than the server's retained history (compacted)",
+								sinceServerIngestId,
+								minRetainedServerIngestId: minRetained,
+								serverEpoch
+							})
+						)
+					}
+
 					yield* Effect.logDebug("server.getActionsSince.start", {
 						userId,
 						clientId,
@@ -687,7 +742,13 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						)
 					)
 
-					return { actions, modifiedRows, serverClock }
+					return {
+						serverEpoch,
+						minRetainedServerIngestId: minRetained,
+						actions,
+						modifiedRows,
+						serverClock
+					} satisfies FetchActionsResult
 				}).pipe(
 					sql.withTransaction,
 					Effect.annotateLogs({ serverOperation: "getActionsSince", requestingClientId: clientId }),
@@ -696,8 +757,13 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					}),
 					Effect.catchAll((error) => {
 						const unknownError = error as unknown
-						if (unknownError instanceof ServerInternalError) {
-							return Effect.fail(unknownError)
+						if (
+							unknownError instanceof FetchRemoteActionsCompacted ||
+							unknownError instanceof ServerInternalError
+						) {
+							return Effect.fail(
+								unknownError as FetchRemoteActionsCompacted | ServerInternalError
+							)
 						}
 						const message =
 							unknownError instanceof Error ? unknownError.message : String(unknownError)
@@ -715,6 +781,9 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					const userId = yield* SyncUserId
 					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
 					yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+
+					const serverEpoch = yield* ensureServerEpoch()
+					const minRetained = yield* minRetainedServerIngestId()
 
 					const snapshotConfigOption = yield* Effect.serviceOption(SyncSnapshotConfig)
 					const snapshotConfig = Option.getOrElse(snapshotConfigOption, () => ({ tables: [] as const }))
@@ -765,7 +834,13 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					rowCounts: tables.map((t) => ({ tableName: t.tableName, rowCount: t.rows.length }))
 				})
 
-				return { serverIngestId, serverClock, tables } satisfies BootstrapSnapshotResult
+				return {
+					serverEpoch,
+					minRetainedServerIngestId: minRetained,
+					serverIngestId,
+					serverClock,
+					tables
+				} satisfies BootstrapSnapshotResult
 			}).pipe(
 				sql.withTransaction,
 				Effect.annotateLogs({ serverOperation: "getBootstrapSnapshot", requestingClientId: clientId }),

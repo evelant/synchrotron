@@ -80,6 +80,7 @@ export const setupServerDatabase = Effect.gen(function* () {
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_modified_rows TO synchrotron_app`
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE local_applied_action_ids TO synchrotron_app`
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE client_sync_status TO synchrotron_app`
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE sync_server_meta TO synchrotron_app`
 	yield* sql`GRANT USAGE ON SCHEMA synchrotron TO synchrotron_app`
 	yield* sql`GRANT SELECT ON TABLE synchrotron.user_audiences TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE projects TO synchrotron_app`

@@ -118,6 +118,19 @@ export class ClientSyncStatusModel extends Model.Class<ClientSyncStatusModel>("c
 		client_id: ClientId,
 		current_clock: JsonColumn(HLC),
 		last_synced_clock: JsonColumn(HLC),
+		/**
+		 * Server sync history generation token (epoch).
+		 *
+		 * This is provided by the server with sync RPC responses and persisted locally so
+		 * clients can detect hard history discontinuities (e.g. DB restore/reset, or a
+		 * breaking migration that invalidates replay semantics).
+		 *
+		 * When it changes, clients must recover by `hardResync()` (no pending local actions)
+		 * or `rebase()` (pending local actions), then retry sync.
+		 *
+		 * Nullable until the client has completed its first successful bootstrap/fetch.
+		 */
+		server_epoch: Schema.NullOr(Schema.String).pipe(Schema.optionalWith({ default: () => null })),
 		last_seen_server_ingest_id: DbInt64AsNumber
 	}
 ) {}

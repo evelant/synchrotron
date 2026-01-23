@@ -99,11 +99,28 @@ describe("Remote ingest semantics", () => {
 					`
 				}
 
-				// Force the network fetch path to return empty so the only way to apply the remote action
-				// is by discovering it in the local DB.
-				yield* receiver.syncNetworkServiceTestHelpers.setFetchResult(
-					Effect.succeed({ actions: [], modifiedRows: [] })
-				)
+					// Force the network fetch path to return empty so the only way to apply the remote action
+					// is by discovering it in the local DB.
+					yield* receiver.syncNetworkServiceTestHelpers.setFetchResult(
+						Effect.gen(function* () {
+							const epochRows = yield* serverSql<{ readonly server_epoch: string }>`
+								SELECT server_epoch::text AS server_epoch
+								FROM sync_server_meta
+								WHERE id = 1
+							`.pipe(Effect.orDie)
+							const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
+
+							const minRows = yield* serverSql<{
+								readonly min_server_ingest_id: number | string | bigint | null
+							}>`
+								SELECT COALESCE(MIN(server_ingest_id), 0) as min_server_ingest_id
+								FROM action_records
+							`.pipe(Effect.orDie)
+							const minRetainedServerIngestId = Number(minRows[0]?.min_server_ingest_id ?? 0)
+
+							return { serverEpoch, minRetainedServerIngestId, actions: [], modifiedRows: [] } as const
+						})
+					)
 
 				const applied = yield* receiver.syncService.performSync()
 				expect(applied.some((a) => a.id === actionRecord.id)).toBe(true)
@@ -150,10 +167,27 @@ describe("Remote ingest semantics", () => {
 				const noteAfterFetch = yield* receiver.noteRepo.findById(note.id)
 				expect(noteAfterFetch._tag).toBe("None")
 
-				// Now apply from the DB (and prevent any additional fetch so the test is isolated).
-				yield* receiver.syncNetworkServiceTestHelpers.setFetchResult(
-					Effect.succeed({ actions: [], modifiedRows: [] })
-				)
+					// Now apply from the DB (and prevent any additional fetch so the test is isolated).
+					yield* receiver.syncNetworkServiceTestHelpers.setFetchResult(
+						Effect.gen(function* () {
+							const epochRows = yield* serverSql<{ readonly server_epoch: string }>`
+								SELECT server_epoch::text AS server_epoch
+								FROM sync_server_meta
+								WHERE id = 1
+							`.pipe(Effect.orDie)
+							const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
+
+							const minRows = yield* serverSql<{
+								readonly min_server_ingest_id: number | string | bigint | null
+							}>`
+								SELECT COALESCE(MIN(server_ingest_id), 0) as min_server_ingest_id
+								FROM action_records
+							`.pipe(Effect.orDie)
+							const minRetainedServerIngestId = Number(minRows[0]?.min_server_ingest_id ?? 0)
+
+							return { serverEpoch, minRetainedServerIngestId, actions: [], modifiedRows: [] } as const
+						})
+					)
 				yield* receiver.syncService.performSync()
 
 				const noteAfterApply = yield* receiver.noteRepo.findById(note.id)
@@ -264,10 +298,32 @@ describe("Remote ingest semantics", () => {
 					`
 				}
 
-				// Simulate RPC fetch returning the same rows before cursor advancement.
-				yield* receiver.syncNetworkServiceTestHelpers.setFetchResult(
-					Effect.succeed({ actions: [serverAction], modifiedRows: serverAmrs })
-				)
+					// Simulate RPC fetch returning the same rows before cursor advancement.
+					yield* receiver.syncNetworkServiceTestHelpers.setFetchResult(
+						Effect.gen(function* () {
+							const epochRows = yield* serverSql<{ readonly server_epoch: string }>`
+								SELECT server_epoch::text AS server_epoch
+								FROM sync_server_meta
+								WHERE id = 1
+							`.pipe(Effect.orDie)
+							const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
+
+							const minRows = yield* serverSql<{
+								readonly min_server_ingest_id: number | string | bigint | null
+							}>`
+								SELECT COALESCE(MIN(server_ingest_id), 0) as min_server_ingest_id
+								FROM action_records
+							`.pipe(Effect.orDie)
+							const minRetainedServerIngestId = Number(minRows[0]?.min_server_ingest_id ?? 0)
+
+							return {
+								serverEpoch,
+								minRetainedServerIngestId,
+								actions: [serverAction],
+								modifiedRows: serverAmrs
+							} as const
+						})
+					)
 
 				const applied1 = yield* receiver.syncService.performSync()
 				expect(applied1.some((a) => a.id === actionRecord.id)).toBe(true)
@@ -361,9 +417,26 @@ describe("Remote ingest semantics", () => {
 					ON CONFLICT (id) DO NOTHING
 				`
 
-				yield* receiver.syncNetworkServiceTestHelpers.setFetchResult(
-					Effect.succeed({ actions: [], modifiedRows: [] })
-				)
+					yield* receiver.syncNetworkServiceTestHelpers.setFetchResult(
+						Effect.gen(function* () {
+							const epochRows = yield* serverSql<{ readonly server_epoch: string }>`
+								SELECT server_epoch::text AS server_epoch
+								FROM sync_server_meta
+								WHERE id = 1
+							`.pipe(Effect.orDie)
+							const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
+
+							const minRows = yield* serverSql<{
+								readonly min_server_ingest_id: number | string | bigint | null
+							}>`
+								SELECT COALESCE(MIN(server_ingest_id), 0) as min_server_ingest_id
+								FROM action_records
+							`.pipe(Effect.orDie)
+							const minRetainedServerIngestId = Number(minRows[0]?.min_server_ingest_id ?? 0)
+
+							return { serverEpoch, minRetainedServerIngestId, actions: [], modifiedRows: [] } as const
+						})
+					)
 
 				const appliedBeforePatches = yield* receiver.syncService.performSync()
 				expect(appliedBeforePatches.length).toBe(0)

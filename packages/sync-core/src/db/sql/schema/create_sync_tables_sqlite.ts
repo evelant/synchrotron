@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS client_sync_status (
 	client_id TEXT PRIMARY KEY,
 	current_clock TEXT NOT NULL,
 	last_synced_clock TEXT NOT NULL,
+	-- Server sync history generation token (epoch). Used to detect server resets / restores.
+	server_epoch TEXT,
+	-- Server ingestion watermark used for incremental remote fetch.
 	last_seen_server_ingest_id INTEGER NOT NULL DEFAULT 0
 );
 

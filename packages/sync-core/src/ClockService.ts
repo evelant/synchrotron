@@ -81,6 +81,7 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 					client_id: clientId,
 					current_clock: initialClock,
 					last_synced_clock: initialClock,
+					server_epoch: null,
 					last_seen_server_ingest_id: 0
 				})
 
@@ -89,11 +90,13 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 						client_id,
 						current_clock,
 						last_synced_clock,
+						server_epoch,
 						last_seen_server_ingest_id
 					) VALUES (
 						${initialStatus.client_id},
 						${JSON.stringify(initialStatus.current_clock)},
 						${JSON.stringify(initialStatus.last_synced_clock)},
+						${initialStatus.server_epoch},
 						${initialStatus.last_seen_server_ingest_id}
 					)
 					ON CONFLICT (client_id)
@@ -127,6 +130,7 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 					client_id: clientId,
 					current_clock: newClock,
 					last_synced_clock: currentState.last_synced_clock,
+					server_epoch: currentState.server_epoch,
 					last_seen_server_ingest_id: currentState.last_seen_server_ingest_id
 				})
 			)
@@ -183,6 +187,7 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 						client_id: clientId,
 						current_clock: currentState.current_clock,
 						last_synced_clock: latestSyncedClock,
+						server_epoch: currentState.server_epoch,
 						last_seen_server_ingest_id: currentState.last_seen_server_ingest_id
 					})
 				)
@@ -250,6 +255,7 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 							client_id: clientId,
 							current_clock: nextClock,
 							last_synced_clock: currentState.last_synced_clock,
+							server_epoch: currentState.server_epoch,
 							last_seen_server_ingest_id: currentState.last_seen_server_ingest_id
 						})
 					)
@@ -332,6 +338,38 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			(state) => state.last_seen_server_ingest_id
 		).pipe(Effect.annotateLogs("clientId", clientId))
 
+		/**
+		 * Locally persisted server sync history generation token (epoch).
+		 *
+		 * This is used to detect hard server history discontinuities (DB restore/reset,
+		 * breaking migrations). It is set from bootstrap/fetch responses.
+		 */
+		const getServerEpoch = Effect.map(getClientClockState, (state) => state.server_epoch).pipe(
+			Effect.annotateLogs("clientId", clientId)
+		)
+
+		/**
+		 * Persist the server sync history epoch for this client.
+		 *
+		 * This is called after bootstrap/fetch; if the epoch differs from what we already
+		 * have, the caller should treat it as a discontinuity and recover via resync/rebase.
+		 */
+		const setServerEpoch = (serverEpoch: string) =>
+			Effect.gen(function* () {
+				const currentState = yield* getClientClockState
+				if (currentState.server_epoch === serverEpoch) return
+
+				yield* clientSyncStatusRepo.update(
+					ClientSyncStatusModel.update.make({
+						client_id: clientId,
+						current_clock: currentState.current_clock,
+						last_synced_clock: currentState.last_synced_clock,
+						server_epoch: serverEpoch,
+						last_seen_server_ingest_id: currentState.last_seen_server_ingest_id
+					})
+				)
+			}).pipe(Effect.annotateLogs("clientId", clientId))
+
 		const advanceLastSeenServerIngestId = (latestSeen: number) =>
 			Effect.gen(function* () {
 				const currentState = yield* getClientClockState
@@ -352,6 +390,7 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 						client_id: clientId,
 						current_clock: currentState.current_clock,
 						last_synced_clock: currentState.last_synced_clock,
+						server_epoch: currentState.server_epoch,
 						last_seen_server_ingest_id: latestSeen
 					})
 				)
@@ -363,6 +402,8 @@ export class ClockService extends Effect.Service<ClockService>()("ClockService",
 			incrementClock,
 			getLastSyncedClock,
 			getLastSeenServerIngestId,
+			getServerEpoch,
+			setServerEpoch,
 				advanceLastSeenServerIngestId,
 				getEarliestClock,
 				getLatestClock,
