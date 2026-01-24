@@ -71,7 +71,7 @@ Synchrotron moves the merge boundary up a level:
 - RLS hardening: expand policies + tests beyond the v1 demo (`packages/sync-server/test/rls-filtering.test.ts`).
 - Tighten SYNC semantics + diagnostics (see `DESIGN.md`).
 - Add end-to-end tests with the example app
-- Add pruning/compaction for old action records to prevent unbounded growth, and use `SyncService.rebase()` for clients that are offline long enough that they would need pruned history to catch up.
+- Implement actual server-side retention/compaction of the action log (deleting old `action_records` / `action_modified_rows`), so the server can keep a bounded history window (see `docs/server-retention-compaction.md`).
 - Improve the APIs. They're proof-of-concept level at the moment and could be significantly nicer.
 - Consider a non-Effect facade. Effect is great, but not every codebase can adopt it; a Promise-based wrapper should be straightforward.
 - Add support for multiple clients in the same window (PGlite workers)
@@ -79,6 +79,7 @@ Synchrotron moves the merge boundary up a level:
 - Upstream @effect/sql-pglite (https://github.com/Effect-TS/effect/pull/4692)
 - Improve docs
 - Clean up logging and debug
+- Future improvement: use a backoff/jitter schedule for `SendLocalActionsBehindHead` retries (instead of a small fixed retry count).
 - Improve example app, make it more real-world. Maybe add another based on [linearlite](https://github.com/electric-sql/electric/tree/main/examples/linearlite)
 - Evaluate performance in a more real world use case. The example todo app seems plenty fast but performance with larger datasets is unknown and there is currently no optimization.
 

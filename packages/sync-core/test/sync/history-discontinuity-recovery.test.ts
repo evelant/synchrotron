@@ -1,6 +1,7 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import { HLC } from "@synchrotron/sync-core/HLC"
+import { SendLocalActionsDenied } from "@synchrotron/sync-core/SyncNetworkService"
 import { Effect } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
@@ -242,5 +243,122 @@ describe("SyncService: server history discontinuity recovery", () => {
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30_000 }
 	)
-})
 
+	it.scoped(
+		"epoch mismatch while quarantined requires app/user intervention (no auto-resync)",
+		() =>
+			Effect.gen(function* () {
+				const serverSql = yield* PgliteClient.PgliteClient
+				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
+
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+				yield* clientA.syncService.performSync()
+
+				const epochBefore = yield* readServerEpoch(serverSql)
+				expect(yield* clientA.clockService.getServerEpoch).toBe(epochBefore)
+
+				yield* clientA.syncService.executeAction(
+					clientA.testHelpers.createNoteAction({
+						title: "Quarantined note",
+						content: "client local",
+						user_id: "user-1",
+						timestamp: 3000
+					})
+				)
+
+				yield* clientA.syncNetworkServiceTestHelpers.setSendResults([
+					Effect.fail(new SendLocalActionsDenied({ message: "denied", code: "test-denied" }))
+				])
+
+				const quarantineAttempt = yield* Effect.either(clientA.syncService.performSync())
+				expect(quarantineAttempt._tag).toBe("Right")
+
+				const quarantinedBefore = yield* clientA.syncService.getQuarantinedActions()
+				expect(quarantinedBefore.length).toBe(1)
+
+				yield* serverSql`
+					UPDATE sync_server_meta
+					SET server_epoch = gen_random_uuid(), updated_at = NOW()
+					WHERE id = 1
+				`.pipe(Effect.orDie)
+				const epochAfter = yield* readServerEpoch(serverSql)
+				expect(epochAfter).not.toBe(epochBefore)
+
+				const syncAttempt = yield* Effect.either(clientA.syncService.performSync())
+				expect(syncAttempt._tag).toBe("Left")
+				if (syncAttempt._tag === "Left") {
+					expect((syncAttempt.left as any)?._tag).toBe("SyncError")
+					expect((syncAttempt.left as any)?.message ?? "").toMatch(/quarantin/i)
+				}
+
+				const quarantinedAfter = yield* clientA.syncService.getQuarantinedActions()
+				expect(quarantinedAfter.length).toBe(1)
+				expect(yield* clientA.clockService.getServerEpoch).toBe(epochBefore)
+			}).pipe(Effect.provide(makeTestLayers("server"))),
+		{ timeout: 30_000 }
+	)
+
+	it.scoped(
+		"history compaction while quarantined requires app/user intervention (no auto-resync)",
+		() =>
+			Effect.gen(function* () {
+				const serverSql = yield* PgliteClient.PgliteClient
+				const clientB = yield* createTestClient("clientB", serverSql).pipe(Effect.orDie)
+				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
+
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+
+				for (let i = 0; i < 10; i++) {
+					yield* clientB.syncService.executeAction(
+						clientB.testHelpers.createNoteAction({
+							title: `Server ${i}`,
+							content: `v${i}`,
+							user_id: "user-1",
+							timestamp: 4000 + i
+						})
+					)
+				}
+				yield* clientB.syncService.performSync().pipe(Effect.orDie)
+
+				yield* clientA.syncService.performSync().pipe(Effect.orDie)
+
+				yield* serverSql`
+					DELETE FROM action_records WHERE server_ingest_id <= 5
+				`.pipe(Effect.orDie)
+
+				yield* clientA.syncService.executeAction(
+					clientA.testHelpers.createNoteAction({
+						title: "Quarantined after compaction",
+						content: "client local",
+						user_id: "user-1",
+						timestamp: 5000
+					})
+				)
+
+				yield* clientA.syncNetworkServiceTestHelpers.setSendResults([
+					Effect.fail(new SendLocalActionsDenied({ message: "denied", code: "test-denied" }))
+				])
+				const quarantineAttempt = yield* Effect.either(clientA.syncService.performSync())
+				expect(quarantineAttempt._tag).toBe("Right")
+				expect((yield* clientA.syncService.getQuarantinedActions()).length).toBe(1)
+
+				yield* clientA.rawSql`
+					UPDATE client_sync_status
+					SET last_seen_server_ingest_id = 1
+					WHERE client_id = ${clientA.clientId}
+				`.pipe(Effect.orDie)
+				expect(yield* clientA.clockService.getLastSeenServerIngestId).toBe(1)
+
+				const syncAttempt = yield* Effect.either(clientA.syncService.performSync())
+				expect(syncAttempt._tag).toBe("Left")
+				if (syncAttempt._tag === "Left") {
+					expect((syncAttempt.left as any)?._tag).toBe("SyncError")
+					expect((syncAttempt.left as any)?.message ?? "").toMatch(/quarantin/i)
+				}
+
+				expect((yield* clientA.syncService.getQuarantinedActions()).length).toBe(1)
+				expect(yield* clientA.clockService.getLastSeenServerIngestId).toBe(1)
+			}).pipe(Effect.provide(makeTestLayers("server"))),
+		{ timeout: 30_000 }
+	)
+})
