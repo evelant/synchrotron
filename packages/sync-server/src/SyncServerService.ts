@@ -372,32 +372,18 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					return Number(value)
 				}
 
-					const normalizeJson = (value: unknown): unknown => {
-						if (typeof value !== "string") return value
-						let current: unknown = value
-						// Handle "double encoded" JSON strings (JSON string containing JSON text).
-					for (let i = 0; i < 2 && typeof current === "string"; i++) {
-						try {
-							current = JSON.parse(current)
-						} catch {
-							break
-						}
-					}
-						return current
-					}
-
-					const jsonbInput = (value: unknown): string => {
-						const normalized = normalizeJson(value)
-						return typeof normalized === "string" ? normalized : JSON.stringify(normalized)
-					}
+					// Encode JSONB inputs as text to keep behavior portable across SQL clients.
+					// Important: never pass already-serialized JSON strings to `sql.json(...)` (double-encoding).
+					const jsonbInput = (value: unknown): string =>
+						typeof value === "string" ? value : JSON.stringify(value)
 
 					const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
 						if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
 						if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
-					if (a.clientId !== b.clientId) return a.clientId < b.clientId ? -1 : 1
-					if (a.id !== b.id) return a.id < b.id ? -1 : 1
-					return 0
-				}
+						if (a.clientId !== b.clientId) return a.clientId < b.clientId ? -1 : 1
+						if (a.id !== b.id) return a.id < b.id ? -1 : 1
+						return 0
+					}
 
 				const replayKeyForAction = (action: ActionRecord): ReplayKey => {
 					const counter = toNumber(action.clock.vector?.[action.client_id] ?? 0)

@@ -54,7 +54,7 @@ export const SyncNetworkServiceLive = Layer.scoped(
 		const client = yield* RpcClient.make(SyncNetworkRpcGroup)
 		const sql = yield* SqlClient.SqlClient
 
-		const json = (value: unknown) => JSON.stringify(value)
+		const json = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value))
 
 		const summarizeActions = (actions: ReadonlyArray<ActionRecord>) =>
 			actions.map((a) => ({
@@ -92,9 +92,9 @@ export const SyncNetworkServiceLive = Layer.scoped(
 						actionTags: actions.reduce<Record<string, number>>((acc, a) => {
 							acc[a._tag] = (acc[a._tag] ?? 0) + 1
 							return acc
-					}, {}),
-					amrCountsByTable: amrSummary.countsByTable
-				})
+						}, {}),
+						amrCountsByTable: amrSummary.countsByTable
+					})
 
 				const syncActionIds = new Set(
 					actions.filter((a) => a._tag === "_InternalSyncApply").map((a) => a.id)

@@ -49,6 +49,7 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
 Notes on portability:
 
 - JSON values are encoded as JSON strings on insert/update and decoded from either JSONB objects (Postgres/PGlite) or strings (SQLite).
+- `action_records.clock` must be a JSON object; the Postgres trigger rejects JSONB strings (they indicate accidental double-encoding).
 - SQLite patch capture encodes columns declared with `BOOLEAN` affinity as JSON booleans (`true/false`) so patches can be applied to Postgres boolean columns without type errors.
 - SQLite drivers typically can’t bind JS booleans directly; Synchrotron coerces bound boolean parameters (`true/false`) to `1/0` at execution time.
 - `synced` is stored as an integer `0 | 1` in the database (decoded as a boolean in TypeScript).
