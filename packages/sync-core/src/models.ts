@@ -1,6 +1,6 @@
 import { Model } from "@effect/sql"
 import { HLC } from "@synchrotron/sync-core/HLC"
-import { Effect, Schema } from "effect"
+import { Effect, ParseResult, Schema } from "effect"
 
 /**
  * Generic Action for SyncService to apply changes
@@ -80,6 +80,28 @@ const DbDateTime = Model.Field({
 })
 
 /**
+ * Like `DbDateTime`, but usable in `Model.Generated(...)` fields.
+ *
+ * - Decodes from either `Date` (pg drivers) or ISO string (sqlite/pglite).
+ * - Encodes as ISO string (for JSON/RPC payloads).
+ */
+const DbGeneratedDateTime = Schema.transformOrFail(
+	Schema.Union(Schema.DateFromSelf, Schema.String),
+	Schema.DateFromSelf,
+	{
+		strict: true,
+		decode: (value, _options, ast) => {
+			if (value instanceof Date) return ParseResult.succeed(value)
+			const date = new Date(value)
+			return Number.isNaN(date.getTime())
+				? ParseResult.fail(new ParseResult.Type(ast, value, `Invalid datetime string`))
+				: ParseResult.succeed(date)
+		},
+		encode: (value) => ParseResult.succeed(value.toISOString())
+	}
+)
+
+/**
  * Postgres drivers commonly return BIGINT / INT8 columns as strings.
  *
  * We store these values in the database as integers for indexing / ordering, but decode from either
@@ -104,6 +126,8 @@ export class ActionRecord extends Model.Class<ActionRecord>("action_records")({
 		Schema.Struct({ timestamp: Schema.Number }, { key: Schema.String, value: Schema.Unknown })
 	),
 	created_at: DbDateTime,
+	// Trusted server-side ingestion timestamp. Used for time-based retention/compaction on the server.
+	server_ingested_at: Model.Generated(DbGeneratedDateTime),
 	synced: DbBoolean.pipe(Schema.optionalWith({ default: () => false }))
 }) {}
 

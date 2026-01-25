@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS action_records (
 	clock_counter BIGINT NOT NULL,
 	args JSONB NOT NULL,
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+	-- Server-side ingestion timestamp (trusted server time). Used for time-based retention/compaction.
+	server_ingested_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 	synced INTEGER NOT NULL DEFAULT 0
 );
 
@@ -66,6 +68,7 @@ WHERE server_ingest_id IS NOT NULL;
 	CREATE INDEX IF NOT EXISTS action_records_client_id_idx ON action_records(client_id);
 	CREATE INDEX IF NOT EXISTS action_records_user_id_idx ON action_records(user_id);
 	CREATE INDEX IF NOT EXISTS action_records_transaction_id_idx ON action_records(transaction_id);
+	CREATE INDEX IF NOT EXISTS action_records_server_ingested_at_idx ON action_records(server_ingested_at);
 	
 	-- Create action_modified_rows table
 	CREATE TABLE IF NOT EXISTS action_modified_rows (

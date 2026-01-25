@@ -71,7 +71,6 @@ Synchrotron moves the merge boundary up a level:
 - RLS hardening: expand policies + tests beyond the v1 demo (`packages/sync-server/test/rls-filtering.test.ts`).
 - Tighten SYNC semantics + diagnostics (see `DESIGN.md`).
 - Add end-to-end tests with the example app
-- Implement actual server-side retention/compaction of the action log (deleting old `action_records` / `action_modified_rows`), so the server can keep a bounded history window (see `docs/server-retention-compaction.md`).
 - Improve the APIs. They're proof-of-concept level at the moment and could be significantly nicer.
 - Consider a non-Effect facade. Effect is great, but not every codebase can adopt it; a Promise-based wrapper should be straightforward.
 - Add support for multiple clients in the same window (PGlite workers)

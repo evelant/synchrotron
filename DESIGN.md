@@ -276,7 +276,7 @@ Complex types are stored as JSON. Relationships are represented by normal primar
 - The action/patch log grows over time; long-term pruning needs a "rebase" strategy.
 - Think of this like a Git rebase: periodically take a snapshot/new base, then replay any remaining local actions on top.
 - A simple policy is to drop action records older than a window (e.g. one week) and force late clients to rebase from a snapshot/current state.
-- The server can implement retention/compaction as deletion of old `action_records`/`action_modified_rows` rows. The client detects this via `minRetainedServerIngestId` and automatically hard-resyncs/rebases.
+- The server can implement retention/compaction as deletion of old `action_records`/`action_modified_rows` rows (time-based by trusted `action_records.server_ingested_at`). The client detects this via `minRetainedServerIngestId` and automatically hard-resyncs/rebases.
 - Deletes are often easiest as soft-deletes plus later garbage collection, because other clients may still replay actions that reference a row.
 
 ## Error handling

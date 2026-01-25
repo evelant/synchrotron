@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS action_records (
 	) STORED,
 	args TEXT NOT NULL,
 	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	-- Server-side ingestion timestamp (trusted server time on Postgres). Used for time-based retention/compaction.
+	server_ingested_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 	synced INTEGER NOT NULL DEFAULT 0
 );
 
@@ -44,6 +46,7 @@ CREATE INDEX IF NOT EXISTS action_records_synced_idx ON action_records(synced);
 CREATE INDEX IF NOT EXISTS action_records_client_id_idx ON action_records(client_id);
 CREATE INDEX IF NOT EXISTS action_records_user_id_idx ON action_records(user_id);
 CREATE INDEX IF NOT EXISTS action_records_transaction_id_idx ON action_records(transaction_id);
+CREATE INDEX IF NOT EXISTS action_records_server_ingested_at_idx ON action_records(server_ingested_at);
 
 	CREATE TABLE IF NOT EXISTS action_modified_rows (
 		id TEXT PRIMARY KEY,

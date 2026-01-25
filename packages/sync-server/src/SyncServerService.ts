@@ -14,7 +14,8 @@ import {
 	SendLocalActionsInvalid,
 	type SendLocalActionsFailure
 } from "@synchrotron/sync-core/SyncNetworkService"
-import { Cause, Data, Effect, Option, Schema } from "effect"
+import { Cause, Config, Data, Duration, Effect, Option, Schedule, Schema } from "effect"
+import { SyncRetentionConfig } from "./SyncRetentionConfig"
 import { SyncSnapshotConfig } from "./SyncSnapshotConfig"
 import { SyncUserId } from "./SyncUserId"
 
@@ -95,6 +96,98 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			}
 
 			return new SendLocalActionsInternal({ message })
+		}
+
+			const compactActionLogOnce = (
+				retention: Duration.Duration
+			): Effect.Effect<{ readonly deletedActionCount: number }, ServerInternalError, never> =>
+				Effect.gen(function* () {
+				const retentionMs = Duration.toMillis(retention)
+				if (!Number.isFinite(retentionMs) || retentionMs <= 0) {
+					yield* Effect.logWarning("server.compaction.disabled.invalidRetention", { retentionMs })
+					return { deletedActionCount: 0 } as const
+				}
+
+				// Compaction is global and must operate on the full action log (bypassing RLS filtering).
+				yield* sql`SELECT set_config('synchrotron.internal_materializer', 'true', true)`
+
+				const rows = yield* sql<{ readonly deleted_action_count: number | string }>`
+					WITH deleted AS (
+						DELETE FROM action_records
+						WHERE server_ingest_id IS NOT NULL
+						AND server_ingested_at < (NOW() - (${retentionMs} * INTERVAL '1 millisecond'))
+						RETURNING 1
+					)
+					SELECT count(*) AS deleted_action_count FROM deleted
+				`.pipe(
+					Effect.mapError(
+						(e) => new ServerInternalError({ message: "Compaction failed", cause: e })
+					)
+				)
+
+				const deletedCountRaw = rows[0]?.deleted_action_count ?? 0
+				const deletedActionCount =
+					typeof deletedCountRaw === "number" ? deletedCountRaw : Number(deletedCountRaw ?? 0)
+
+				yield* Effect.logInfo("server.compaction.completed", {
+					retentionMs,
+					deletedActionCount
+				})
+
+					return { deletedActionCount } as const
+				}).pipe(
+					sql.withTransaction,
+					Effect.annotateLogs({ serverOperation: "compactActionLogOnce" }),
+					Effect.withSpan("SyncServerService.compactActionLogOnce", {
+						attributes: { retentionMs: Duration.toMillis(retention) }
+					}),
+					Effect.mapError((error) =>
+						error instanceof ServerInternalError
+							? error
+							: new ServerInternalError({ message: "Compaction failed", cause: error })
+					)
+				)
+
+		const startActionLogCompactor = (config: {
+			readonly actionLogRetention: Duration.Duration
+			readonly compactionInterval: Duration.Duration
+		}) =>
+			compactActionLogOnce(config.actionLogRetention).pipe(
+				Effect.repeat(Schedule.spaced(config.compactionInterval)),
+				Effect.catchAllCause((cause) =>
+					Effect.logError("server.compaction.fiberFailed", {
+						cause: Cause.pretty(cause)
+					}).pipe(Effect.as({ deletedActionCount: 0 } as const))
+				),
+				Effect.forkDaemon,
+				Effect.asVoid
+			)
+
+		const retentionConfigOption = yield* Effect.serviceOption(SyncRetentionConfig)
+		if (Option.isSome(retentionConfigOption)) {
+			const { actionLogRetention, compactionInterval } = retentionConfigOption.value
+			yield* Effect.logInfo("server.compaction.enabled.layer", {
+				retentionMs: Duration.toMillis(actionLogRetention),
+				intervalMs: Duration.toMillis(compactionInterval)
+			})
+			yield* startActionLogCompactor({ actionLogRetention, compactionInterval })
+		} else {
+			const envRetentionOption = yield* Config.duration("SYNC_ACTION_LOG_RETENTION").pipe(Config.option)
+			if (Option.isSome(envRetentionOption)) {
+				const compactionInterval = yield* Config.duration("SYNC_ACTION_LOG_COMPACTION_INTERVAL").pipe(
+					Config.withDefault(Duration.hours(1))
+				)
+				yield* Effect.logInfo("server.compaction.enabled.env", {
+					retentionMs: Duration.toMillis(envRetentionOption.value),
+					intervalMs: Duration.toMillis(compactionInterval)
+				})
+				yield* startActionLogCompactor({
+					actionLogRetention: envRetentionOption.value,
+					compactionInterval
+				})
+			} else {
+				yield* Effect.logDebug("server.compaction.disabled")
+			}
 		}
 
 		const toNumber = (value: unknown): number => {
@@ -866,7 +959,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 		return {
 			receiveActions,
 			getActionsSince,
-			getBootstrapSnapshot
+			getBootstrapSnapshot,
+			compactActionLogOnce
 		}
 	}),
 	dependencies: [ClockService.Default, ActionRecordRepo.Default, ActionModifiedRowRepo.Default]

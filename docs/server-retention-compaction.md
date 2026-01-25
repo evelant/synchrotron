@@ -36,6 +36,18 @@ At a high level:
    - `action_modified_rows` has `ON DELETE CASCADE`, so deleting `action_records` deletes patches automatically.
 3. Continue serving bootstrap snapshots so late clients can recover.
 
+## Configuration (server)
+
+Enable automatic time-based compaction by setting:
+
+- `SYNC_ACTION_LOG_RETENTION` (duration string, e.g. `"14 days"`, `"2 weeks"`)
+
+Optional:
+
+- `SYNC_ACTION_LOG_COMPACTION_INTERVAL` (duration string, default: `"1 hour"`)
+
+Compaction uses the server-written `action_records.server_ingested_at` timestamp (trusted server time), not client-provided clocks.
+
 ### Choosing a cutoff
 
 There are multiple workable approaches:
@@ -46,11 +58,11 @@ There are multiple workable approaches:
 
 ### Example SQL (Postgres)
 
-Delete actions older than 14 days (using `created_at` if you accept it as “server time”):
+Delete actions older than 14 days (using server time):
 
 ```sql
 DELETE FROM action_records
-WHERE created_at < NOW() - INTERVAL '14 days';
+WHERE server_ingested_at < NOW() - INTERVAL '14 days';
 ```
 
 Or keep the newest N by `server_ingest_id`:
@@ -73,4 +85,3 @@ Bump `sync_server_meta.server_epoch` only when the server history is discontinuo
 - Restoring the DB from backup where history diverges from what clients previously observed.
 - Resetting the sync log / rebuilding tables in a way that invalidates replay semantics.
 - A breaking migration that changes interpretation of action/patch history.
-
