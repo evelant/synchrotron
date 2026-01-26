@@ -50,8 +50,6 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 	effect: Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
 		const serverMeta = yield* ServerMetaService
-		const actionRecordRepo = yield* ActionRecordRepo
-		const actionModifiedRowRepo = yield* ActionModifiedRowRepo
 
 		const isSendLocalActionsFailure = (error: unknown): error is SendLocalActionsFailure =>
 			error instanceof SendLocalActionsBehindHead ||
@@ -59,16 +57,21 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			error instanceof SendLocalActionsInvalid ||
 			error instanceof SendLocalActionsInternal
 
+		const hasTag = (value: unknown, tag: string): boolean =>
+			typeof value === "object" &&
+			value !== null &&
+			(value as { readonly _tag?: unknown })._tag === tag
+
 		const sqlStateFromCause = (cause: unknown): string | undefined => {
 			if (!cause || typeof cause !== "object") return undefined
-			const anyCause: any = cause
-			if (typeof anyCause.code === "string") return anyCause.code
-			if (typeof anyCause.sqlState === "string") return anyCause.sqlState
+			const tagged = cause as { readonly code?: unknown; readonly sqlState?: unknown }
+			if (typeof tagged.code === "string") return tagged.code
+			if (typeof tagged.sqlState === "string") return tagged.sqlState
 			return undefined
 		}
 
 		const classifyUploadSqlError = (error: SqlError): SendLocalActionsFailure => {
-			const cause = (error as any).cause as unknown
+			const cause = (error as { readonly cause?: unknown }).cause
 			const code = sqlStateFromCause(cause)
 			const message = error.message ?? "SQL error during SendLocalActions"
 
@@ -335,16 +338,6 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					if (a.clientId !== b.clientId) return a.clientId < b.clientId ? -1 : 1
 					if (a.id !== b.id) return a.id < b.id ? -1 : 1
 					return 0
-				}
-
-				const replayKeyForAction = (action: ActionRecord): ReplayKey => {
-					const counter = toNumber(action.clock.vector?.[action.client_id] ?? 0)
-					return {
-						timeMs: toNumber(action.clock.timestamp ?? 0),
-						counter,
-						clientId: action.client_id,
-						id: action.id
-					}
 				}
 
 				// Simplified correctness gate: only accept uploads from clients that are at the current
@@ -679,8 +672,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				sql.withTransaction,
 				Effect.catchAll((error) => {
 					if (isSendLocalActionsFailure(error)) return Effect.fail(error)
-					if ((error as any)?._tag === "SqlError") {
-						return Effect.fail(classifyUploadSqlError(error as any as SqlError))
+					if (hasTag(error, "SqlError")) {
+						return Effect.fail(classifyUploadSqlError(error as SqlError))
 					}
 
 					const unknownError = error as unknown

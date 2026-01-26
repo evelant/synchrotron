@@ -1,10 +1,9 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { SqlClient } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
-import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo" // Import Repo
 import { ClientClockState } from "@synchrotron/sync-core/ClientClockState"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
-import { ActionModifiedRow } from "@synchrotron/sync-core/models" // Import ActionModifiedRow model
+import type { ActionModifiedRow } from "@synchrotron/sync-core/models" // Import ActionModifiedRow model
 import {
 	FetchRemoteActionsCompacted,
 	type FetchResult,
@@ -75,8 +74,6 @@ export const createTestSyncNetworkServiceLayer = (
 			// Removed explicit return type annotation
 			const sql = yield* SqlClient.SqlClient // This is the CLIENT's SQL instance from the layer
 			const clockState = yield* ClientClockState
-			// Need the repo to fetch/insert ActionModifiedRow for conflict check
-			const actionModifiedRowRepo = yield* ActionModifiedRowRepo
 			const serverSql = _serverSql ?? (yield* PgliteClient.PgliteClient)
 
 			const clientJson = (value: unknown) =>
@@ -87,7 +84,7 @@ export const createTestSyncNetworkServiceLayer = (
 						: JSON.stringify(value)
 
 			// Initialize test state using the updated interface
-			let state: TestNetworkState = {
+			const state: TestNetworkState = {
 				networkDelay: 0,
 				shouldFail: false,
 				fetchResult: undefined,
@@ -245,13 +242,6 @@ export const createTestSyncNetworkServiceLayer = (
 						if (a.id !== b.id) return a.id < b.id ? -1 : 1
 						return 0
 					}
-
-					const replayKeyForAction = (action: ActionRecord): ReplayKey => ({
-						timeMs: toNumber(action.clock.timestamp ?? 0),
-						counter: toNumber(action.clock.vector?.[action.client_id] ?? 0),
-						clientId: action.client_id,
-						id: action.id
-					})
 
 					const serverJson = (value: unknown) =>
 						typeof value === "string" ? value : serverSql.json(value)

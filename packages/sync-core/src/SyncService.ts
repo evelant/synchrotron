@@ -1,13 +1,15 @@
 import { SqlClient, type SqlError } from "@effect/sql"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
-import { Effect, Option, ParseResult, Schedule, Schema } from "effect" // Import ReadonlyArray
+import type { ParseResult } from "effect"
+import { Effect, Option, Schedule, Schema } from "effect" // Import ReadonlyArray
 import { ActionModifiedRowRepo, compareActionModifiedRows } from "./ActionModifiedRowRepo"
 import { ActionRecordRepo } from "./ActionRecordRepo"
-import { ClientClockState, ClientClockStateError } from "./ClientClockState"
+import { ClientClockState } from "./ClientClockState"
 import { ClientDbAdapter } from "./ClientDbAdapter"
 import { compareClock, sortClocks } from "./ClockOrder"
 import { DeterministicId } from "./DeterministicId"
-import { Action, ActionModifiedRow, ActionRecord } from "./models" // Import ActionModifiedRow type from models
+import type { Action, ActionModifiedRow } from "./models"
+import { ActionRecord } from "./models" // Import ActionModifiedRow type from models
 import {
 	FetchRemoteActionsCompacted,
 	NetworkRequestError,
@@ -251,7 +253,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 
 						yield* Effect.gen(function* () {
 							const pendingActions = yield* actionRecordRepo.allUnsyncedActive()
-							const pendingActionIds = pendingActions.map((a) => a.id)
 
 							const pendingSyncActionIds = pendingActions
 								.filter((a) => a._tag === "_InternalSyncApply")
@@ -1011,27 +1012,29 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							return yield* Effect.dieMessage("Unreachable code reached in performSync")
 						}).pipe(
 							Effect.tapError((error) => {
-								if ((error as any)?._tag === "SendLocalActionsBehindHead") {
+								if (error instanceof SendLocalActionsBehindHead) {
 									return Effect.logWarning("performSync.behindHead", {
 										syncSessionId,
 										clientId,
-										basisServerIngestId: (error as any).basisServerIngestId ?? null,
-										firstUnseenServerIngestId: (error as any).firstUnseenServerIngestId ?? null,
-										firstUnseenActionId: (error as any).firstUnseenActionId ?? null
+										basisServerIngestId: error.basisServerIngestId,
+										firstUnseenServerIngestId: error.firstUnseenServerIngestId,
+										firstUnseenActionId: error.firstUnseenActionId ?? null
 									})
 								}
+								const errorTag =
+									typeof error === "object" && error !== null
+										? ((error as { readonly _tag?: unknown })._tag ?? null)
+										: null
 								return Effect.logError("performSync.failed", {
 									syncSessionId,
 									clientId,
-									errorTag: (error as any)?._tag ?? null,
+									errorTag: typeof errorTag === "string" ? errorTag : null,
 									message: error instanceof Error ? error.message : String(error)
 								})
 							}),
 							Effect.retry(
 								Schedule.recurs(3).pipe(
-									Schedule.whileInput(
-										(error) => (error as any)?._tag === "SendLocalActionsBehindHead"
-									)
+									Schedule.whileInput((error) => error instanceof SendLocalActionsBehindHead)
 								)
 							),
 							Effect.catchAll((error) => {
@@ -1076,7 +1079,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							return Effect.logWarning("performSync.invalid.rebaseOnce", {
 								clientId,
 								message: error.message,
-								code: (error as any).code ?? null
+								code: error.code ?? null
 							}).pipe(
 								Effect.zipRight(
 									rebase().pipe(
@@ -1243,10 +1246,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				if (actionsToQuarantine.length === 0) return 0
 
 				const failureTag = failure._tag
-				const failureCode =
-					failure instanceof SendLocalActionsDenied || failure instanceof SendLocalActionsInvalid
-						? ((failure as any).code ?? null)
-						: null
+				const failureCode = failure.code ?? null
 				const failureMessage = failure.message
 
 				for (const action of actionsToQuarantine) {
@@ -1700,7 +1700,9 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							)
 							const clockValue = sqlClient.onDialectOrElse({
 								pg: () => {
-									const json = (sqlClient as any).json as undefined | ((value: unknown) => unknown)
+									const json = (
+										sqlClient as unknown as { readonly json?: (value: unknown) => unknown }
+									).json
 									return typeof json === "function"
 										? json(newSyncClock)
 										: JSON.stringify(newSyncClock)
@@ -1893,16 +1895,20 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 										amrCount: amrs.length
 									}
 								}),
-								Effect.tapError((error) =>
-									Effect.logError("sendLocalActions.sendFailed", {
+								Effect.tapError((error) => {
+									const errorTag =
+										typeof error === "object" && error !== null
+											? ((error as { readonly _tag?: unknown })._tag ?? null)
+											: null
+									return Effect.logError("sendLocalActions.sendFailed", {
 										sendBatchId,
 										actionCount: actionsToSend.length,
 										amrCount: amrs.length,
 										actionTags,
-										errorTag: (error as any)?._tag ?? null,
+										errorTag: typeof errorTag === "string" ? errorTag : null,
 										errorMessage: error instanceof Error ? error.message : String(error)
 									})
-								)
+								})
 							)
 						for (const action of actionsToSend) {
 							yield* actionRecordRepo.markAsSynced(action.id)

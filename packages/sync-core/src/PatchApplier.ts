@@ -109,7 +109,11 @@ const toPatchSqlValue = (sql: SqlClient.SqlClient, value: unknown): PatchSqlValu
 		if (value.every(isPrimitive)) {
 			return sql.onDialectOrElse({
 				pg: () => {
-					const array = (sql as any).array as undefined | ((a: ReadonlyArray<unknown>) => Fragment)
+					const array = (
+						sql as unknown as {
+							readonly array?: (a: ReadonlyArray<unknown>) => Fragment
+						}
+					).array
 					if (!array) return JSON.stringify(value)
 					return array(value)
 				},
@@ -124,7 +128,7 @@ const toPatchSqlValue = (sql: SqlClient.SqlClient, value: unknown): PatchSqlValu
 	// Objects (JSON) are stored/transported as plain JS values in patches.
 	return sql.onDialectOrElse({
 		pg: () => {
-			const json = (sql as any).json as undefined | ((v: unknown) => Fragment)
+			const json = (sql as unknown as { readonly json?: (v: unknown) => Fragment }).json
 			if (!json) return JSON.stringify(value)
 			return json(value)
 		},

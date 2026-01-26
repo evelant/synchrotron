@@ -1,6 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest" // Import describe
-import { ActionRecord } from "@synchrotron/sync-core/models" // Import ActionRecord directly
+import type { ActionRecord } from "@synchrotron/sync-core/models" // Import ActionRecord directly
 import { Effect, TestClock } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
@@ -96,7 +96,7 @@ describe("Core Sync Functionality", () => {
 				// Expected: latestPending(A) < earliestRemote(B) -> Case 4
 				// Client 1 should apply B and send A.
 				yield* Effect.log("--- Client 1 Syncing (Case 4 expected) ---")
-				const c1SyncResult = yield* client1.syncService.performSync()
+				yield* client1.syncService.performSync()
 
 				// Verification for Case 4:
 				// - Remote action B was applied locally on Client 1.
@@ -175,7 +175,7 @@ describe("Core Sync Functionality", () => {
 				// Clocks are likely interleaved (latestPending(B) > earliestRemote(A) is true, AND latestRemote(A) > earliestPending(B) is true)
 				// -> Case 5 -> reconcile
 				yield* Effect.log("--- Client 2 Syncing (Reconciliation expected) ---")
-				const c2SyncResult = yield* client2.syncService.performSync()
+				yield* client2.syncService.performSync()
 
 				// Verification for Reconciliation:
 				// 1. `reconcile` was called implicitly.

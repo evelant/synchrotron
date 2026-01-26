@@ -4,6 +4,10 @@ import type { SqliteReactNativeClientConfig } from "./sqlite-react-native-config
 
 export type { SqliteReactNativeClientConfig } from "./sqlite-react-native-config"
 
+type GlobalWithWaSqliteWasmUrl = typeof globalThis & {
+	__EFFECT_WA_SQLITE_WASM_URL__?: string
+}
+
 const waSqliteWasmUrl = (): string => {
 	if (typeof window !== "undefined" && typeof window.location?.origin === "string") {
 		return `${window.location.origin}/wa-sqlite.wasm`
@@ -14,7 +18,7 @@ const waSqliteWasmUrl = (): string => {
 
 const setWaSqliteWasmUrl = () => {
 	if (typeof globalThis === "undefined") return
-	const g = globalThis as any
+	const g = globalThis as GlobalWithWaSqliteWasmUrl
 	if (
 		typeof g.__EFFECT_WA_SQLITE_WASM_URL__ === "string" &&
 		g.__EFFECT_WA_SQLITE_WASM_URL__.length > 0
@@ -37,7 +41,9 @@ const assertOpfsWorkerSupport = (): void => {
 		throw new Error("sqlite-wasm OPFS requires Web Worker support (global Worker is missing)")
 	}
 
-	const storage = (navigator as any)?.storage
+	const storage = (
+		navigator as unknown as { readonly storage?: { readonly getDirectory?: unknown } }
+	).storage
 	if (!storage || typeof storage.getDirectory !== "function") {
 		throw new Error(
 			"sqlite-wasm OPFS requires the Origin Private File System API (navigator.storage.getDirectory is missing)"

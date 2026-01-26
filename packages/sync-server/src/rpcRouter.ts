@@ -2,22 +2,22 @@ import type { Headers as PlatformHeaders } from "@effect/platform/Headers"
 import { HLC } from "@synchrotron/sync-core/HLC"
 import type { HLC as HLCType } from "@synchrotron/sync-core/HLC"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
-import {
+import type {
 	FetchBootstrapSnapshot,
 	FetchRemoteActions,
-	SendLocalActions,
-	SyncRpcAuthMiddleware,
-	SyncNetworkRpcGroup
+	SendLocalActions
 } from "@synchrotron/sync-core/SyncNetworkRpc"
+import { SyncRpcAuthMiddleware, SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
+import type { FetchRemoteActionsCompacted } from "@synchrotron/sync-core/SyncNetworkService"
 import {
 	RemoteActionFetchError,
-	FetchRemoteActionsCompacted,
 	type SendLocalActionsFailure,
 	SendLocalActionsDenied
 } from "@synchrotron/sync-core/SyncNetworkService"
 import { Cause, Effect, Layer } from "effect"
 import { SyncAuthService } from "./SyncAuthService"
-import { ServerInternalError, SyncServerService } from "./SyncServerService"
+import type { ServerInternalError } from "./SyncServerService"
+import { SyncServerService } from "./SyncServerService"
 import { SyncUserId, type UserId } from "./SyncUserId"
 
 export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(

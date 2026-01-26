@@ -1,7 +1,7 @@
 import { SqlClient } from "@effect/sql"
 import type { HLC } from "@synchrotron/sync-core/HLC"
-import { Data, Effect, Schema } from "effect"
-import { type ActionModifiedRow, type ActionRecord } from "./models" // Import ActionModifiedRow
+import { Effect, Schema } from "effect"
+import type { ActionModifiedRow, ActionRecord } from "./models" // Import ActionModifiedRow
 import type { BadArgument } from "@effect/platform/Error"
 import { ClientClockState } from "./ClientClockState"
 

@@ -1,4 +1,4 @@
-import { KeyValueStore } from "@effect/platform"
+import type { KeyValueStore } from "@effect/platform"
 import { BrowserKeyValueStore } from "@effect/platform-browser"
 import {
 	ActionModifiedRowRepo,
@@ -10,11 +10,8 @@ import {
 	SqliteClientDbAdapter,
 	SyncService
 } from "@synchrotron/sync-core"
-import {
-	SynchrotronClientConfig,
-	SynchrotronClientConfigData,
-	createSynchrotronConfig
-} from "@synchrotron/sync-core/config"
+import type { SynchrotronClientConfigData } from "@synchrotron/sync-core/config"
+import { SynchrotronClientConfig, createSynchrotronConfig } from "@synchrotron/sync-core/config"
 import { Effect, Layer } from "effect"
 import { PgliteClientLive } from "./db/connection"
 import { SqliteWasmClientMemoryLive } from "./db/sqlite-wasm"

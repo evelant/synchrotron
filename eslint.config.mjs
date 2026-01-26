@@ -17,6 +17,7 @@ export default tseslint.config(
 		ignores: [
 			"docs/vendor/**",
 			"examples/**",
+			"packages/sql-pglite/**",
 			".pnpm-store/**",
 			".out-of-code-insights/**",
 			"**/.expo/**",

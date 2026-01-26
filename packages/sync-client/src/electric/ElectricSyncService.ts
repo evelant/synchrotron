@@ -63,8 +63,8 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 				Effect.gen(function* () {
 					yield* Effect.logInfo("Subscribing to TransactionalMultiShapeStream")
 					return yield* Effect.acquireRelease(
-						Effect.gen(function* () {
-							return multiShapeStream.subscribe(
+						Effect.sync(() =>
+							multiShapeStream.subscribe(
 								(messages) => {
 									emit.single(messages)
 								},
@@ -77,7 +77,7 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 									)
 								}
 							)
-						}),
+						),
 						(unsub) =>
 							Effect.gen(function* () {
 								yield* Effect.logInfo("Unsubscribing from TransactionalMultiShapeStream")
@@ -187,7 +187,7 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 							const actionModifiedRowsMessages: MultiShapeMessages<{
 								action_modified_rows: Row
 							}>[] = []
-							let allShapesUpToDate = true
+							const allShapesUpToDate = true
 
 							// Process each message and insert into the appropriate table
 							for (const message of messages) {

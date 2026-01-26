@@ -2,7 +2,17 @@
 
 // React Native Web / Metro worker entry for sqlite-wasm OPFS persistence.
 
-const g = globalThis as any
+import type * as OpfsWorkerModule from "@effect/sql-sqlite-wasm/OpfsWorker"
+import type * as EffectModule from "effect/Effect"
+
+type WorkerGlobal = typeof globalThis & {
+	__ExpoImportMetaRegistry?: {
+		readonly url: string
+	}
+	__EFFECT_WA_SQLITE_WASM_URL__?: string
+}
+
+const g = globalThis as WorkerGlobal
 
 // Expo's web Babel preset transforms `import.meta` into `globalThis.__ExpoImportMetaRegistry`.
 // In Web Workers, that registry isn't automatically initialized, and libraries like `@effect/wa-sqlite`
@@ -42,12 +52,20 @@ const dbName =
 		: "synchrotron.db"
 
 const assertOpfsWorkerSupport = (): void => {
-	const storage = (navigator as any)?.storage
+	const storage = (
+		navigator as unknown as { readonly storage?: { readonly getDirectory?: unknown } }
+	).storage
 	if (!storage || typeof storage.getDirectory !== "function") {
 		throw new Error("OPFS is not available (navigator.storage.getDirectory is missing)")
 	}
 
-	const fileHandle = (globalThis as any).FileSystemFileHandle
+	const fileHandle = (
+		globalThis as unknown as {
+			readonly FileSystemFileHandle?: {
+				readonly prototype?: { readonly createSyncAccessHandle?: unknown }
+			}
+		}
+	).FileSystemFileHandle
 	if (typeof fileHandle?.prototype?.createSyncAccessHandle !== "function") {
 		throw new Error(
 			"FileSystemSyncAccessHandle is not available (FileSystemFileHandle.createSyncAccessHandle is missing)"
@@ -58,16 +76,15 @@ const assertOpfsWorkerSupport = (): void => {
 // Metro doesn't currently support `import()` well inside worker bundles (it can lead to
 // "Requiring unknown module" errors at runtime). Use `require` so everything is bundled
 // into the worker script deterministically.
-declare const require: (id: string) => any
+declare const require: (id: string) => unknown
 
 const start = async () => {
 	if (typeof require !== "function") {
 		throw new Error("sqlite-opfs.rn-web.worker requires Metro (global require is missing)")
 	}
 
-	const Effect = require("effect/Effect") as typeof import("effect/Effect")
-	const OpfsWorker =
-		require("@effect/sql-sqlite-wasm/OpfsWorker") as typeof import("@effect/sql-sqlite-wasm/OpfsWorker")
+	const Effect = require("effect/Effect") as typeof EffectModule
+	const OpfsWorker = require("@effect/sql-sqlite-wasm/OpfsWorker") as typeof OpfsWorkerModule
 
 	await Effect.runPromise(
 		Effect.sync(() => assertOpfsWorkerSupport()).pipe(

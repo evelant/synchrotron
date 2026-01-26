@@ -73,6 +73,28 @@ export const logInitialSyncDbState = Effect.gen(function* () {
 		return
 	}
 
+	const emptyActionCounts: {
+		readonly action_records_total: number | string | null
+		readonly action_records_synced: number | string | null
+		readonly action_records_unsynced: number | string | null
+		readonly action_records_with_server_ingest_id: number | string | null
+		readonly action_records_without_server_ingest_id: number | string | null
+		readonly action_records_local: number | string | null
+		readonly action_records_remote: number | string | null
+		readonly action_records_local_unsynced: number | string | null
+		readonly action_records_remote_synced: number | string | null
+	} = {
+		action_records_total: 0,
+		action_records_synced: 0,
+		action_records_unsynced: 0,
+		action_records_with_server_ingest_id: 0,
+		action_records_without_server_ingest_id: 0,
+		action_records_local: 0,
+		action_records_remote: 0,
+		action_records_local_unsynced: 0,
+		action_records_remote_synced: 0
+	}
+
 	const actionCounts = yield* sql<{
 		readonly action_records_total: number | string | null
 		readonly action_records_synced: number | string | null
@@ -92,10 +114,20 @@ export const logInitialSyncDbState = Effect.gen(function* () {
 			COALESCE(SUM(CASE WHEN server_ingest_id IS NULL THEN 1 ELSE 0 END), 0) AS action_records_without_server_ingest_id,
 			COALESCE(SUM(CASE WHEN client_id = ${clientId} THEN 1 ELSE 0 END), 0) AS action_records_local,
 			COALESCE(SUM(CASE WHEN client_id != ${clientId} THEN 1 ELSE 0 END), 0) AS action_records_remote,
-			COALESCE(SUM(CASE WHEN synced = 0 AND client_id = ${clientId} THEN 1 ELSE 0 END), 0) AS action_records_local_unsynced,
-			COALESCE(SUM(CASE WHEN synced = 1 AND client_id != ${clientId} THEN 1 ELSE 0 END), 0) AS action_records_remote_synced
-		FROM action_records
-	`.pipe(Effect.map((rows) => rows[0] ?? ({} as any)))
+				COALESCE(SUM(CASE WHEN synced = 0 AND client_id = ${clientId} THEN 1 ELSE 0 END), 0) AS action_records_local_unsynced,
+				COALESCE(SUM(CASE WHEN synced = 1 AND client_id != ${clientId} THEN 1 ELSE 0 END), 0) AS action_records_remote_synced
+			FROM action_records
+		`.pipe(Effect.map((rows) => rows[0] ?? emptyActionCounts))
+
+	const emptyAmrCounts: {
+		readonly amr_total: number | string | null
+		readonly amr_for_synced_actions: number | string | null
+		readonly amr_for_unsynced_actions: number | string | null
+	} = {
+		amr_total: 0,
+		amr_for_synced_actions: 0,
+		amr_for_unsynced_actions: 0
+	}
 
 	const amrCounts = yield* sql<{
 		readonly amr_total: number | string | null
@@ -104,15 +136,15 @@ export const logInitialSyncDbState = Effect.gen(function* () {
 	}>`
 		SELECT
 			COUNT(*) AS amr_total,
-			COALESCE(SUM(CASE WHEN ar.synced = 1 THEN 1 ELSE 0 END), 0) AS amr_for_synced_actions,
-			COALESCE(SUM(CASE WHEN ar.synced = 0 THEN 1 ELSE 0 END), 0) AS amr_for_unsynced_actions
-		FROM action_modified_rows amr
-		JOIN action_records ar ON ar.id = amr.action_record_id
-	`.pipe(Effect.map((rows) => rows[0] ?? ({} as any)))
+				COALESCE(SUM(CASE WHEN ar.synced = 1 THEN 1 ELSE 0 END), 0) AS amr_for_synced_actions,
+				COALESCE(SUM(CASE WHEN ar.synced = 0 THEN 1 ELSE 0 END), 0) AS amr_for_unsynced_actions
+			FROM action_modified_rows amr
+			JOIN action_records ar ON ar.id = amr.action_record_id
+		`.pipe(Effect.map((rows) => rows[0] ?? emptyAmrCounts))
 
 	const appliedCount = yield* sql<{ readonly n: number | string | null }>`
-		SELECT COUNT(*) AS n FROM local_applied_action_ids
-	`.pipe(Effect.map((rows) => toNumber(rows[0]?.n ?? 0)))
+			SELECT COUNT(*) AS n FROM local_applied_action_ids
+		`.pipe(Effect.map((rows) => toNumber(rows[0]?.n ?? 0)))
 
 	const syncedButUnapplied = yield* sql<{ readonly n: number | string | null }>`
 		SELECT COUNT(*) AS n

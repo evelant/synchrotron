@@ -1,4 +1,4 @@
-import { SqlClient, type SqlError } from "@effect/sql"
+import { SqlClient } from "@effect/sql"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
 import { Effect, Schema } from "effect"
@@ -18,32 +18,6 @@ export class NoteError extends Schema.TaggedError<NoteError>()("NoteError", {
 	message: Schema.String,
 	cause: Schema.optional(Schema.Unknown)
 }) {}
-
-/**
- * Define interface for a Note
- */
-interface Note {
-	id: string
-	title: string
-	content: string
-	tags: string[]
-	createdAt: Date
-	updatedAt: Date
-}
-
-/**
- * Define args for creating a note
- */
-interface CreateNoteArgs extends Record<string, unknown> {
-	title: string
-	content: string
-	tags: string[]
-}
-
-// TypeScript interface for query results
-interface QueryResult<T> {
-	rows: T[]
-}
 
 /**
  * Define an action to create a new note.

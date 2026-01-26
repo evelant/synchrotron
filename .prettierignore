@@ -12,6 +12,9 @@ coverage/
 # Local tooling output
 .out-of-code-insights/
 
+# Upstreamed package (kept independent)
+packages/sql-pglite/
+
 # React Native / Expo build artifacts
 **/.expo/
 **/android/**/.cxx/

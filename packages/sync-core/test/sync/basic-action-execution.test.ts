@@ -56,7 +56,7 @@ describe("Basic Action Execution", () => {
 	it.scoped(
 		"should create and apply actions through the action system",
 		() =>
-			Effect.gen(function* ($) {
+			Effect.gen(function* () {
 				// Setup
 				const syncService = yield* SyncService
 				const { createNoteAction, noteRepo } = yield* TestHelpers

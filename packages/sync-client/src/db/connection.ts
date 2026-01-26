@@ -2,7 +2,8 @@ import { PgliteClient } from "@effect/sql-pglite"
 import { electricSync } from "@electric-sql/pglite-sync"
 import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp"
 import { live } from "@electric-sql/pglite/live"
-import { SynchrotronClientConfig, SynchrotronClientConfigData } from "@synchrotron/sync-core/config"
+import type { SynchrotronClientConfigData } from "@synchrotron/sync-core/config"
+import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
 import { Effect, Layer } from "effect"
 
 export const PgLiteSyncTag = PgliteClient.tag<{
@@ -15,11 +16,14 @@ export const PgLiteSyncTag = PgliteClient.tag<{
  * Creates a PgliteClient layer with the specified configuration
  */
 const createPgliteClientLayer = (config: SynchrotronClientConfigData["pglite"]) => {
+	const isDebugLevel = (value: number): value is 0 | 1 | 2 =>
+		value === 0 || value === 1 || value === 2
+	const debug = isDebugLevel(config.debug) ? config.debug : 0
+
 	// DebugLevel is 0, 1, or 2
 	// Type assertion is safe because we ensure it's a valid value
 	return PgliteClient.layer({
-		// @ts-ignore - debug level is 0, 1, or 2, but TypeScript doesn't understand the constraint
-		debug: config.debug, //config.debug >= 0 && config.debug <= 2 ? config.debug : 1,
+		debug,
 		dataDir: config.dataDir,
 		relaxedDurability: config.relaxedDurability,
 		extensions: {

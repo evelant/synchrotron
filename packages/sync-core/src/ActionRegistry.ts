@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect"
-import { Action } from "./models"
+import type { Action } from "./models"
 
 /**
  * Error for unknown action types
@@ -20,7 +20,7 @@ export type ActionCreator = (
  * Manages a registry of action creators that can be used to create and execute actions
  */
 export class ActionRegistry extends Effect.Service<ActionRegistry>()("ActionRegistry", {
-	effect: Effect.gen(function* () {
+	effect: Effect.sync(() => {
 		// Create a new registry map
 		const registry = new Map<string, ActionCreator>()
 

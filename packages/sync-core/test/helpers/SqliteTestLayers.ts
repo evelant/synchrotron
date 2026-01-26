@@ -18,7 +18,8 @@ import {
 	SyncService
 } from "@synchrotron/sync-core"
 import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
-import { Effect, Layer, Option, Schema, Scope } from "effect"
+import type { Scope } from "effect"
+import { Effect, Layer, Option, Schema } from "effect"
 import {
 	createTestSyncNetworkServiceLayer,
 	SyncNetworkServiceTestHelpers,

@@ -62,11 +62,11 @@ it.scoped(
 			const schemaResult1 = yield* client1`SELECT * FROM test_table WHERE id = 'id1'`
 
 			// Try to access new column in the second database (should fail)
-			let schemaResult2 = yield* Effect.gen(function* () {
+			const schemaResult2 = yield* Effect.gen(function* () {
 				// This will throw an error - we're just trying to catch it
 				// If we get here, the test failed because the column exists in the second database
 				// This is the expected path - the column should not exist in the second database
-				const result = yield* client2`SELECT extra FROM test_table WHERE id = 'id1'`
+				yield* client2`SELECT extra FROM test_table WHERE id = 'id1'`
 				return { success: true, error: undefined }
 			}).pipe(Effect.catchAllCause((e) => Effect.succeed({ success: false, error: e })))
 
@@ -1353,10 +1353,9 @@ describe("Sync DB Batch and Rollback Functions", () => {
 					return yield* Effect.dieMessage("Failed to get txid for batch forward call")
 				}
 				// Insert dummy action record for this specific transaction
-				const dummyActionId = (yield* sql<{
+				yield* sql<{
 					id: string
-				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_fwd', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, 1) RETURNING id`)[0]!
-					.id
+				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_fwd', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, 1) RETURNING id`
 
 				// Call the batch function (trigger will fire but find the dummy record)
 				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
@@ -1480,10 +1479,9 @@ describe("Sync DB Batch and Rollback Functions", () => {
 					return yield* Effect.dieMessage("Failed to get txid for batch reverse call")
 				}
 				// Insert dummy action record for this specific transaction
-				const dummyActionId = (yield* sql<{
+				yield* sql<{
 					id: string
-				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_rev', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, 1) RETURNING id`)[0]!
-					.id
+				}>`INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced) VALUES ('_dummy_batch_rev', 'server', ${batchTxId}, ${sql.json({ timestamp: 400, vector: {} })}, '{}'::jsonb, 1) RETURNING id`
 
 				// Call the batch function
 				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`

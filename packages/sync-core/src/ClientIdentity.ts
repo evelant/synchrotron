@@ -1,4 +1,5 @@
-import { Context, Effect } from "effect"
+import type { Effect } from "effect"
+import { Context } from "effect"
 import type { ClientId } from "./models"
 
 export interface ClientIdentityService {

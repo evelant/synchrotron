@@ -15,7 +15,7 @@ describe("ActionRegistry", () => {
 				const initialSize = registry.getRegistrySize()
 
 				// Define a test action
-				const testAction = registry.defineAction(
+				registry.defineAction(
 					"test-action",
 					Schema.Struct({ value: Schema.Number, timestamp: Schema.Number }),
 					() => Effect.void

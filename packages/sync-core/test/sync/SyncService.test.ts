@@ -5,7 +5,7 @@ import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo" // Co
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { ClientClockState } from "@synchrotron/sync-core/ClientClockState"
 import { compareClock } from "@synchrotron/sync-core/ClockOrder"
-import { ActionRecord } from "@synchrotron/sync-core/models"
+import type { ActionRecord } from "@synchrotron/sync-core/models"
 import { ActionExecutionError, SyncService } from "@synchrotron/sync-core/SyncService" // Corrected import path
 import { Effect, Option, Schema } from "effect" // Import DateTime
 import { expect } from "vitest"
@@ -17,7 +17,7 @@ describe("SyncService", () => {
 	it.scoped(
 		"should execute an action and store it as a record",
 		() =>
-			Effect.gen(function* ($) {
+			Effect.gen(function* () {
 				// Get the sync service
 				const syncService = yield* SyncService
 				const actionRegistry = yield* ActionRegistry
@@ -34,7 +34,7 @@ describe("SyncService", () => {
 				)
 
 				// Create an action instance
-				const { actionRecord, result } = yield* syncService.executeAction(testAction({ value: 42 }))
+				const { actionRecord } = yield* syncService.executeAction(testAction({ value: 42 }))
 
 				// Verify the action was executed
 				expect(executed).toBe(true)
@@ -63,7 +63,7 @@ describe("SyncService", () => {
 	it.scoped(
 		"should handle errors during action application",
 		() =>
-			Effect.gen(function* ($) {
+			Effect.gen(function* () {
 				// Get the sync service
 				const syncService = yield* SyncService
 				const actionRegistry = yield* ActionRegistry
@@ -93,7 +93,7 @@ describe("SyncService", () => {
 	it.scoped(
 		"should properly sync local actions and update their status",
 		() =>
-			Effect.gen(function* ($) {
+			Effect.gen(function* () {
 				// Get the sync service and SQL client
 				const syncService = yield* SyncService
 				const sql = yield* SqlClient.SqlClient
@@ -138,7 +138,6 @@ describe("SyncService", () => {
 				// The return value might vary depending on whether reconcile was incorrectly triggered,
 				// but the important part is the state *after* this sync.
 				yield* Effect.log("--- Performing first sync ---")
-				const firstSyncResult = yield* syncService.performSync()
 
 				// Verify the *original* pending actions were handled and marked synced
 				const midSyncRecords = yield* sql<ActionRecord>`
@@ -215,7 +214,7 @@ describe("SyncService", () => {
 	it.scoped(
 		"should clean up old action records",
 		() =>
-			Effect.gen(function* ($) {
+			Effect.gen(function* () {
 				// Get the sync service
 				const syncService = yield* SyncService
 				const actionRegistry = yield* ActionRegistry
@@ -264,7 +263,7 @@ describe("Sync Algorithm Integration", () => {
 	it.scoped(
 		"should apply remote actions when no local actions are pending (no divergence)",
 		() =>
-			Effect.gen(function* ($) {
+			Effect.gen(function* () {
 				// --- Arrange ---
 				const serverSql = yield* PgliteClient.PgliteClient
 				// Create two clients connected to the same server DB
@@ -334,7 +333,7 @@ describe("Sync Algorithm Integration", () => {
 	it.scoped(
 		"should correctly handle concurrent modifications to different fields",
 		() =>
-			Effect.gen(function* ($) {
+			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
 				// Setup test clients and repositories *within* the provided context
 				const client1 = yield* createTestClient("client1", serverSql)
@@ -347,15 +346,14 @@ describe("Sync Algorithm Integration", () => {
 				const updateContentActionC2 = client2.testHelpers.updateContentAction
 
 				// Create initial note on client 1
-				const { actionRecord: initialActionRecord, result: initialNoteResult } =
-					yield* client1.syncService.executeAction(
-						createNoteAction({
-							title: "Initial Title",
-							content: "Initial content",
-							user_id: "test-user", // Added user_id
-							tags: ["initial"]
-						})
-					)
+				const { result: initialNoteResult } = yield* client1.syncService.executeAction(
+					createNoteAction({
+						title: "Initial Title",
+						content: "Initial content",
+						user_id: "test-user", // Added user_id
+						tags: ["initial"]
+					})
+				)
 				const initialNoteId = initialNoteResult.id
 
 				// Sync to get to common ancestor state
@@ -364,24 +362,22 @@ describe("Sync Algorithm Integration", () => {
 
 				// Make concurrent changes to different fields
 				// Client 1 updates title (using updateContentAction with title)
-				const { actionRecord: updateTitleRecord, result: updateTitleResult } =
-					yield* client1.syncService.executeAction(
-						// Use updateTitleActionC1
-						updateTitleActionC1({
-							id: initialNoteId,
-							title: "Updated Title from Client 1"
-						})
-					)
+				const { actionRecord: updateTitleRecord } = yield* client1.syncService.executeAction(
+					// Use updateTitleActionC1
+					updateTitleActionC1({
+						id: initialNoteId,
+						title: "Updated Title from Client 1"
+					})
+				)
 
 				// Client 2 updates content
-				const { actionRecord: updateContentRecord, result: updateContentResult } =
-					yield* client2.syncService.executeAction(
-						updateContentActionC2({
-							id: initialNoteId,
-							content: "Updated content from Client 2"
-							// Title remains initial from C2's perspective
-						})
-					)
+				const { actionRecord: updateContentRecord } = yield* client2.syncService.executeAction(
+					updateContentActionC2({
+						id: initialNoteId,
+						content: "Updated content from Client 2"
+						// Title remains initial from C2's perspective
+					})
+				)
 
 				// Verify initial states are different
 				const client1Note = yield* client1.noteRepo.findById(initialNoteId)
@@ -423,7 +419,6 @@ describe("Sync Algorithm Integration", () => {
 				// --- Verify Reconciliation Occurred ---
 
 				// Check for RollbackAction on both clients (or at least the one that reconciled)
-				const rollbackClient1 = yield* client1.actionRecordRepo.findByTag("RollbackAction")
 				const rollbackClient2 = yield* client2.actionRecordRepo.findByTag("RollbackAction")
 				// Reconciliation happens on the client receiving conflicting actions (client2 in this flow)
 				expect(rollbackClient2.length).toBeGreaterThan(0)
@@ -431,8 +426,6 @@ describe("Sync Algorithm Integration", () => {
 				// expect(rollbackClient1.length).toBeGreaterThan(0)
 
 				// Check that original actions are marked as locally applied on both clients after reconciliation
-				const allActionsClient1 = yield* client1.actionRecordRepo.all()
-				const allActionsClient2 = yield* client2.actionRecordRepo.all()
 
 				const titleAppliedC1 = yield* client1.actionRecordRepo.isLocallyApplied(
 					updateTitleRecord.id

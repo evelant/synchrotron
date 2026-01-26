@@ -1,5 +1,5 @@
 import { SqlClient } from "@effect/sql"
-import * as HLC from "@synchrotron/sync-core/HLC"
+import type * as HLC from "@synchrotron/sync-core/HLC"
 import { Effect, Schema } from "effect"
 
 export class ServerMetaError extends Schema.TaggedError<ServerMetaError>()("ServerMetaError", {
@@ -16,13 +16,27 @@ const parseJson = (value: unknown): unknown => {
 	}
 }
 
+const parseVector = (value: unknown): Record<string, number> => {
+	if (typeof value !== "object" || value === null) return {}
+	const out: Record<string, number> = {}
+	for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+		if (typeof raw === "number") out[key] = raw
+		else if (typeof raw === "bigint") out[key] = Number(raw)
+		else if (typeof raw === "string") {
+			const parsed = Number(raw)
+			if (Number.isFinite(parsed)) out[key] = parsed
+		}
+	}
+	return out
+}
+
 const parseClock = (value: unknown): HLC.HLC => {
 	const parsed = parseJson(value)
 	if (typeof parsed === "object" && parsed !== null) {
 		const obj = parsed as { readonly timestamp?: unknown; readonly vector?: unknown }
 		return {
 			timestamp: typeof obj.timestamp === "number" ? obj.timestamp : Number(obj.timestamp ?? 0),
-			vector: typeof obj.vector === "object" && obj.vector !== null ? (obj.vector as any) : {}
+			vector: parseVector(obj.vector)
 		}
 	}
 	return { timestamp: 0, vector: {} }

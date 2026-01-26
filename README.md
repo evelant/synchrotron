@@ -43,6 +43,7 @@ Synchrotron moves the merge boundary up a level:
 
 - Format: `pnpm format`
 - Lint: `pnpm lint` (Prettier check + ESLint)
+- Note: `packages/sql-pglite` is intentionally excluded (upstream candidate with separate requirements).
 
 ## Capabilities
 

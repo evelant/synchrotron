@@ -52,9 +52,10 @@ const canBindTcpPort = async (port: number, hostname = "0.0.0.0") =>
 		const server = net.createServer()
 		server.unref()
 		server.once("error", (error) => {
+			const { code } = error as NodeJS.ErrnoException
 			// Some sandboxed environments block binding/listening entirely (EPERM).
 			// Treat this as "unknown", so we keep the default port and let docker decide.
-			if ((error as any)?.code === "EPERM") resolve(true)
+			if (code === "EPERM") resolve(true)
 			else resolve(false)
 		})
 		server.listen(port, hostname, () => {
@@ -68,7 +69,8 @@ const pickFreeTcpPort = async (hostname = "0.0.0.0") =>
 		const server = net.createServer()
 		server.unref()
 		server.once("error", (error) => {
-			if ((error as any)?.code === "EPERM") resolve(fallbackRandomPort())
+			const { code } = error as NodeJS.ErrnoException
+			if (code === "EPERM") resolve(fallbackRandomPort())
 			else reject(error)
 		})
 		server.listen(0, hostname, () => {
@@ -121,8 +123,8 @@ const canConnectTcp = async (url: string) => {
 	// a rare internalConnectMultipleTimeout crash when we destroy the socket early.
 	const hostCandidates = isLocalhost ? ["127.0.0.1", "::1"] : [hostname]
 
-	for (const host of hostCandidates) {
-		const ok = await new Promise<boolean>((resolve) => {
+	const canConnectHost = (host: string) =>
+		new Promise<boolean>((resolve) => {
 			const socket = net.createConnection({ host, port })
 			const done = (result: boolean) => {
 				socket.removeAllListeners()
@@ -134,9 +136,9 @@ const canConnectTcp = async (url: string) => {
 			socket.once("timeout", () => done(false))
 			socket.once("error", () => done(false))
 		})
-		if (ok) return true
-	}
-	return false
+
+	const results = await Promise.all(hostCandidates.map((host) => canConnectHost(host)))
+	return results.some(Boolean)
 }
 
 const waitForTcp = async (
@@ -146,11 +148,15 @@ const waitForTcp = async (
 	const timeoutMs = params?.timeoutMs ?? 30_000
 	const intervalMs = params?.intervalMs ?? 250
 	const start = Date.now()
-	while (Date.now() - start < timeoutMs) {
+
+	const loop = async (): Promise<boolean> => {
 		if (await canConnectTcp(url)) return true
+		if (Date.now() - start >= timeoutMs) return false
 		await sleep(intervalMs)
+		return loop()
 	}
-	return false
+
+	return loop()
 }
 
 try {

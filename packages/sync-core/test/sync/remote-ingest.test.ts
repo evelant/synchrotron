@@ -2,7 +2,7 @@ import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import { compareClock } from "@synchrotron/sync-core/ClockOrder"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
-import { Effect, Option } from "effect"
+import { Effect } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
 describe("Remote ingest semantics", () => {

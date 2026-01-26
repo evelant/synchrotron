@@ -122,6 +122,8 @@ const setupClientNotesWithAdminMeta = Effect.gen(function* () {
 const defineClientActions = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient
 	const actionRegistry = yield* ActionRegistry
+	const identity = yield* ClientIdentity
+	const clientId = yield* identity.get
 
 	const createNoteWithId = actionRegistry.defineAction(
 		"e2e-create-note-with-id",
@@ -149,13 +151,11 @@ const defineClientActions = Effect.gen(function* () {
 		}),
 		(args) =>
 			Effect.gen(function* () {
-				const identity = yield* ClientIdentity
-				const clientId = yield* identity.get
 				yield* sql`
-					UPDATE notes
-					SET content = ${`${args.baseContent}-${clientId}`}
-					WHERE id = ${args.id}
-				`
+						UPDATE notes
+						SET content = ${`${args.baseContent}-${clientId}`}
+						WHERE id = ${args.id}
+					`
 			})
 	)
 

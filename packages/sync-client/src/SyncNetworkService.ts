@@ -1,17 +1,19 @@
 import { FetchHttpClient } from "@effect/platform"
 import * as Headers from "@effect/platform/Headers"
-import { RpcClient, RpcClientError, RpcMiddleware, RpcSerialization } from "@effect/rpc"
+import type { RpcClientError } from "@effect/rpc"
+import { RpcClient, RpcMiddleware, RpcSerialization } from "@effect/rpc"
 import { SqlClient } from "@effect/sql"
 import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
 import { SyncNetworkRpcGroup, SyncRpcAuthMiddleware } from "@synchrotron/sync-core/SyncNetworkRpc"
+import type { FetchRemoteActionsCompacted } from "@synchrotron/sync-core/SyncNetworkService"
 import {
-	FetchRemoteActionsCompacted,
 	NetworkRequestError,
 	RemoteActionFetchError,
 	SyncNetworkService
 } from "@synchrotron/sync-core/SyncNetworkService"
 import { HLC } from "@synchrotron/sync-core/HLC"
-import { ActionRecord, type ActionModifiedRow } from "@synchrotron/sync-core/models"
+import type { ActionRecord } from "@synchrotron/sync-core/models"
+import type { ActionModifiedRow } from "@synchrotron/sync-core/models"
 import { ClientClockState, ClientIdentity } from "@synchrotron/sync-core"
 import { Cause, Chunk, Effect, Layer, Option, Redacted } from "effect"
 import { SyncRpcAuthToken } from "./SyncRpcAuthToken"

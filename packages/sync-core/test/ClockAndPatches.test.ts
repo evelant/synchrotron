@@ -6,7 +6,7 @@ import { compareClock, findLatestCommonClock, sortClocks } from "@synchrotron/sy
 import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
 import * as HLC from "@synchrotron/sync-core/HLC"
 import { applySyncTriggers } from "@synchrotron/sync-core/db"
-import { ActionModifiedRow } from "@synchrotron/sync-core/models"
+import type { ActionModifiedRow } from "@synchrotron/sync-core/models"
 import { Effect } from "effect"
 import { expect } from "vitest"
 import { makeTestLayers } from "./helpers/TestLayers"
@@ -41,7 +41,7 @@ describe("Clock Operations", () => {
 	it.scoped(
 		"should correctly merge clocks from different clients",
 		() =>
-			Effect.gen(function* (_) {
+			Effect.sync(() => {
 				// Test vector merging rules: max value wins, entries are added, never reset
 				// Test case 1: Second timestamp is larger, counters should never reset
 				const clock1 = {
@@ -103,7 +103,7 @@ describe("Clock Operations", () => {
 	it.scoped(
 		"should correctly compare clocks",
 		() =>
-			Effect.gen(function* (_) {
+			Effect.sync(() => {
 				// Test different timestamps
 				// Note: compareClock derives the logical counter from `clock.vector[clientId]`
 				const clientId = "client1"
@@ -145,7 +145,7 @@ describe("Clock Operations", () => {
 	it.scoped(
 		"should use client ID as tiebreaker when comparing identical clocks",
 		() =>
-			Effect.gen(function* (_) {
+			Effect.sync(() => {
 				const clientId1 = "client-aaa"
 				const clientId2 = "client-bbb"
 
@@ -170,7 +170,7 @@ describe("Clock Operations", () => {
 	it.scoped(
 		"should sort clocks correctly",
 		() =>
-			Effect.gen(function* (_) {
+			Effect.sync(() => {
 				const items = [
 					// Add clientId to match the expected structure for sortClocks
 					{ id: 1, clock: { timestamp: 2000, vector: { client1: 1 } }, clientId: "client1" },
@@ -193,7 +193,7 @@ describe("Clock Operations", () => {
 	it.scoped(
 		"should find latest common clock",
 		() =>
-			Effect.gen(function* (_) {
+			Effect.sync(() => {
 				// Test case: common ancestor exists
 				// Add client_id to match the expected structure for findLatestCommonClock
 				const localActions = [
@@ -735,12 +735,11 @@ describe("DB Reverse Patch Functions", () => {
 					const currentTxId = txResult[0]!.txid
 
 					// Create action record for this transaction (for the reset operation)
-					const actionResult = yield* sql<{ id: string }>`
-						INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
-						VALUES ('test_reset', 'server', ${currentTxId}, '{"timestamp": 12, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
-						RETURNING id
-					`
-					const actionId = actionResult[0]!.id
+					yield* sql<{ id: string }>`
+							INSERT INTO action_records (_tag, client_id, transaction_id, clock, args, synced)
+							VALUES ('test_reset', 'server', ${currentTxId}, '{"timestamp": 12, "vector": {"server": 1}}'::jsonb, '{}'::jsonb, 0)
+							RETURNING id
+						`
 
 					yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 

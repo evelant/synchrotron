@@ -32,6 +32,7 @@
 		"typecheck": "tsc -b",
 		"typecheck:watch": "tsc -b --watch",
 		"lint": "prettier --check . && eslint .",
+		"lint:fix": "prettier --write . && eslint --fix",
 		"test": "vitest run -c vitest.config.ts",
 		"test:watch": "vitest -c vitest.config.ts",
 		"test:coverage": "vitest run --coverage -c vitest.config.ts",

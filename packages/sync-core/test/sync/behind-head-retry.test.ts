@@ -1,7 +1,7 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
-import { ActionModifiedRow } from "@synchrotron/sync-core/models"
+import type { ActionModifiedRow } from "@synchrotron/sync-core/models"
 import { Effect } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 

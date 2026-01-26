@@ -1,4 +1,4 @@
-import { Model, SqlClient, SqlSchema, type SqlError } from "@effect/sql"
+import { Model, SqlClient, SqlSchema } from "@effect/sql"
 import { Effect, Schema } from "effect"
 import { ActionModifiedRow } from "./models"
 import { deepObjectEquals } from "@synchrotron/sync-core/utils"

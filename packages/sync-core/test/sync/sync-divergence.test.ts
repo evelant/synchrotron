@@ -50,7 +50,7 @@ describe("Sync Divergence Scenarios", () => {
 				// --- Act ---
 				// 5. ClientB syncs, receives actionA, applies it locally (divergence expected)
 				yield* Effect.log("--- Client B Syncing (Divergence Expected) ---")
-				const syncResultB = yield* clientB.syncService.performSync()
+				yield* clientB.syncService.performSync()
 
 				// --- Assert ---
 				// Client B should have applied actionA's logic *locally*, resulting in different content
@@ -161,7 +161,7 @@ describe("Sync Divergence Scenarios", () => {
 				// The SyncService should handle applying actionA, detecting divergence (like B did),
 				// but then applying syncActionBRecord's patches directly, overwriting the divergence.
 				yield* Effect.log("--- Client C Syncing (Applying SYNC Action) ---")
-				const syncResultC = yield* clientC.syncService.performSync()
+				yield* clientC.syncService.performSync()
 
 				// --- Assert ---
 				// Client C's final state should reflect the SYNC action from B
@@ -323,7 +323,7 @@ describe("Sync Divergence Scenarios", () => {
 				yield* clientB.syncService.performSync()
 
 				// 3. ClientA updates title and syncs (Server now has a newer version)
-				const actionA_update = yield* clientA.syncService.executeAction(
+				yield* clientA.syncService.executeAction(
 					clientA.testHelpers.updateTitleAction({
 						id: noteId,
 						title: "Title from A"
