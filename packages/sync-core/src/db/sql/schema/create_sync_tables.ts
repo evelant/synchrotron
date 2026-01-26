@@ -39,9 +39,9 @@ CREATE SEQUENCE IF NOT EXISTS action_records_server_ingest_id_seq;
 			NEW.clock_time_ms = COALESCE((clock_obj->>'timestamp')::BIGINT, 0);
 			NEW.clock_counter = COALESCE((clock_obj->'vector'->>NEW.client_id)::BIGINT, 0);
 		ELSE
-		NEW.clock_time_ms = 0;
-		NEW.clock_counter = 0;
-	END IF;
+			NEW.clock_time_ms = 0;
+			NEW.clock_counter = 0;
+		END IF;
 	RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

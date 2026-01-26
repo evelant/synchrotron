@@ -62,18 +62,63 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			value !== null &&
 			(value as { readonly _tag?: unknown })._tag === tag
 
-		const sqlStateFromCause = (cause: unknown): string | undefined => {
-			if (!cause || typeof cause !== "object") return undefined
-			const tagged = cause as { readonly code?: unknown; readonly sqlState?: unknown }
-			if (typeof tagged.code === "string") return tagged.code
-			if (typeof tagged.sqlState === "string") return tagged.sqlState
-			return undefined
+		const sqlErrorInfoFromCause = (
+			cause: unknown
+		): { readonly code?: string; readonly message?: string } => {
+			const seen = new Set<object>()
+			let current: unknown = cause
+
+			for (let depth = 0; depth < 10; depth++) {
+				if (typeof current !== "object" || current === null) return {}
+				if (seen.has(current)) return {}
+				seen.add(current)
+
+				const tagged = current as {
+					readonly code?: unknown
+					readonly sqlState?: unknown
+					readonly message?: unknown
+				}
+				const code =
+					typeof tagged.code === "string"
+						? tagged.code
+						: typeof tagged.sqlState === "string"
+							? tagged.sqlState
+							: undefined
+				const message = typeof tagged.message === "string" ? tagged.message : undefined
+				if (typeof code === "string" || typeof message === "string") {
+					return {
+						...(typeof code === "string" ? { code } : {}),
+						...(typeof message === "string" ? { message } : {})
+					}
+				}
+
+				const nested = current as {
+					readonly cause?: unknown
+					readonly error?: unknown
+					readonly originalError?: unknown
+				}
+				current =
+					typeof nested.cause !== "undefined"
+						? nested.cause
+						: typeof nested.error !== "undefined"
+							? nested.error
+							: nested.originalError
+			}
+
+			return {}
 		}
 
 		const classifyUploadSqlError = (error: SqlError): SendLocalActionsFailure => {
 			const cause = (error as { readonly cause?: unknown }).cause
-			const code = sqlStateFromCause(cause)
-			const message = error.message ?? "SQL error during SendLocalActions"
+			const info = sqlErrorInfoFromCause(cause)
+			const code = info.code
+			const outerMessage = error.message ?? "SQL error during SendLocalActions"
+			const message =
+				info.message &&
+				(outerMessage === "Failed to execute statement" || outerMessage.length === 0)
+					? info.message
+					: outerMessage
+			const lowered = message.toLowerCase()
 
 			// Postgres SQLSTATE:
 			// - 42501: insufficient_privilege (includes RLS policy violations)
@@ -81,8 +126,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			if (
 				code === "42501" ||
 				(typeof code === "string" && code.startsWith("28")) ||
-				message.toLowerCase().includes("row-level security") ||
-				message.toLowerCase().includes("permission denied")
+				lowered.includes("row-level security") ||
+				lowered.includes("permission denied")
 			) {
 				return new SendLocalActionsDenied({ message, code })
 			}
@@ -90,7 +135,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			// 22***: data exception, 23***: integrity constraint violation
 			if (
 				(typeof code === "string" && (code.startsWith("22") || code.startsWith("23"))) ||
-				message.toLowerCase().includes("violates")
+				lowered.includes("violates")
 			) {
 				return new SendLocalActionsInvalid({ message, code })
 			}
@@ -327,10 +372,25 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					return Number(value)
 				}
 
-				// Encode JSONB inputs as text to keep behavior portable across SQL clients.
-				// Important: never pass already-serialized JSON strings to `sql.json(...)` (double-encoding).
-				const jsonbInput = (value: unknown): string =>
-					typeof value === "string" ? value : JSON.stringify(value)
+				// JSONB binding helper:
+				// - Prefer the dialect-specific `sql.json(...)` fragment when available (pg / pglite).
+				// - Never pass already-serialized JSON strings to `sql.json(...)` (double-encoding).
+				const jsonbParam = (value: unknown): unknown => {
+					const json = (sql as unknown as { readonly json?: (value: unknown) => unknown }).json
+					if (typeof json === "function") {
+						if (typeof value === "string") {
+							// Defensive: tolerate legacy stringified JSON payloads.
+							try {
+								return json(JSON.parse(value))
+							} catch {
+								return value
+							}
+						}
+						return json(value)
+					}
+
+					return typeof value === "string" ? value : JSON.stringify(value)
+				}
 
 				const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
 					if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
@@ -408,8 +468,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 								${userId},
 								${actionRecord.client_id},
 								${actionRecord._tag},
-								${jsonbInput(actionRecord.args)},
-								${jsonbInput(actionRecord.clock)},
+									${jsonbParam(actionRecord.args)},
+									${jsonbParam(actionRecord.clock)},
 								1,
 								${actionRecord.transaction_id},
 								${new Date(actionRecord.created_at).toISOString()}
@@ -437,8 +497,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 								${modifiedRow.action_record_id},
 								${modifiedRow.audience_key},
 								${modifiedRow.operation},
-								${jsonbInput(modifiedRow.forward_patches)},
-								${jsonbInput(modifiedRow.reverse_patches)},
+									${jsonbParam(modifiedRow.forward_patches)},
+									${jsonbParam(modifiedRow.reverse_patches)},
 								${modifiedRow.sequence}
 							)
 							ON CONFLICT (id) DO NOTHING

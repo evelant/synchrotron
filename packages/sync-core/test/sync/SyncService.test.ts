@@ -138,11 +138,12 @@ describe("SyncService", () => {
 				// The return value might vary depending on whether reconcile was incorrectly triggered,
 				// but the important part is the state *after* this sync.
 				yield* Effect.log("--- Performing first sync ---")
+				yield* syncService.performSync()
 
 				// Verify the *original* pending actions were handled and marked synced
 				const midSyncRecords = yield* sql<ActionRecord>`
-					SELECT * FROM action_records
-					WHERE id = ${record1.id} OR id = ${record2.id}
+						SELECT * FROM action_records
+						WHERE id = ${record1.id} OR id = ${record2.id}
 				`
 				expect(midSyncRecords.length).toBe(2)
 				expect(midSyncRecords.every((r) => r.synced)).toBe(true)
