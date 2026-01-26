@@ -8,5 +8,6 @@ export * from "./SyncAuthService"
 export * from "./SyncRetentionConfig"
 export * from "./SyncSnapshotConfig"
 export * from "./SyncUserId"
+export * from "./ServerMetaService"
 
 export * from "./rpcRouter"

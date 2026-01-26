@@ -8,9 +8,10 @@ import {
 	ActionModifiedRowRepo,
 	ActionRecordRepo,
 	ActionRegistry,
+	ClientClockState,
 	ClientDbAdapter,
+	ClientIdentity,
 	ClientIdOverride,
-	ClockService,
 	DeterministicId,
 	SqliteClientDbAdapter,
 	SyncNetworkService,
@@ -23,6 +24,7 @@ import {
 	SyncNetworkServiceTestHelpers,
 	type SyncNetworkServiceTestHelpersService
 } from "./SyncNetworkServiceTest"
+import { ClientIdentityTestLive } from "./ClientIdentityTestLive"
 
 const JsonColumn = <S extends Schema.Schema.Any>(schema: S) =>
 	Model.Field({
@@ -63,13 +65,14 @@ export const createNoteRepoPortable = () =>
 		}).pipe(Effect.provideService(SqlClient.SqlClient, sql))
 	})
 
-export interface NoteRepoPortable
-	extends Effect.Effect.Success<ReturnType<typeof createNoteRepoPortable>> {}
+export interface NoteRepoPortable extends Effect.Effect.Success<
+	ReturnType<typeof createNoteRepoPortable>
+> {}
 
 export class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("SqliteTestHelpers", {
 	effect: Effect.gen(function* () {
 		const actionRegistry = yield* ActionRegistry
-		const clockService = yield* ClockService
+		const identity = yield* ClientIdentity
 		const deterministicId = yield* DeterministicId
 
 		const noteRepo = yield* createNoteRepoPortable()
@@ -160,7 +163,7 @@ export class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("Sqli
 			}),
 			(args) =>
 				Effect.gen(function* () {
-					const clientId = yield* clockService.getNodeId
+					const clientId = yield* identity.get
 					const noteOpt = yield* noteRepo.findById(args.id)
 					if (Option.isSome(noteOpt)) {
 						const note = noteOpt.value
@@ -176,83 +179,83 @@ export class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("Sqli
 						})
 					}
 				})
-			)
+		)
 
-			const conditionalUpdateWithClientCExtraAction = actionRegistry.defineAction(
-				"test-conditional-update-clientc-extra",
-				Schema.Struct({
-					id: Schema.String,
-					baseContent: Schema.String,
-					conditionalSuffix: Schema.optional(Schema.String),
-					clientCTags: Schema.Array(Schema.String),
-					timestamp: Schema.Number
-				}),
-				(args) =>
-					Effect.gen(function* () {
-						const clientId = yield* clockService.getNodeId
-						const noteOpt = yield* noteRepo.findById(args.id)
-						if (Option.isSome(noteOpt)) {
-							const note = noteOpt.value
-							const newContent =
-								clientId === "clientA"
-									? args.baseContent + (args.conditionalSuffix ?? "")
-									: args.baseContent
-							const nextTags = clientId === "clientC" ? Array.from(args.clientCTags) : note.tags
+		const conditionalUpdateWithClientCExtraAction = actionRegistry.defineAction(
+			"test-conditional-update-clientc-extra",
+			Schema.Struct({
+				id: Schema.String,
+				baseContent: Schema.String,
+				conditionalSuffix: Schema.optional(Schema.String),
+				clientCTags: Schema.Array(Schema.String),
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const clientId = yield* identity.get
+					const noteOpt = yield* noteRepo.findById(args.id)
+					if (Option.isSome(noteOpt)) {
+						const note = noteOpt.value
+						const newContent =
+							clientId === "clientA"
+								? args.baseContent + (args.conditionalSuffix ?? "")
+								: args.baseContent
+						const nextTags = clientId === "clientC" ? Array.from(args.clientCTags) : note.tags
 
-							yield* noteRepo.updateVoid({
-								...note,
-								content: newContent,
-								tags: nextTags,
-								updated_at: new Date(args.timestamp)
-							})
-						}
-					})
-			)
+						yield* noteRepo.updateVoid({
+							...note,
+							content: newContent,
+							tags: nextTags,
+							updated_at: new Date(args.timestamp)
+						})
+					}
+				})
+		)
 
-			const clientSpecificContentAction = actionRegistry.defineAction(
-				"test-client-specific-content",
-				Schema.Struct({
-					id: Schema.String,
-					baseContent: Schema.String,
-					timestamp: Schema.Number
-				}),
-				(args) =>
-					Effect.gen(function* () {
-						const clientId = yield* clockService.getNodeId
-						const noteOpt = yield* noteRepo.findById(args.id)
-						if (Option.isSome(noteOpt)) {
-							const note = noteOpt.value
-							yield* noteRepo.updateVoid({
-								...note,
-								content: `${args.baseContent}-${clientId}`,
-								updated_at: new Date(args.timestamp)
-							})
-						}
-					})
-			)
+		const clientSpecificContentAction = actionRegistry.defineAction(
+			"test-client-specific-content",
+			Schema.Struct({
+				id: Schema.String,
+				baseContent: Schema.String,
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const clientId = yield* identity.get
+					const noteOpt = yield* noteRepo.findById(args.id)
+					if (Option.isSome(noteOpt)) {
+						const note = noteOpt.value
+						yield* noteRepo.updateVoid({
+							...note,
+							content: `${args.baseContent}-${clientId}`,
+							updated_at: new Date(args.timestamp)
+						})
+					}
+				})
+		)
 
-			const deleteContentAction = actionRegistry.defineAction(
-				"test-delete-content",
-				Schema.Struct({ id: Schema.String, user_id: Schema.String, timestamp: Schema.Number }),
-				(args) =>
-					Effect.gen(function* () {
-						yield* noteRepo.delete(args.id)
-					})
-			)
+		const deleteContentAction = actionRegistry.defineAction(
+			"test-delete-content",
+			Schema.Struct({ id: Schema.String, user_id: Schema.String, timestamp: Schema.Number }),
+			(args) =>
+				Effect.gen(function* () {
+					yield* noteRepo.delete(args.id)
+				})
+		)
 
-			return {
-				createNoteAction,
-				updateTagsAction,
-				updateContentAction,
-				updateTitleAction,
-				conditionalUpdateAction,
-				conditionalUpdateWithClientCExtraAction,
-				clientSpecificContentAction,
-				deleteContentAction,
-				noteRepo
-			}
-		})
-	}) {}
+		return {
+			createNoteAction,
+			updateTagsAction,
+			updateContentAction,
+			updateTitleAction,
+			conditionalUpdateAction,
+			conditionalUpdateWithClientCExtraAction,
+			clientSpecificContentAction,
+			deleteContentAction,
+			noteRepo
+		}
+	})
+}) {}
 
 export const makeSqliteTestLayers = (clientId: string, serverSql: PgliteClient.PgliteClient) => {
 	const baseLayer = Layer.mergeAll(
@@ -305,13 +308,14 @@ export const makeSqliteTestLayers = (clientId: string, serverSql: PgliteClient.P
 		})
 	).pipe(Layer.provideMerge(layer4))
 
-	const layer6 = ClockService.Default.pipe(Layer.provideMerge(layer5))
-	const layer7 = createTestSyncNetworkServiceLayer(clientId, serverSql).pipe(
-		Layer.provideMerge(layer6)
+	const layer6 = ClientIdentityTestLive.pipe(Layer.provideMerge(layer5))
+	const layer7 = ClientClockState.Default.pipe(Layer.provideMerge(layer6))
+	const layer8 = createTestSyncNetworkServiceLayer(clientId, serverSql).pipe(
+		Layer.provideMerge(layer7)
 	)
-	const layer8 = SqliteTestHelpers.Default.pipe(Layer.provideMerge(layer7))
+	const layer9 = SqliteTestHelpers.Default.pipe(Layer.provideMerge(layer8))
 
-	return SyncService.DefaultWithoutDependencies.pipe(Layer.provideMerge(layer8))
+	return SyncService.DefaultWithoutDependencies.pipe(Layer.provideMerge(layer9))
 }
 
 export interface SqliteTestClient {
@@ -319,7 +323,7 @@ export interface SqliteTestClient {
 	syncService: SyncService
 	actionRecordRepo: ActionRecordRepo
 	actionModifiedRowRepo: ActionModifiedRowRepo
-	clockService: ClockService
+	clockState: ClientClockState
 	actionRegistry: ActionRegistry
 	syncNetworkService: SyncNetworkService
 	syncNetworkServiceTestHelpers: SyncNetworkServiceTestHelpersService
@@ -335,7 +339,7 @@ export const withSqliteTestClient = <A, E, R = never>(
 ) =>
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
-		const clockService = yield* ClockService
+		const clockState = yield* ClientClockState
 		const actionRecordRepo = yield* ActionRecordRepo
 		const actionModifiedRowRepo = yield* ActionModifiedRowRepo
 		const syncNetworkService = yield* SyncNetworkService
@@ -350,7 +354,7 @@ export const withSqliteTestClient = <A, E, R = never>(
 			syncService,
 			actionRecordRepo,
 			actionModifiedRowRepo,
-			clockService,
+			clockState,
 			actionRegistry,
 			syncNetworkService,
 			syncNetworkServiceTestHelpers,

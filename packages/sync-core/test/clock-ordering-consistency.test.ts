@@ -1,6 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, it } from "@effect/vitest"
-import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { compareClock } from "@synchrotron/sync-core/ClockOrder"
 import * as HLC from "@synchrotron/sync-core/HLC"
 import { Effect } from "effect"
 import { expect } from "vitest"
@@ -10,7 +10,6 @@ describe("Clock ordering consistency", () => {
 	it.scoped("TS action ordering matches DB ordering key columns", () =>
 		Effect.gen(function* () {
 			const sql = yield* PgliteClient.PgliteClient
-			const clockService = yield* ClockService
 
 			const actions = [
 				{
@@ -61,7 +60,7 @@ describe("Clock ordering consistency", () => {
 
 			const tsOrdered = [...actions]
 				.sort((a, b) =>
-					clockService.compareClock(
+					compareClock(
 						{ clock: a.clock, clientId: a.client_id, id: a.id },
 						{ clock: b.clock, clientId: b.client_id, id: b.id }
 					)

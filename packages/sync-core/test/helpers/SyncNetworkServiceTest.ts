@@ -2,7 +2,7 @@ import { PgliteClient } from "@effect/sql-pglite"
 import { SqlClient } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo" // Import Repo
-import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { ClientClockState } from "@synchrotron/sync-core/ClientClockState"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
 import { ActionModifiedRow } from "@synchrotron/sync-core/models" // Import ActionModifiedRow model
 import {
@@ -47,7 +47,9 @@ export interface SyncNetworkServiceTestHelpersService {
 		bootstrapSnapshot: TestNetworkState["bootstrapSnapshot"]
 	) => Effect.Effect<void, never, never>
 	readonly setSendResults: (
-		results: ReadonlyArray<Effect.Effect<boolean, SendLocalActionsFailure | NetworkRequestError, never>>
+		results: ReadonlyArray<
+			Effect.Effect<boolean, SendLocalActionsFailure | NetworkRequestError, never>
+		>
 	) => Effect.Effect<void, never, never>
 }
 
@@ -72,7 +74,7 @@ export const createTestSyncNetworkServiceLayer = (
 		Effect.gen(function* () {
 			// Removed explicit return type annotation
 			const sql = yield* SqlClient.SqlClient // This is the CLIENT's SQL instance from the layer
-			const clockService = yield* ClockService // Keep clockService dependency
+			const clockState = yield* ClientClockState
 			// Need the repo to fetch/insert ActionModifiedRow for conflict check
 			const actionModifiedRowRepo = yield* ActionModifiedRowRepo
 			const serverSql = _serverSql ?? (yield* PgliteClient.PgliteClient)
@@ -128,7 +130,9 @@ export const createTestSyncNetworkServiceLayer = (
 				})
 
 			const setSendResults = (
-				results: ReadonlyArray<Effect.Effect<boolean, SendLocalActionsFailure | NetworkRequestError, never>>
+				results: ReadonlyArray<
+					Effect.Effect<boolean, SendLocalActionsFailure | NetworkRequestError, never>
+				>
 			) =>
 				Effect.sync(() => {
 					state.sendResults = [...results]
@@ -140,7 +144,8 @@ export const createTestSyncNetworkServiceLayer = (
 			const getServerData = (
 				sinceServerIngestId: number,
 				includeSelf: boolean = false
-			): Effect.Effect<FetchResult, SqlError | FetchRemoteActionsCompacted> => // Updated return type
+			): Effect.Effect<FetchResult, SqlError | FetchRemoteActionsCompacted> =>
+				// Updated return type
 				Effect.gen(function* () {
 					// Log the database path being queried
 					// @ts-expect-error - Accessing private property for debugging
@@ -175,7 +180,7 @@ export const createTestSyncNetworkServiceLayer = (
 						)
 					}
 
-					const actions = yield* (includeSelf
+					const actions = yield* includeSelf
 						? serverSql<ActionRecord>`
 								SELECT * FROM action_records
 								WHERE server_ingest_id > ${sinceServerIngestId}
@@ -186,7 +191,7 @@ export const createTestSyncNetworkServiceLayer = (
 								WHERE client_id != ${clientId}
 								AND server_ingest_id > ${sinceServerIngestId}
 								ORDER BY server_ingest_id ASC, id ASC
-							`)
+							`
 
 					yield* Effect.logDebug(
 						`getServerData for ${clientId}: Found ${actions.length} actions on server. Raw result: ${JSON.stringify(actions)}`
@@ -211,13 +216,13 @@ export const createTestSyncNetworkServiceLayer = (
 					} satisfies FetchResult
 				}).pipe(Effect.annotateLogs("clientId", `${clientId} (server simulation)`))
 
-				const insertActionsOnServer = (
-					incomingActions: readonly ActionRecord[],
-					amrs: readonly ActionModifiedRow[],
-					basisServerIngestId: number
-				) =>
-					Effect.gen(function* () {
-						if (incomingActions.length === 0) return
+			const insertActionsOnServer = (
+				incomingActions: readonly ActionRecord[],
+				amrs: readonly ActionModifiedRow[],
+				basisServerIngestId: number
+			) =>
+				Effect.gen(function* () {
+					if (incomingActions.length === 0) return
 
 					type ReplayKey = {
 						readonly timeMs: number
@@ -248,17 +253,17 @@ export const createTestSyncNetworkServiceLayer = (
 						id: action.id
 					})
 
-						const serverJson = (value: unknown) =>
-							typeof value === "string" ? value : serverSql.json(value)
+					const serverJson = (value: unknown) =>
+						typeof value === "string" ? value : serverSql.json(value)
 
-						const incomingActionIdSet = new Set(incomingActions.map((a) => a.id))
+					const incomingActionIdSet = new Set(incomingActions.map((a) => a.id))
 
-						// Simplified correctness gate: only accept uploads when the client is at the current
-						// server ingestion head (for actions visible to it, excluding its own).
-						const unseen = yield* serverSql<{
-							readonly id: string
-							readonly server_ingest_id: number | string
-						}>`
+					// Simplified correctness gate: only accept uploads when the client is at the current
+					// server ingestion head (for actions visible to it, excluding its own).
+					const unseen = yield* serverSql<{
+						readonly id: string
+						readonly server_ingest_id: number | string
+					}>`
 							SELECT id, server_ingest_id
 							FROM action_records
 							WHERE client_id != ${clientId}
@@ -266,21 +271,23 @@ export const createTestSyncNetworkServiceLayer = (
 							ORDER BY server_ingest_id ASC, id ASC
 							LIMIT 1
 						`
-							if (unseen.length > 0) {
-								const first = unseen[0]
-								return yield* Effect.fail(
-									new SendLocalActionsBehindHead({
-										message:
-											"Client is behind the server ingestion head. Fetch remote actions, reconcile locally, then retry upload.",
-										basisServerIngestId,
-										firstUnseenActionId: first?.id ?? undefined,
-										firstUnseenServerIngestId: first ? toNumber(first.server_ingest_id) : basisServerIngestId
-									})
-								)
-							}
+					if (unseen.length > 0) {
+						const first = unseen[0]
+						return yield* Effect.fail(
+							new SendLocalActionsBehindHead({
+								message:
+									"Client is behind the server ingestion head. Fetch remote actions, reconcile locally, then retry upload.",
+								basisServerIngestId,
+								firstUnseenActionId: first?.id ?? undefined,
+								firstUnseenServerIngestId: first
+									? toNumber(first.server_ingest_id)
+									: basisServerIngestId
+							})
+						)
+					}
 
-						// Insert ActionRecords and AMRs idempotently.
-						for (const actionRecord of incomingActions) {
+					// Insert ActionRecords and AMRs idempotently.
+					for (const actionRecord of incomingActions) {
 						yield* serverSql`
 							INSERT INTO action_records (
 								server_ingest_id,
@@ -339,12 +346,16 @@ export const createTestSyncNetworkServiceLayer = (
 					const incomingRollbacks = incomingActions.filter((a) => a._tag === "RollbackAction")
 					let forcedRollbackTarget: string | null | undefined = undefined
 					if (incomingRollbacks.length > 0) {
-						const targets = incomingRollbacks.map((rb) => rb.args["target_action_id"] as string | null)
+						const targets = incomingRollbacks.map(
+							(rb) => rb.args["target_action_id"] as string | null
+						)
 						const hasGenesis = targets.some((t) => t === null)
 						if (hasGenesis) {
 							forcedRollbackTarget = null
 						} else {
-							const targetIds = targets.filter((t): t is string => typeof t === "string" && t.length > 0)
+							const targetIds = targets.filter(
+								(t): t is string => typeof t === "string" && t.length > 0
+							)
 							if (targetIds.length > 0) {
 								const targetRows = yield* serverSql<{
 									readonly id: string
@@ -507,62 +518,65 @@ export const createTestSyncNetworkServiceLayer = (
 						})
 
 					yield* materialize(forcedRollbackTarget)
-				}).pipe(serverSql.withTransaction, Effect.annotateLogs("clientId", `${clientId} (server simulation)`))
+				}).pipe(
+					serverSql.withTransaction,
+					Effect.annotateLogs("clientId", `${clientId} (server simulation)`)
+				)
 
 			// Define the service implementation INSIDE the Effect.gen scope
-				const service: SyncNetworkService = SyncNetworkService.of({
-					_tag: "SyncNetworkService",
-					fetchBootstrapSnapshot: () =>
-						Effect.gen(function* () {
-							if (state.shouldFail && !state.bootstrapSnapshot) {
-								return yield* Effect.fail(
-									new RemoteActionFetchError({ message: "Simulated network failure" })
-								)
-							}
-
-							if (state.networkDelay > 0 && !state.bootstrapSnapshot) {
-								yield* TestClock.adjust(state.networkDelay)
-							}
-
-							if (!state.bootstrapSnapshot) {
-								return yield* Effect.fail(
-									new RemoteActionFetchError({
-										message:
-											"Bootstrap snapshot is not configured for SyncNetworkServiceTest (set via SyncNetworkServiceTestHelpers.setBootstrapSnapshot)"
-									})
-								)
-							}
-
-							return yield* state.bootstrapSnapshot
-						}).pipe(
-							Effect.mapError(
-								(error) =>
-									new RemoteActionFetchError({
-										message: error instanceof Error ? error.message : String(error),
-										cause: error
-									})
+			const service: SyncNetworkService = SyncNetworkService.of({
+				_tag: "SyncNetworkService",
+				fetchBootstrapSnapshot: () =>
+					Effect.gen(function* () {
+						if (state.shouldFail && !state.bootstrapSnapshot) {
+							return yield* Effect.fail(
+								new RemoteActionFetchError({ message: "Simulated network failure" })
 							)
-						),
-					fetchRemoteActions: (): Effect.Effect<
-						FetchResult,
-						RemoteActionFetchError | FetchRemoteActionsCompacted,
-						never
-					> =>
-						Effect.gen(function* () {
-								const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
+						}
 
-							const [localState] = yield* sql<{ readonly has_any_action_records: boolean | 0 | 1 }>`
+						if (state.networkDelay > 0 && !state.bootstrapSnapshot) {
+							yield* TestClock.adjust(state.networkDelay)
+						}
+
+						if (!state.bootstrapSnapshot) {
+							return yield* Effect.fail(
+								new RemoteActionFetchError({
+									message:
+										"Bootstrap snapshot is not configured for SyncNetworkServiceTest (set via SyncNetworkServiceTestHelpers.setBootstrapSnapshot)"
+								})
+							)
+						}
+
+						return yield* state.bootstrapSnapshot
+					}).pipe(
+						Effect.mapError(
+							(error) =>
+								new RemoteActionFetchError({
+									message: error instanceof Error ? error.message : String(error),
+									cause: error
+								})
+						)
+					),
+				fetchRemoteActions: (): Effect.Effect<
+					FetchResult,
+					RemoteActionFetchError | FetchRemoteActionsCompacted,
+					never
+				> =>
+					Effect.gen(function* () {
+						const sinceServerIngestId = yield* clockState.getLastSeenServerIngestId
+
+						const [localState] = yield* sql<{ readonly has_any_action_records: boolean | 0 | 1 }>`
 								SELECT EXISTS (SELECT 1 FROM action_records LIMIT 1) as has_any_action_records
 							`
-								const hasAnyActionRecords =
-									typeof localState?.has_any_action_records === "boolean"
-										? localState.has_any_action_records
-										: localState?.has_any_action_records === 1
-				const includeSelf = !hasAnyActionRecords && sinceServerIngestId === 0
-				const effectiveSinceServerIngestId = includeSelf ? 0 : sinceServerIngestId
-				yield* Effect.logInfo(
-					`Fetching remote data since server_ingest_id=${effectiveSinceServerIngestId} for client ${clientId} (includeSelf=${includeSelf})`
-				)
+						const hasAnyActionRecords =
+							typeof localState?.has_any_action_records === "boolean"
+								? localState.has_any_action_records
+								: localState?.has_any_action_records === 1
+						const includeSelf = !hasAnyActionRecords && sinceServerIngestId === 0
+						const effectiveSinceServerIngestId = includeSelf ? 0 : sinceServerIngestId
+						yield* Effect.logInfo(
+							`Fetching remote data since server_ingest_id=${effectiveSinceServerIngestId} for client ${clientId} (includeSelf=${includeSelf})`
+						)
 						if (state.shouldFail && !state.fetchResult) {
 							// Only fail if no mock result provided
 							return yield* Effect.fail(
@@ -577,10 +591,10 @@ export const createTestSyncNetworkServiceLayer = (
 							yield* TestClock.adjust(state.networkDelay)
 						}
 
-			// Use mocked result if provided, otherwise fetch from server
-							const fetchedData = state.fetchResult
-								? yield* state.fetchResult
-								: yield* getServerData(effectiveSinceServerIngestId, includeSelf)
+						// Use mocked result if provided, otherwise fetch from server
+						const fetchedData = state.fetchResult
+							? yield* state.fetchResult
+							: yield* getServerData(effectiveSinceServerIngestId, includeSelf)
 
 						// Simulate ElectricSQL sync: Insert fetched actions AND modified rows directly into the client's DB
 						// Wrap inserts in an effect to catch SqlError
@@ -629,11 +643,17 @@ export const createTestSyncNetworkServiceLayer = (
 							)
 						)
 
-							// Return the fetched data so SyncService knows what was received
-							return fetchedData
-						}).pipe(
+						// Return the fetched data so SyncService knows what was received
+						return fetchedData
+					}).pipe(
 						Effect.catchAll(
-							(error): Effect.Effect<never, RemoteActionFetchError | FetchRemoteActionsCompacted, never> =>
+							(
+								error
+							): Effect.Effect<
+								never,
+								RemoteActionFetchError | FetchRemoteActionsCompacted,
+								never
+							> =>
 								error instanceof FetchRemoteActionsCompacted
 									? Effect.fail(error)
 									: Effect.fail(
@@ -645,36 +665,36 @@ export const createTestSyncNetworkServiceLayer = (
 											})
 										)
 						),
-							Effect.annotateLogs("clientId", clientId),
-							Effect.withLogSpan("test fetchRemoteActions")
-						),
+						Effect.annotateLogs("clientId", clientId),
+						Effect.withLogSpan("test fetchRemoteActions")
+					),
 
-					sendLocalActions: (
-						actions: readonly ActionRecord[],
-						amrs: readonly ActionModifiedRow[],
-						basisServerIngestId: number
-						) =>
-							Effect.gen(function* () {
-								const nextSend = state.sendResults.shift()
-								if (nextSend) {
-									return yield* nextSend
-								}
+				sendLocalActions: (
+					actions: readonly ActionRecord[],
+					amrs: readonly ActionModifiedRow[],
+					basisServerIngestId: number
+				) =>
+					Effect.gen(function* () {
+						const nextSend = state.sendResults.shift()
+						if (nextSend) {
+							return yield* nextSend
+						}
 
-								if (state.shouldFail) {
-									return yield* Effect.fail(
-										new NetworkRequestError({
-											message: "Simulated network failure"
-									})
-								)
-							}
+						if (state.shouldFail) {
+							return yield* Effect.fail(
+								new NetworkRequestError({
+									message: "Simulated network failure"
+								})
+							)
+						}
 
 						if (state.networkDelay > 0) {
 							yield* TestClock.adjust(state.networkDelay)
 						}
 
-							yield* Effect.logInfo(
-								`Sending ${actions.length} local actions to server (basisServerIngestId=${basisServerIngestId}) ${JSON.stringify(actions)}`
-							)
+						yield* Effect.logInfo(
+							`Sending ${actions.length} local actions to server (basisServerIngestId=${basisServerIngestId}) ${JSON.stringify(actions)}`
+						)
 
 						// Check if we have any actions to process
 						if (actions.length === 0) {
@@ -682,10 +702,10 @@ export const createTestSyncNetworkServiceLayer = (
 							return true
 						}
 
-							yield* insertActionsOnServer(actions, amrs, basisServerIngestId)
-							yield* Effect.logInfo(`Sent ${actions.length} local actions to server`)
-							return true
-						}).pipe(
+						yield* insertActionsOnServer(actions, amrs, basisServerIngestId)
+						yield* Effect.logInfo(`Sent ${actions.length} local actions to server`)
+						return true
+					}).pipe(
 						// Convert SqlError to NetworkRequestError to match the expected error
 						Effect.catchTags({
 							SqlError: (error: SqlError) =>
@@ -702,13 +722,13 @@ export const createTestSyncNetworkServiceLayer = (
 			})
 
 			// Test helper methods
-				const testHelpers = SyncNetworkServiceTestHelpers.of({
-					setNetworkDelay,
-					setShouldFail,
-					setFetchResult,
-					setBootstrapSnapshot,
-					setSendResults
-				})
+			const testHelpers = SyncNetworkServiceTestHelpers.of({
+				setNetworkDelay,
+				setShouldFail,
+				setFetchResult,
+				setBootstrapSnapshot,
+				setSendResults
+			})
 			return Layer.merge(
 				Layer.succeed(SyncNetworkService, service),
 				Layer.succeed(SyncNetworkServiceTestHelpers, testHelpers)

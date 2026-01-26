@@ -2,7 +2,6 @@ import { FetchHttpClient } from "@effect/platform"
 import * as Headers from "@effect/platform/Headers"
 import { RpcClient, RpcClientError, RpcMiddleware, RpcSerialization } from "@effect/rpc"
 import { SqlClient } from "@effect/sql"
-import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
 import { SyncNetworkRpcGroup, SyncRpcAuthMiddleware } from "@synchrotron/sync-core/SyncNetworkRpc"
 import {
@@ -13,6 +12,7 @@ import {
 } from "@synchrotron/sync-core/SyncNetworkService"
 import { HLC } from "@synchrotron/sync-core/HLC"
 import { ActionRecord, type ActionModifiedRow } from "@synchrotron/sync-core/models"
+import { ClientClockState, ClientIdentity } from "@synchrotron/sync-core"
 import { Cause, Chunk, Effect, Layer, Option, Redacted } from "effect"
 import { SyncRpcAuthToken } from "./SyncRpcAuthToken"
 
@@ -21,19 +21,26 @@ const valuePreview = (value: unknown, maxLength = 500) => {
 	return json.length <= maxLength ? json : `${json.slice(0, maxLength)}…`
 }
 
-const AuthClientLive: Layer.Layer<RpcMiddleware.ForClient<SyncRpcAuthMiddleware>, never, SyncRpcAuthToken> =
-	RpcMiddleware.layerClient(SyncRpcAuthMiddleware, ({ request }) =>
-		Effect.gen(function* () {
-			const tokenService = yield* SyncRpcAuthToken
-			const tokenOption = yield* tokenService.get
-			if (Option.isNone(tokenOption)) return request
+const AuthClientLive: Layer.Layer<
+	RpcMiddleware.ForClient<SyncRpcAuthMiddleware>,
+	never,
+	SyncRpcAuthToken
+> = RpcMiddleware.layerClient(SyncRpcAuthMiddleware, ({ request }) =>
+	Effect.gen(function* () {
+		const tokenService = yield* SyncRpcAuthToken
+		const tokenOption = yield* tokenService.get
+		if (Option.isNone(tokenOption)) return request
 
-			return {
-				...request,
-				headers: Headers.set(request.headers, "authorization", `Bearer ${Redacted.value(tokenOption.value)}`)
-			}
-		})
-	)
+		return {
+			...request,
+			headers: Headers.set(
+				request.headers,
+				"authorization",
+				`Bearer ${Redacted.value(tokenOption.value)}`
+			)
+		}
+	})
+)
 
 const ProtocolLive = Layer.unwrapEffect(
 	Effect.gen(function* () {
@@ -48,8 +55,9 @@ const ProtocolLive = Layer.unwrapEffect(
 export const SyncNetworkServiceLive = Layer.scoped(
 	SyncNetworkService,
 	Effect.gen(function* (_) {
-		const clockService = yield* ClockService
-		const clientId = yield* clockService.getNodeId
+		const identity = yield* ClientIdentity
+		const clientId = yield* identity.get
+		const clockState = yield* ClientClockState
 		// Get the RPC client instance using the schema
 		const client = yield* RpcClient.make(SyncNetworkRpcGroup)
 		const sql = yield* SqlClient.SqlClient
@@ -77,30 +85,32 @@ export const SyncNetworkServiceLive = Layer.scoped(
 			return { countsByActionRecordId, countsByTable }
 		}
 
-			const sendLocalActions = (
-				actions: ReadonlyArray<ActionRecord>,
-				amrs: ReadonlyArray<ActionModifiedRow>,
-				basisServerIngestId: number
-			) =>
-				Effect.gen(function* () {
-					const amrSummary = summarizeAmrs(amrs)
-					yield* Effect.logInfo("sync.network.sendLocalActions.start", {
-						clientId,
-						basisServerIngestId,
-						actionCount: actions.length,
-						amrCount: amrs.length,
-						actionTags: actions.reduce<Record<string, number>>((acc, a) => {
-							acc[a._tag] = (acc[a._tag] ?? 0) + 1
-							return acc
-						}, {}),
-						amrCountsByTable: amrSummary.countsByTable
-					})
+		const sendLocalActions = (
+			actions: ReadonlyArray<ActionRecord>,
+			amrs: ReadonlyArray<ActionModifiedRow>,
+			basisServerIngestId: number
+		) =>
+			Effect.gen(function* () {
+				const amrSummary = summarizeAmrs(amrs)
+				yield* Effect.logInfo("sync.network.sendLocalActions.start", {
+					clientId,
+					basisServerIngestId,
+					actionCount: actions.length,
+					amrCount: amrs.length,
+					actionTags: actions.reduce<Record<string, number>>((acc, a) => {
+						acc[a._tag] = (acc[a._tag] ?? 0) + 1
+						return acc
+					}, {}),
+					amrCountsByTable: amrSummary.countsByTable
+				})
 
 				const syncActionIds = new Set(
 					actions.filter((a) => a._tag === "_InternalSyncApply").map((a) => a.id)
 				)
 				if (syncActionIds.size > 0) {
-					const syncAmrs = amrs.filter((amr) => syncActionIds.has(amr.action_record_id)).slice(0, 10)
+					const syncAmrs = amrs
+						.filter((amr) => syncActionIds.has(amr.action_record_id))
+						.slice(0, 10)
 					yield* Effect.logDebug("sync.network.sendLocalActions.syncDelta.preview", {
 						clientId,
 						syncActionIds: Array.from(syncActionIds),
@@ -121,49 +131,46 @@ export const SyncNetworkServiceLive = Layer.scoped(
 					amrs: {
 						countsByActionRecordId: amrSummary.countsByActionRecordId,
 						countsByTable: amrSummary.countsByTable
-						}
-					})
+					}
+				})
 
-					const result = yield* client.SendLocalActions({
-						actions,
-						amrs,
+				const result = yield* client.SendLocalActions({
+					actions,
+					amrs,
+					clientId,
+					basisServerIngestId
+				})
+				yield* Effect.logInfo("sync.network.sendLocalActions.success", {
+					clientId,
+					basisServerIngestId,
+					actionCount: actions.length,
+					amrCount: amrs.length
+				})
+				return result
+			}).pipe(
+				Effect.tapErrorCause((c) =>
+					Effect.logError("sync.network.sendLocalActions.error", {
 						clientId,
-						basisServerIngestId
-					})
-					yield* Effect.logInfo("sync.network.sendLocalActions.success", {
-						clientId,
-						basisServerIngestId,
-						actionCount: actions.length,
-						amrCount: amrs.length
-					})
-					return result
-				}).pipe(
-					Effect.tapErrorCause((c) =>
-						Effect.logError(
-							"sync.network.sendLocalActions.error",
-						{
-							clientId,
-							cause: Cause.pretty(c),
-							defects: Cause.defects(c).pipe(
-								Chunk.map((d) => JSON.stringify(d, undefined, 2)),
-								Chunk.toArray
-							)
-							}
+						cause: Cause.pretty(c),
+						defects: Cause.defects(c).pipe(
+							Chunk.map((d) => JSON.stringify(d, undefined, 2)),
+							Chunk.toArray
 						)
-					),
-					Effect.catchTag("RpcClientError", (error: RpcClientError.RpcClientError) =>
-						Effect.fail(
-							new NetworkRequestError({
-								message: error.message,
-								cause: error.cause ?? error
-							})
-						)
+					})
+				),
+				Effect.catchTag("RpcClientError", (error: RpcClientError.RpcClientError) =>
+					Effect.fail(
+						new NetworkRequestError({
+							message: error.message,
+							cause: error.cause ?? error
+						})
 					)
 				)
+			)
 		const fetchRemoteActions = () =>
 			Effect.gen(function* () {
 				yield* Effect.logInfo("sync.network.fetchRemoteActions.start", { clientId })
-				const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
+				const sinceServerIngestId = yield* clockState.getLastSeenServerIngestId
 
 				const [localState] = yield* sql<{ readonly has_any_action_records: boolean | 0 | 1 }>`
 					SELECT EXISTS (SELECT 1 FROM action_records LIMIT 1) as has_any_action_records
@@ -278,7 +285,10 @@ export const SyncNetworkServiceLive = Layer.scoped(
 					minRetainedServerIngestId: snapshot.minRetainedServerIngestId,
 					serverIngestId: snapshot.serverIngestId,
 					tableCount: snapshot.tables.length,
-					rowCounts: snapshot.tables.map((t) => ({ tableName: t.tableName, rowCount: t.rows.length }))
+					rowCounts: snapshot.tables.map((t) => ({
+						tableName: t.tableName,
+						rowCount: t.rows.length
+					}))
 				})
 				return { ...snapshot, serverClock: HLC.make(snapshot.serverClock) }
 			}).pipe(

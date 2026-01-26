@@ -7,9 +7,9 @@ import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
+import { ClientClockState } from "@synchrotron/sync-core/ClientClockState"
 import { ClientIdOverride } from "@synchrotron/sync-core/ClientIdOverride"
 import { PostgresClientDbAdapter } from "@synchrotron/sync-core/PostgresClientDbAdapter"
-import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
 
 import {
@@ -21,9 +21,7 @@ import {
 	initializeClientDatabaseSchema,
 	initializeDatabaseSchema
 } from "@synchrotron/sync-core/db" // Import applySyncTriggers
-import {
-	SyncNetworkService
-} from "@synchrotron/sync-core/SyncNetworkService"
+import { SyncNetworkService } from "@synchrotron/sync-core/SyncNetworkService"
 import { SyncService } from "@synchrotron/sync-core/SyncService"
 import { Effect, Layer, Logger, LogLevel, Schema } from "effect"
 import {
@@ -32,6 +30,7 @@ import {
 	type SyncNetworkServiceTestHelpersService,
 	type TestNetworkState
 } from "./SyncNetworkServiceTest"
+import { ClientIdentityTestLive } from "./ClientIdentityTestLive"
 import { TestHelpers } from "./TestHelpers"
 
 // Important note: PgLite only supports a single exclusive database connection
@@ -132,12 +131,13 @@ export const makeTestLayers = (
 	const layer = SyncService.DefaultWithoutDependencies.pipe(
 		Layer.provideMerge(TestHelpers.Default),
 		Layer.provideMerge(createTestSyncNetworkServiceLayer(clientId, serverSql, config)),
-		Layer.provideMerge(ClockService.Default),
+		Layer.provideMerge(ClientClockState.Default),
 		Layer.provideMerge(ActionModifiedRowRepo.Default),
 		Layer.provideMerge(ActionRecordRepo.Default),
 		Layer.provideMerge(DeterministicId.Default),
 		Layer.provideMerge(ActionRegistry.Default),
 		Layer.provideMerge(PostgresClientDbAdapter),
+		Layer.provideMerge(ClientIdentityTestLive),
 		Layer.provideMerge(baseWithDbInit)
 	)
 
@@ -189,7 +189,7 @@ export interface TestClient {
 	rawSql: SqlClient.SqlClient // Original SQL client for operations that need to span schemas
 	syncService: SyncService
 	actionModifiedRowRepo: ActionModifiedRowRepo // Add AMR Repo
-	clockService: ClockService
+	clockState: ClientClockState
 	actionRecordRepo: ActionRecordRepo
 	actionRegistry: ActionRegistry
 	syncNetworkService: SyncNetworkService
@@ -210,7 +210,7 @@ export const createTestClient = (
 	Effect.gen(function* () {
 		// Get required services - getting these from the shared layers
 		const sql = yield* SqlClient.SqlClient
-		const clockService = yield* ClockService
+		const clockState = yield* ClientClockState
 		const actionRecordRepo = yield* ActionRecordRepo
 		const actionModifiedRowRepo = yield* ActionModifiedRowRepo // Get AMR Repo
 		const syncNetworkService = yield* SyncNetworkService
@@ -236,7 +236,7 @@ export const createTestClient = (
 			syncService,
 			actionRegistry,
 			actionModifiedRowRepo, // Add AMR Repo to returned object
-			clockService,
+			clockState,
 			testHelpers,
 			actionRecordRepo,
 			syncNetworkService,
@@ -244,7 +244,10 @@ export const createTestClient = (
 			noteRepo,
 			clientId: id
 		} as TestClient
-	}).pipe(Effect.provide(makeTestLayers(id, serverSql, config)), Effect.annotateLogs("clientId", id))
+	}).pipe(
+		Effect.provide(makeTestLayers(id, serverSql, config)),
+		Effect.annotateLogs("clientId", id)
+	)
 export class NoteModel extends Model.Class<NoteModel>("notes")({
 	id: Schema.UUID,
 	title: Schema.String,

@@ -1,9 +1,7 @@
-import { KeyValueStore } from "@effect/platform"
 import { SqlClient, SqlSchema } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
 import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowRepo"
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
-import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import {
@@ -15,6 +13,7 @@ import {
 	type SendLocalActionsFailure
 } from "@synchrotron/sync-core/SyncNetworkService"
 import { Cause, Config, Data, Duration, Effect, Option, Schedule, Schema } from "effect"
+import { ServerMetaService } from "./ServerMetaService"
 import { SyncRetentionConfig } from "./SyncRetentionConfig"
 import { SyncSnapshotConfig } from "./SyncSnapshotConfig"
 import { SyncUserId } from "./SyncUserId"
@@ -34,7 +33,6 @@ export interface FetchActionsResult {
 	readonly minRetainedServerIngestId: number
 	readonly actions: readonly ActionRecord[]
 	readonly modifiedRows: readonly ActionModifiedRow[]
-	readonly serverClock: HLC
 }
 
 export interface BootstrapSnapshotResult {
@@ -51,10 +49,9 @@ export interface BootstrapSnapshotResult {
 export class SyncServerService extends Effect.Service<SyncServerService>()("SyncServerService", {
 	effect: Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
-			const clockService = yield* ClockService
-			const actionRecordRepo = yield* ActionRecordRepo
-			const actionModifiedRowRepo = yield* ActionModifiedRowRepo
-			const keyValueStore = yield* KeyValueStore.KeyValueStore
+		const serverMeta = yield* ServerMetaService
+		const actionRecordRepo = yield* ActionRecordRepo
+		const actionModifiedRowRepo = yield* ActionModifiedRowRepo
 
 		const isSendLocalActionsFailure = (error: unknown): error is SendLocalActionsFailure =>
 			error instanceof SendLocalActionsBehindHead ||
@@ -98,10 +95,10 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			return new SendLocalActionsInternal({ message })
 		}
 
-			const compactActionLogOnce = (
-				retention: Duration.Duration
-			): Effect.Effect<{ readonly deletedActionCount: number }, ServerInternalError, never> =>
-				Effect.gen(function* () {
+		const compactActionLogOnce = (
+			retention: Duration.Duration
+		): Effect.Effect<{ readonly deletedActionCount: number }, ServerInternalError, never> =>
+			Effect.gen(function* () {
 				const retentionMs = Duration.toMillis(retention)
 				if (!Number.isFinite(retentionMs) || retentionMs <= 0) {
 					yield* Effect.logWarning("server.compaction.disabled.invalidRetention", { retentionMs })
@@ -119,11 +116,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 						RETURNING 1
 					)
 					SELECT count(*) AS deleted_action_count FROM deleted
-				`.pipe(
-					Effect.mapError(
-						(e) => new ServerInternalError({ message: "Compaction failed", cause: e })
-					)
-				)
+				`.pipe(Effect.mapError((e) => new ServerInternalError({ message: "Compaction failed", cause: e })))
 
 				const deletedCountRaw = rows[0]?.deleted_action_count ?? 0
 				const deletedActionCount =
@@ -134,19 +127,19 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					deletedActionCount
 				})
 
-					return { deletedActionCount } as const
-				}).pipe(
-					sql.withTransaction,
-					Effect.annotateLogs({ serverOperation: "compactActionLogOnce" }),
-					Effect.withSpan("SyncServerService.compactActionLogOnce", {
-						attributes: { retentionMs: Duration.toMillis(retention) }
-					}),
-					Effect.mapError((error) =>
-						error instanceof ServerInternalError
-							? error
-							: new ServerInternalError({ message: "Compaction failed", cause: error })
-					)
+				return { deletedActionCount } as const
+			}).pipe(
+				sql.withTransaction,
+				Effect.annotateLogs({ serverOperation: "compactActionLogOnce" }),
+				Effect.withSpan("SyncServerService.compactActionLogOnce", {
+					attributes: { retentionMs: Duration.toMillis(retention) }
+				}),
+				Effect.mapError((error) =>
+					error instanceof ServerInternalError
+						? error
+						: new ServerInternalError({ message: "Compaction failed", cause: error })
 				)
+			)
 
 		const startActionLogCompactor = (config: {
 			readonly actionLogRetention: Duration.Duration
@@ -172,11 +165,13 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			})
 			yield* startActionLogCompactor({ actionLogRetention, compactionInterval })
 		} else {
-			const envRetentionOption = yield* Config.duration("SYNC_ACTION_LOG_RETENTION").pipe(Config.option)
+			const envRetentionOption = yield* Config.duration("SYNC_ACTION_LOG_RETENTION").pipe(
+				Config.option
+			)
 			if (Option.isSome(envRetentionOption)) {
-				const compactionInterval = yield* Config.duration("SYNC_ACTION_LOG_COMPACTION_INTERVAL").pipe(
-					Config.withDefault(Duration.hours(1))
-				)
+				const compactionInterval = yield* Config.duration(
+					"SYNC_ACTION_LOG_COMPACTION_INTERVAL"
+				).pipe(Config.withDefault(Duration.hours(1)))
 				yield* Effect.logInfo("server.compaction.enabled.env", {
 					retentionMs: Duration.toMillis(envRetentionOption.value),
 					intervalMs: Duration.toMillis(compactionInterval)
@@ -196,47 +191,6 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			if (typeof value === "string") return Number(value)
 			return Number(value)
 		}
-
-		const parseJson = (value: unknown): unknown => {
-			if (typeof value !== "string") return value
-			try {
-				return JSON.parse(value)
-			} catch {
-				return value
-			}
-		}
-
-		const parseClock = (value: unknown): HLC => {
-			const parsed = parseJson(value)
-			if (typeof parsed === "object" && parsed !== null) {
-				const obj = parsed as { readonly timestamp?: unknown; readonly vector?: unknown }
-				return {
-					timestamp: typeof obj.timestamp === "number" ? obj.timestamp : Number(obj.timestamp ?? 0),
-					vector: typeof obj.vector === "object" && obj.vector !== null ? (obj.vector as any) : {}
-				}
-			}
-			return { timestamp: 0, vector: {} }
-		}
-
-		const ensureServerEpoch = () =>
-			Effect.gen(function* () {
-				const rows = yield* sql<{ readonly server_epoch: string }>`
-					SELECT server_epoch::text AS server_epoch
-					FROM sync_server_meta
-					WHERE id = 1
-				`
-				const existing = rows[0]?.server_epoch
-				if (existing && existing.length > 0) return existing
-
-				const inserted = yield* sql<{ readonly server_epoch: string }>`
-					INSERT INTO sync_server_meta (id) VALUES (1)
-					ON CONFLICT (id) DO UPDATE SET id = excluded.id
-					RETURNING server_epoch::text AS server_epoch
-				`
-				const epoch = inserted[0]?.server_epoch
-				if (epoch && epoch.length > 0) return epoch
-				return crypto.randomUUID()
-			})
 
 		const minRetainedServerIngestId = () =>
 			Effect.gen(function* () {
@@ -261,9 +215,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			}),
 			Result: ActionRecord,
 			execute: ({ clientId, sinceServerIngestId, includeSelf }) => {
-				const whereClauses = [
-					sql`server_ingest_id > ${sinceServerIngestId}`
-				]
+				const whereClauses = [sql`server_ingest_id > ${sinceServerIngestId}`]
 				if (includeSelf !== true) {
 					whereClauses.unshift(sql`client_id != ${clientId}`)
 				}
@@ -290,14 +242,14 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 		 * Receives actions from a client, performs conflict checks, handles rollbacks,
 		 * inserts data, and applies patches to the server state.
 		 */
-			const receiveActions = (
-				clientId: string,
-				basisServerIngestId: number,
-				actions: readonly ActionRecord[],
-				amrs: readonly ActionModifiedRow[]
-			): Effect.Effect<void, SendLocalActionsFailure, SyncUserId> =>
-				Effect.gen(function* () {
-					const userId = yield* SyncUserId
+		const receiveActions = (
+			clientId: string,
+			basisServerIngestId: number,
+			actions: readonly ActionRecord[],
+			amrs: readonly ActionModifiedRow[]
+		): Effect.Effect<void, SendLocalActionsFailure, SyncUserId> =>
+			Effect.gen(function* () {
+				const userId = yield* SyncUserId
 				// Set the RLS context for the duration of this transaction.
 				yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
 				yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
@@ -372,18 +324,18 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					return Number(value)
 				}
 
-					// Encode JSONB inputs as text to keep behavior portable across SQL clients.
-					// Important: never pass already-serialized JSON strings to `sql.json(...)` (double-encoding).
-					const jsonbInput = (value: unknown): string =>
-						typeof value === "string" ? value : JSON.stringify(value)
+				// Encode JSONB inputs as text to keep behavior portable across SQL clients.
+				// Important: never pass already-serialized JSON strings to `sql.json(...)` (double-encoding).
+				const jsonbInput = (value: unknown): string =>
+					typeof value === "string" ? value : JSON.stringify(value)
 
-					const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
-						if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
-						if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
-						if (a.clientId !== b.clientId) return a.clientId < b.clientId ? -1 : 1
-						if (a.id !== b.id) return a.id < b.id ? -1 : 1
-						return 0
-					}
+				const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
+					if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
+					if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
+					if (a.clientId !== b.clientId) return a.clientId < b.clientId ? -1 : 1
+					if (a.id !== b.id) return a.id < b.id ? -1 : 1
+					return 0
+				}
 
 				const replayKeyForAction = (action: ActionRecord): ReplayKey => {
 					const counter = toNumber(action.clock.vector?.[action.client_id] ?? 0)
@@ -401,19 +353,22 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				// This is intentionally coarse (global), assuming honest clients:
 				// - If the client is behind, it must fetch remote actions, reconcile locally, then retry.
 				// - Late-arriving actions by HLC are still accepted; the server re-materializes via rollback+replay.
-				const unseen = yield* sql<{ readonly id: string; readonly server_ingest_id: number | string }>`
+				const unseen = yield* sql<{
+					readonly id: string
+					readonly server_ingest_id: number | string
+				}>`
 					SELECT id, server_ingest_id
 					FROM action_records
 					WHERE client_id != ${clientId}
 					AND server_ingest_id > ${basisServerIngestId}
 					ORDER BY server_ingest_id ASC, id ASC
 					LIMIT 1
-				`.pipe(
-					Effect.mapError(classifyUploadSqlError)
-				)
+				`.pipe(Effect.mapError(classifyUploadSqlError))
 				if (unseen.length > 0) {
 					const first = unseen[0]
-					const firstUnseenServerIngestId = first ? toNumber(first.server_ingest_id) : basisServerIngestId
+					const firstUnseenServerIngestId = first
+						? toNumber(first.server_ingest_id)
+						: basisServerIngestId
 					yield* Effect.logWarning("server.receiveActions.behindHead", {
 						clientId,
 						basisServerIngestId,
@@ -432,16 +387,16 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				}
 				yield* Effect.logDebug("server.receiveActions.headOk", { clientId, basisServerIngestId })
 
-					// From here on, we need to be able to write and read the sync log regardless of the
-					// requesting user's current audience membership (membership churn + late arrival).
-					// Sync-table RLS policies should allow a bypass when this flag is set.
-					yield* sql`SELECT set_config('synchrotron.internal_materializer', 'true', true)`
-					// Allow app schemas to use deferrable FK constraints without being sensitive to the
-					// transient ordering of rollback+replay inside a single transaction.
-					yield* sql`SET CONSTRAINTS ALL DEFERRED`.raw
+				// From here on, we need to be able to write and read the sync log regardless of the
+				// requesting user's current audience membership (membership churn + late arrival).
+				// Sync-table RLS policies should allow a bypass when this flag is set.
+				yield* sql`SELECT set_config('synchrotron.internal_materializer', 'true', true)`
+				// Allow app schemas to use deferrable FK constraints without being sensitive to the
+				// transient ordering of rollback+replay inside a single transaction.
+				yield* sql`SET CONSTRAINTS ALL DEFERRED`.raw
 
-					// Insert ActionRecords and AMRs idempotently.
-					for (const actionRecord of actions) {
+				// Insert ActionRecords and AMRs idempotently.
+				for (const actionRecord of actions) {
 					yield* sql`
 						INSERT INTO action_records (
 							server_ingest_id,
@@ -500,12 +455,16 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				const incomingRollbacks = actions.filter((a) => a._tag === "RollbackAction")
 				let forcedRollbackTarget: string | null | undefined = undefined
 				if (incomingRollbacks.length > 0) {
-					const targets = incomingRollbacks.map((rb) => rb.args["target_action_id"] as string | null)
+					const targets = incomingRollbacks.map(
+						(rb) => rb.args["target_action_id"] as string | null
+					)
 					const hasGenesis = targets.some((t) => t === null)
 					if (hasGenesis) {
 						forcedRollbackTarget = null
 					} else {
-						const targetIds = targets.filter((t): t is string => typeof t === "string" && t.length > 0)
+						const targetIds = targets.filter(
+							(t): t is string => typeof t === "string" && t.length > 0
+						)
 						if (targetIds.length > 0) {
 							const targetRows = yield* sql<{
 								readonly id: string
@@ -545,13 +504,13 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					}
 				}
 
-					const getLatestApplied = () =>
-						sql<{
-							readonly id: string
-							readonly clock_time_ms: number | string
-							readonly clock_counter: number | string
-							readonly client_id: string
-						}>`
+				const getLatestApplied = () =>
+					sql<{
+						readonly id: string
+						readonly clock_time_ms: number | string
+						readonly clock_counter: number | string
+						readonly client_id: string
+					}>`
 							SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
 							FROM action_records ar
 							JOIN local_applied_action_ids la ON la.action_record_id = ar.id
@@ -559,13 +518,13 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							LIMIT 1
 						`.pipe(Effect.map((rows) => rows[0] ?? null))
 
-					const getEarliestUnappliedWithPatches = () =>
-						sql<{
-							readonly id: string
-							readonly clock_time_ms: number | string
-							readonly clock_counter: number | string
-							readonly client_id: string
-						}>`
+				const getEarliestUnappliedWithPatches = () =>
+					sql<{
+						readonly id: string
+						readonly clock_time_ms: number | string
+						readonly clock_counter: number | string
+						readonly client_id: string
+					}>`
 							SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
 							FROM action_records ar
 							JOIN action_modified_rows amr ON amr.action_record_id = ar.id
@@ -577,8 +536,8 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							LIMIT 1
 						`.pipe(Effect.map((rows) => rows[0] ?? null))
 
-					const findPredecessorId = (key: ReplayKey) =>
-						sql<{ readonly id: string }>`
+				const findPredecessorId = (key: ReplayKey) =>
+					sql<{ readonly id: string }>`
 							SELECT id
 							FROM action_records
 							WHERE (clock_time_ms, clock_counter, client_id, id) < (${key.timeMs}, ${key.counter}, ${key.clientId}, ${key.id})
@@ -586,17 +545,17 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 							LIMIT 1
 						`.pipe(Effect.map((rows) => rows[0]?.id ?? null))
 
-					const applyAllUnapplied = () =>
-						Effect.acquireUseRelease(
-							sql`SELECT set_config('sync.disable_trigger', 'true', true)`,
-							() =>
-								Effect.gen(function* () {
-									const unappliedActions = yield* sql<{
-										readonly id: string
-										readonly clock_time_ms: number | string
-										readonly clock_counter: number | string
-										readonly client_id: string
-									}>`
+				const applyAllUnapplied = () =>
+					Effect.acquireUseRelease(
+						sql`SELECT set_config('sync.disable_trigger', 'true', true)`,
+						() =>
+							Effect.gen(function* () {
+								const unappliedActions = yield* sql<{
+									readonly id: string
+									readonly clock_time_ms: number | string
+									readonly clock_counter: number | string
+									readonly client_id: string
+								}>`
 										SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
 										FROM action_records ar
 										JOIN action_modified_rows amr ON amr.action_record_id = ar.id
@@ -607,107 +566,107 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 										ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
 									`
 
-									yield* Effect.logInfo("server.materialize.applyUnapplied.start", {
-										actionCount: unappliedActions.length,
-										firstActionId: unappliedActions[0]?.id ?? null,
-										lastActionId: unappliedActions[unappliedActions.length - 1]?.id ?? null
-									})
+								yield* Effect.logInfo("server.materialize.applyUnapplied.start", {
+									actionCount: unappliedActions.length,
+									firstActionId: unappliedActions[0]?.id ?? null,
+									lastActionId: unappliedActions[unappliedActions.length - 1]?.id ?? null
+								})
 
-									let appliedActionCount = 0
-									let appliedAmrCount = 0
+								let appliedActionCount = 0
+								let appliedAmrCount = 0
 
-									for (const actionRow of unappliedActions) {
-										const actionId = actionRow.id
-										const amrIds = yield* sql<{ readonly id: string }>`
+								for (const actionRow of unappliedActions) {
+									const actionId = actionRow.id
+									const amrIds = yield* sql<{ readonly id: string }>`
 											SELECT id
 											FROM action_modified_rows
 											WHERE action_record_id = ${actionId}
 											ORDER BY sequence ASC, id ASC
 										`.pipe(Effect.map((rows) => rows.map((r) => r.id)))
 
-										if (amrIds.length === 0) {
-											yield* sql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionId}) ON CONFLICT DO NOTHING`
-											appliedActionCount += 1
-											continue
-										}
-
-										for (const amrId of amrIds) {
-											yield* sql`SELECT apply_forward_amr(${amrId})`
-										}
+									if (amrIds.length === 0) {
 										yield* sql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionId}) ON CONFLICT DO NOTHING`
 										appliedActionCount += 1
-										appliedAmrCount += amrIds.length
+										continue
 									}
 
-									yield* Effect.logInfo("server.materialize.applyUnapplied.done", {
-										appliedActionCount,
-										appliedAmrCount
-									})
-								}),
-							() =>
-								sql`SELECT set_config('sync.disable_trigger', 'false', true)`.pipe(
-									Effect.catchAll(Effect.logError)
-								)
-						)
+									for (const amrId of amrIds) {
+										yield* sql`SELECT apply_forward_amr(${amrId})`
+									}
+									yield* sql`INSERT INTO local_applied_action_ids (action_record_id) VALUES (${actionId}) ON CONFLICT DO NOTHING`
+									appliedActionCount += 1
+									appliedAmrCount += amrIds.length
+								}
 
-					const materialize = (initialRollbackTarget: string | null | undefined) =>
-						Effect.gen(function* () {
-							yield* Effect.logInfo("server.materialize.start", {
-								forcedRollbackTarget: initialRollbackTarget ?? null
-							})
-							if (initialRollbackTarget !== undefined) {
-								yield* Effect.logInfo("server.materialize.forcedRollback", {
-									targetActionId: initialRollbackTarget ?? null
+								yield* Effect.logInfo("server.materialize.applyUnapplied.done", {
+									appliedActionCount,
+									appliedAmrCount
 								})
-								yield* sql`SELECT rollback_to_action(${initialRollbackTarget})`
-							}
+							}),
+						() =>
+							sql`SELECT set_config('sync.disable_trigger', 'false', true)`.pipe(
+								Effect.catchAll(Effect.logError)
+							)
+					)
 
-							// Loop to handle late-arriving actions that belong before the already-applied frontier.
-							while (true) {
-								const earliest = yield* getEarliestUnappliedWithPatches()
-								if (!earliest) return
-								const latestApplied = yield* getLatestApplied()
-								if (!latestApplied) {
-									yield* Effect.logInfo("server.materialize.noFrontier.applyAll", {
-										earliestUnappliedActionId: earliest.id
-									})
-									yield* applyAllUnapplied()
-									return
-								}
-
-								const earliestKey: ReplayKey = {
-									timeMs: toNumber(earliest.clock_time_ms),
-									counter: toNumber(earliest.clock_counter),
-									clientId: earliest.client_id,
-									id: earliest.id
-								}
-								const latestKey: ReplayKey = {
-									timeMs: toNumber(latestApplied.clock_time_ms),
-									counter: toNumber(latestApplied.clock_counter),
-									clientId: latestApplied.client_id,
-									id: latestApplied.id
-								}
-
-								if (compareReplayKey(earliestKey, latestKey) > 0) {
-									yield* Effect.logInfo("server.materialize.fastForward", {
-										earliestUnappliedActionId: earliest.id,
-										latestAppliedActionId: latestApplied.id
-									})
-									yield* applyAllUnapplied()
-									return
-								}
-
-								const predecessorId = yield* findPredecessorId(earliestKey)
-								yield* Effect.logInfo("server.materialize.rewind", {
-									earliestUnappliedActionId: earliest.id,
-									latestAppliedActionId: latestApplied.id,
-									rollbackTargetActionId: predecessorId
-								})
-								yield* sql`SELECT rollback_to_action(${predecessorId})`
-							}
+				const materialize = (initialRollbackTarget: string | null | undefined) =>
+					Effect.gen(function* () {
+						yield* Effect.logInfo("server.materialize.start", {
+							forcedRollbackTarget: initialRollbackTarget ?? null
 						})
+						if (initialRollbackTarget !== undefined) {
+							yield* Effect.logInfo("server.materialize.forcedRollback", {
+								targetActionId: initialRollbackTarget ?? null
+							})
+							yield* sql`SELECT rollback_to_action(${initialRollbackTarget})`
+						}
 
-					yield* materialize(forcedRollbackTarget)
+						// Loop to handle late-arriving actions that belong before the already-applied frontier.
+						while (true) {
+							const earliest = yield* getEarliestUnappliedWithPatches()
+							if (!earliest) return
+							const latestApplied = yield* getLatestApplied()
+							if (!latestApplied) {
+								yield* Effect.logInfo("server.materialize.noFrontier.applyAll", {
+									earliestUnappliedActionId: earliest.id
+								})
+								yield* applyAllUnapplied()
+								return
+							}
+
+							const earliestKey: ReplayKey = {
+								timeMs: toNumber(earliest.clock_time_ms),
+								counter: toNumber(earliest.clock_counter),
+								clientId: earliest.client_id,
+								id: earliest.id
+							}
+							const latestKey: ReplayKey = {
+								timeMs: toNumber(latestApplied.clock_time_ms),
+								counter: toNumber(latestApplied.clock_counter),
+								clientId: latestApplied.client_id,
+								id: latestApplied.id
+							}
+
+							if (compareReplayKey(earliestKey, latestKey) > 0) {
+								yield* Effect.logInfo("server.materialize.fastForward", {
+									earliestUnappliedActionId: earliest.id,
+									latestAppliedActionId: latestApplied.id
+								})
+								yield* applyAllUnapplied()
+								return
+							}
+
+							const predecessorId = yield* findPredecessorId(earliestKey)
+							yield* Effect.logInfo("server.materialize.rewind", {
+								earliestUnappliedActionId: earliest.id,
+								latestAppliedActionId: latestApplied.id,
+								rollbackTargetActionId: predecessorId
+							})
+							yield* sql`SELECT rollback_to_action(${predecessorId})`
+						}
+					})
+
+				yield* materialize(forcedRollbackTarget)
 
 				yield* Effect.logInfo("server.receiveActions.success", {
 					userId,
@@ -716,16 +675,17 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					amrCount: amrs.length,
 					actionTags
 				})
-				}).pipe(
-					sql.withTransaction,
-					Effect.catchAll((error) => {
-						if (isSendLocalActionsFailure(error)) return Effect.fail(error)
-						if ((error as any)?._tag === "SqlError") {
-							return Effect.fail(classifyUploadSqlError(error as any as SqlError))
-						}
+			}).pipe(
+				sql.withTransaction,
+				Effect.catchAll((error) => {
+					if (isSendLocalActionsFailure(error)) return Effect.fail(error)
+					if ((error as any)?._tag === "SqlError") {
+						return Effect.fail(classifyUploadSqlError(error as any as SqlError))
+					}
 
-						const unknownError = error as unknown
-						const message = unknownError instanceof Error ? unknownError.message : String(unknownError)
+					const unknownError = error as unknown
+					const message =
+						unknownError instanceof Error ? unknownError.message : String(unknownError)
 					return Effect.fail(
 						new SendLocalActionsInternal({
 							message: `Unexpected error during receiveActions: ${message}`
@@ -743,134 +703,122 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			sinceServerIngestId: number,
 			includeSelf: boolean = false
 		) =>
-				Effect.gen(function* () {
-					const userId = yield* SyncUserId
-					// Set the RLS context for the duration of this transaction.
-					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
-					yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+			Effect.gen(function* () {
+				const userId = yield* SyncUserId
+				// Set the RLS context for the duration of this transaction.
+				yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+				yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
 
-					const serverEpoch = yield* ensureServerEpoch()
-					const minRetained = yield* minRetainedServerIngestId()
-					if (sinceServerIngestId + 1 < minRetained) {
-						return yield* Effect.fail(
-							new FetchRemoteActionsCompacted({
-								message:
-									"Requested action log delta is older than the server's retained history (compacted)",
-								sinceServerIngestId,
-								minRetainedServerIngestId: minRetained,
-								serverEpoch
-							})
-						)
-					}
-
-					yield* Effect.logDebug("server.getActionsSince.start", {
-						userId,
-						clientId,
-						sinceServerIngestId,
-						includeSelf
-					})
-					const actions = yield* findActionsSince({
-						clientId,
-						sinceServerIngestId,
-						includeSelf
-					}).pipe(
-						Effect.mapError(
-							(error) =>
-								new ServerInternalError({
-									message: `Database error fetching actions: ${error.message}`,
-									cause: error
-								})
-						)
-					)
-
-					yield* Effect.logDebug("server.getActionsSince.actions", {
-						userId,
-						clientId,
-						sinceServerIngestId,
-						includeSelf,
-						actionCount: actions.length
-					})
-
-					let modifiedRows: readonly ActionModifiedRow[] = []
-					if (actions.length > 0) {
-						const actionIds = actions.map((a: ActionRecord) => a.id)
-						modifiedRows = yield* findModifiedRowsForActions(actionIds).pipe(
-							Effect.mapError(
-								(error) =>
-									new ServerInternalError({
-										message: `Database error fetching modified rows: ${error.message}`,
-										cause: error
-									})
-							)
-						)
-						yield* Effect.logDebug("server.getActionsSince.modifiedRows", {
-							userId,
-							clientId,
-							actionCount: actions.length,
-							amrCount: modifiedRows.length
+				const serverEpoch = yield* serverMeta.ensureServerEpoch()
+				const minRetained = yield* minRetainedServerIngestId()
+				if (sinceServerIngestId + 1 < minRetained) {
+					return yield* Effect.fail(
+						new FetchRemoteActionsCompacted({
+							message:
+								"Requested action log delta is older than the server's retained history (compacted)",
+							sinceServerIngestId,
+							minRetainedServerIngestId: minRetained,
+							serverEpoch
 						})
-					}
-
-					const serverClock = yield* clockService.getClientClock.pipe(
-						Effect.mapError(
-							(error) =>
-								new ServerInternalError({
-									message: `Failed to get server clock: ${error.message}`,
-									cause: error
-								})
-						)
 					)
+				}
 
-					return {
-						serverEpoch,
-						minRetainedServerIngestId: minRetained,
-						actions,
-						modifiedRows,
-						serverClock
-					} satisfies FetchActionsResult
+				yield* Effect.logDebug("server.getActionsSince.start", {
+					userId,
+					clientId,
+					sinceServerIngestId,
+					includeSelf
+				})
+				const actions = yield* findActionsSince({
+					clientId,
+					sinceServerIngestId,
+					includeSelf
 				}).pipe(
-					sql.withTransaction,
-					Effect.annotateLogs({ serverOperation: "getActionsSince", requestingClientId: clientId }),
-					Effect.withSpan("SyncServerService.getActionsSince", {
-						attributes: { clientId, sinceServerIngestId, includeSelf }
-					}),
-					Effect.catchAll((error) => {
-						const unknownError = error as unknown
-						if (
-							unknownError instanceof FetchRemoteActionsCompacted ||
-							unknownError instanceof ServerInternalError
-						) {
-							return Effect.fail(
-								unknownError as FetchRemoteActionsCompacted | ServerInternalError
-							)
-						}
-						const message =
-							unknownError instanceof Error ? unknownError.message : String(unknownError)
-						return Effect.fail(
+					Effect.mapError(
+						(error) =>
 							new ServerInternalError({
-								message: `Unexpected error during getActionsSince: ${message}`,
-								cause: unknownError
+								message: `Database error fetching actions: ${error.message}`,
+								cause: error
 							})
-						)
-					})
+					)
 				)
 
-			const getBootstrapSnapshot = (clientId: string) =>
-				Effect.gen(function* () {
-					const userId = yield* SyncUserId
-					yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
-					yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+				yield* Effect.logDebug("server.getActionsSince.actions", {
+					userId,
+					clientId,
+					sinceServerIngestId,
+					includeSelf,
+					actionCount: actions.length
+				})
 
-					const serverEpoch = yield* ensureServerEpoch()
-					const minRetained = yield* minRetainedServerIngestId()
+				let modifiedRows: readonly ActionModifiedRow[] = []
+				if (actions.length > 0) {
+					const actionIds = actions.map((a: ActionRecord) => a.id)
+					modifiedRows = yield* findModifiedRowsForActions(actionIds).pipe(
+						Effect.mapError(
+							(error) =>
+								new ServerInternalError({
+									message: `Database error fetching modified rows: ${error.message}`,
+									cause: error
+								})
+						)
+					)
+					yield* Effect.logDebug("server.getActionsSince.modifiedRows", {
+						userId,
+						clientId,
+						actionCount: actions.length,
+						amrCount: modifiedRows.length
+					})
+				}
 
-					const snapshotConfigOption = yield* Effect.serviceOption(SyncSnapshotConfig)
-					const snapshotConfig = Option.getOrElse(snapshotConfigOption, () => ({ tables: [] as const }))
-					if (snapshotConfig.tables.length === 0) {
-						return yield* Effect.fail(
-							new ServerInternalError({
-								message:
-								"Bootstrap snapshot is not configured (SyncSnapshotConfig.tables is empty)"
+				return {
+					serverEpoch,
+					minRetainedServerIngestId: minRetained,
+					actions,
+					modifiedRows
+				} satisfies FetchActionsResult
+			}).pipe(
+				sql.withTransaction,
+				Effect.annotateLogs({ serverOperation: "getActionsSince", requestingClientId: clientId }),
+				Effect.withSpan("SyncServerService.getActionsSince", {
+					attributes: { clientId, sinceServerIngestId, includeSelf }
+				}),
+				Effect.catchAll((error) => {
+					const unknownError = error as unknown
+					if (
+						unknownError instanceof FetchRemoteActionsCompacted ||
+						unknownError instanceof ServerInternalError
+					) {
+						return Effect.fail(unknownError as FetchRemoteActionsCompacted | ServerInternalError)
+					}
+					const message =
+						unknownError instanceof Error ? unknownError.message : String(unknownError)
+					return Effect.fail(
+						new ServerInternalError({
+							message: `Unexpected error during getActionsSince: ${message}`,
+							cause: unknownError
+						})
+					)
+				})
+			)
+
+		const getBootstrapSnapshot = (clientId: string) =>
+			Effect.gen(function* () {
+				const userId = yield* SyncUserId
+				yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+				yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+
+				const serverEpoch = yield* serverMeta.ensureServerEpoch()
+				const minRetained = yield* minRetainedServerIngestId()
+
+				const snapshotConfigOption = yield* Effect.serviceOption(SyncSnapshotConfig)
+				const snapshotConfig = Option.getOrElse(snapshotConfigOption, () => ({
+					tables: [] as const
+				}))
+				if (snapshotConfig.tables.length === 0) {
+					return yield* Effect.fail(
+						new ServerInternalError({
+							message: "Bootstrap snapshot is not configured (SyncSnapshotConfig.tables is empty)"
 						})
 					)
 				}
@@ -882,14 +830,7 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					FROM action_records
 				`
 				const serverIngestId = toNumber(headRow[0]?.max_server_ingest_id ?? 0)
-
-				const clockRows = yield* sql<{ readonly clock: unknown }>`
-					SELECT clock
-					FROM action_records
-					ORDER BY clock_time_ms DESC, clock_counter DESC, client_id DESC, id DESC
-					LIMIT 1
-				`
-				const serverClock = parseClock(clockRows[0]?.clock)
+				const serverClock = yield* serverMeta.getServerClock()
 
 				const tables = yield* Effect.forEach(
 					snapshotConfig.tables,
@@ -922,7 +863,10 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 				} satisfies BootstrapSnapshotResult
 			}).pipe(
 				sql.withTransaction,
-				Effect.annotateLogs({ serverOperation: "getBootstrapSnapshot", requestingClientId: clientId }),
+				Effect.annotateLogs({
+					serverOperation: "getBootstrapSnapshot",
+					requestingClientId: clientId
+				}),
 				Effect.withSpan("SyncServerService.getBootstrapSnapshot", {
 					attributes: { clientId }
 				}),
@@ -949,5 +893,5 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 			compactActionLogOnce
 		}
 	}),
-	dependencies: [ClockService.Default, ActionRecordRepo.Default, ActionModifiedRowRepo.Default]
+	dependencies: [ServerMetaService.Default, ActionRecordRepo.Default, ActionModifiedRowRepo.Default]
 }) {}

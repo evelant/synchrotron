@@ -3,8 +3,9 @@ import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { Effect, Option, ParseResult, Schedule, Schema } from "effect" // Import ReadonlyArray
 import { ActionModifiedRowRepo, compareActionModifiedRows } from "./ActionModifiedRowRepo"
 import { ActionRecordRepo } from "./ActionRecordRepo"
+import { ClientClockState, ClientClockStateError } from "./ClientClockState"
 import { ClientDbAdapter } from "./ClientDbAdapter"
-import { ClockService } from "./ClockService"
+import { compareClock, sortClocks } from "./ClockOrder"
 import { DeterministicId } from "./DeterministicId"
 import { Action, ActionModifiedRow, ActionRecord } from "./models" // Import ActionModifiedRow type from models
 import {
@@ -37,11 +38,11 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 	effect: Effect.gen(function* () {
 		const sqlClient = yield* SqlClient.SqlClient
 		const clientDbAdapter = yield* ClientDbAdapter
-		const clockService = yield* ClockService
+		const clockState = yield* ClientClockState
 		const actionRecordRepo = yield* ActionRecordRepo
 		const actionModifiedRowRepo = yield* ActionModifiedRowRepo
 		const syncNetworkService = yield* SyncNetworkService
-		const clientId = yield* clockService.getNodeId
+		const clientId = yield* clockState.getClientId
 		const actionRegistry = yield* ActionRegistry
 		const deterministicId = yield* DeterministicId
 
@@ -89,7 +90,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 
 		const advanceAppliedRemoteServerIngestCursor = () =>
 			getMaxAppliedRemoteServerIngestId().pipe(
-				Effect.flatMap((maxApplied) => clockService.advanceLastSeenServerIngestId(maxApplied))
+				Effect.flatMap((maxApplied) => clockState.advanceLastSeenServerIngestId(maxApplied))
 			)
 
 		const preserveSnapshotArrays = sqlClient.onDialectOrElse({
@@ -297,7 +298,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							yield* applyBootstrapSnapshotInTx(snapshot)
 
 							for (const pending of pendingActions) {
-								const nextClock = yield* clockService.incrementClock
+								const nextClock = yield* clockState.incrementClock
 
 								yield* actionRecordRepo.insert(
 									ActionRecord.insert.make({
@@ -409,9 +410,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				const executionTimestamp = new Date()
 				const actionRecordId = crypto.randomUUID()
 
-				const newClock = yield* clockService.incrementClock
-
-				const localClientId = yield* clockService.getNodeId
+				const newClock = yield* clockState.incrementClock
 
 				const timestampToUse =
 					typeof action.args.timestamp === "number"
@@ -425,7 +424,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				yield* Effect.logInfo(`inserting new action record for ${action._tag}`)
 				const toInsert = ActionRecord.insert.make({
 					id: actionRecordId,
-					client_id: localClientId,
+					client_id: clientId,
 					clock: newClock,
 					_tag: action._tag,
 					args: argsWithTimestamp,
@@ -510,7 +509,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		const rollbackToAction = (targetActionId: string | null) =>
 			Effect.gen(function* () {
 				const compareActionRecords = (a: ActionRecord, b: ActionRecord) =>
-					clockService.compareClock(
+					compareClock(
 						{ clock: a.clock, clientId: a.client_id, id: a.id },
 						{ clock: b.clock, clientId: b.client_id, id: b.id }
 					)
@@ -626,7 +625,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							}
 							// Ensure `client_sync_status` exists before reading cursor state (last_seen_server_ingest_id, etc).
 							const lastSeenServerIngestIdBeforeBootstrap =
-								yield* clockService.getLastSeenServerIngestId
+								yield* clockState.getLastSeenServerIngestId
 							yield* Effect.logDebug("performSync.cursor.beforeBootstrap", {
 								lastSeenServerIngestId: lastSeenServerIngestIdBeforeBootstrap
 							})
@@ -676,7 +675,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 								)
 
 							yield* bootstrapFromSnapshotIfNeeded()
-							const lastSeenServerIngestId = yield* clockService.getLastSeenServerIngestId
+							const lastSeenServerIngestId = yield* clockState.getLastSeenServerIngestId
 							yield* Effect.logDebug("performSync.cursor.afterBootstrap", {
 								lastSeenServerIngestId
 							})
@@ -700,9 +699,9 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 									attributes: { clientId, syncSessionId }
 								})
 							)
-							const localEpoch = yield* clockService.getServerEpoch
+							const localEpoch = yield* clockState.getServerEpoch
 							if (localEpoch === null) {
-								yield* clockService.setServerEpoch(fetched.serverEpoch)
+								yield* clockState.setServerEpoch(fetched.serverEpoch)
 							} else if (localEpoch !== fetched.serverEpoch) {
 								return yield* Effect.fail(
 									new SyncHistoryEpochMismatch({
@@ -821,7 +820,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 													clientId: a.client_id
 												}))
 												.sort((a, b) =>
-													clockService.compareClock(
+													compareClock(
 														{ clock: a.clock, clientId: a.clientId, id: a.id },
 														{ clock: b.clock, clientId: b.clientId, id: b.id }
 													)
@@ -845,7 +844,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 								`.pipe(Effect.map((rows) => rows[0] ?? null))
 
 								const earliestRemote = unappliedNonRollback.length
-									? clockService.sortClocks(
+									? sortClocks(
 											unappliedNonRollback.map((a) => ({
 												action: a,
 												clock: a.clock,
@@ -857,7 +856,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 
 								const needsRollbackForLateArrival =
 									latestApplied && earliestRemote
-										? clockService.compareClock(
+										? compareClock(
 												{
 													clock: earliestRemote.clock,
 													clientId: earliestRemote.client_id,
@@ -939,7 +938,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 								return uploadsDisabled ? ([] as const) : yield* sendLocalActions()
 							}
 							if (hasPending && hasRemote) {
-								const sortedPending = clockService.sortClocks(
+								const sortedPending = sortClocks(
 									pendingActions.map((a) => ({
 										action: a,
 										clock: a.clock,
@@ -947,7 +946,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 										id: a.id
 									}))
 								)
-								const sortedRemote = clockService.sortClocks(
+								const sortedRemote = sortClocks(
 									remoteActions.map((a) => ({
 										action: a,
 										clock: a.clock,
@@ -962,7 +961,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 								if (latestPendingAction && earliestRemoteAction) {
 									if (
 										!remoteActions.find((a) => a._tag === "RollbackAction") &&
-										clockService.compareClock(
+										compareClock(
 											{
 												clock: latestPendingAction.clock,
 												clientId: latestPendingAction.client_id,
@@ -1316,7 +1315,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 				yield* Effect.logDebug(
 					`Rolled back to common ancestor during reconcile: ${JSON.stringify(commonAncestor)}`
 				)
-				const rollbackClock = yield* clockService.incrementClock // Get a new clock for the rollback action
+				const rollbackClock = yield* clockState.incrementClock // Get a new clock for the rollback action
 				// even if the actual DB rollback happened in the SQL function's implicit transaction.
 				const rollbackTransactionId = Date.now()
 				const rollbackActionRecord = yield* actionRecordRepo.insert(
@@ -1378,7 +1377,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							appliedActionIds: remoteActions.map((a) => a.id),
 							timestamp: 0 // Add placeholder timestamp for internal action
 						}
-						const currentClock = yield* clockService.getClientClock // Use clock before potential increments
+						const currentClock = yield* clockState.getCurrentClock // Use clock before potential increments
 						const syncRecord = yield* actionRecordRepo.insert(
 							ActionRecord.insert.make({
 								id: crypto.randomUUID(),
@@ -1399,7 +1398,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						yield* clientDbAdapter.setCaptureContext(syncRecord.id)
 
 						// 3. Apply the incoming remote actions' logic (or patches for SYNC) in HLC order
-						const sortedRemoteActions = clockService.sortClocks(
+						const sortedRemoteActions = sortClocks(
 							remoteActions.map((a) => ({ ...a, clientId: a.client_id }))
 						)
 
@@ -1477,7 +1476,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						)
 						// Merge observed remote clocks into the client's current clock so subsequent
 						// local actions carry causal context (vector) and don't regress vs. far-future remotes.
-						yield* clockService.observeRemoteClocks(sortedRemoteActions.map((a) => a.clock))
+						yield* clockState.observeRemoteClocks(sortedRemoteActions.map((a) => a.clock))
 
 						// 4. Fetch *all* generated patches associated with the placeholder SYNC ActionRecord
 						const generatedPatches = yield* actionModifiedRowRepo.findByActionRecordIds([
@@ -1695,7 +1694,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							AND row_id = ${row_id}
 						`
 							}
-							const newSyncClock = yield* clockService.incrementClock
+							const newSyncClock = yield* clockState.incrementClock
 							yield* Effect.logDebug(
 								`Updating placeholder SYNC action ${syncRecord.id} clock due to divergence: ${JSON.stringify(newSyncClock)}`
 							)
@@ -1714,7 +1713,15 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 							yield* actionRecordRepo.markLocallyApplied(syncRecord.id)
 						}
 
-						yield* clockService.updateLastSyncedClock()
+						yield* clockState.updateLastSyncedClock().pipe(
+							Effect.mapError(
+								(error) =>
+									new SyncError({
+										message: "Failed to update last_synced_clock",
+										cause: error
+									})
+							)
+						)
 
 						return remoteActions // Return original remote actions
 					}).pipe(
@@ -1739,7 +1746,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		> =>
 			Effect.gen(function* () {
 				const compareActionRecords = (a: ActionRecord, b: ActionRecord) =>
-					clockService.compareClock(
+					compareClock(
 						{ clock: a.clock, clientId: a.client_id, id: a.id },
 						{ clock: b.clock, clientId: b.client_id, id: b.id }
 					)
@@ -1824,7 +1831,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 						}
 
 						const actionsToSend = actionsToSendRaw
-						const basisServerIngestId = yield* clockService.getLastSeenServerIngestId
+						const basisServerIngestId = yield* clockState.getLastSeenServerIngestId
 
 						const actionTags = actionsToSend.reduce<Record<string, number>>((acc, action) => {
 							acc[action._tag] = (acc[action._tag] ?? 0) + 1
@@ -1905,7 +1912,15 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 								actionTag: action._tag
 							})
 						}
-						yield* clockService.updateLastSyncedClock()
+						yield* clockState.updateLastSyncedClock().pipe(
+							Effect.mapError(
+								(error) =>
+									new SyncError({
+										message: "Failed to update last_synced_clock",
+										cause: error
+									})
+							)
+						)
 
 						return actionsToSend // Return the actions that were handled
 					}).pipe(

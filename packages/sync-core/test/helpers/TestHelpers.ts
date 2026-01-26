@@ -1,7 +1,7 @@
 import { SqlClient } from "@effect/sql" // Import Model
 import { PgliteClient } from "@effect/sql-pglite/PgliteClient"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry" // Corrected Import
-import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { ClientIdentity } from "@synchrotron/sync-core/ClientIdentity"
 import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
 import { Effect, Option, Schema } from "effect" // Import DateTime
 import { createNoteRepo } from "./TestLayers"
@@ -16,7 +16,7 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 	effect: Effect.gen(function* () {
 		const sql = yield* PgliteClient
 		const actionRegistry = yield* ActionRegistry
-		const clockService = yield* ClockService
+		const clientIdentity = yield* ClientIdentity
 		const deterministicId = yield* DeterministicId
 
 		const noteRepo = yield* createNoteRepo().pipe(Effect.provideService(SqlClient.SqlClient, sql))
@@ -153,7 +153,7 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 			}),
 			(args) =>
 				Effect.gen(function* () {
-					const clientId = yield* clockService.getNodeId
+					const clientId = yield* clientIdentity.get
 					const noteOpt = yield* noteRepo.findById(args.id)
 					if (Option.isSome(noteOpt)) {
 						const note = noteOpt.value
@@ -169,82 +169,82 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 						})
 					}
 				})
-			)
+		)
 
-			const conditionalUpdateWithClientCExtraAction = actionRegistry.defineAction(
-				"test-conditional-update-clientc-extra",
-				Schema.Struct({
-					id: Schema.String,
-					baseContent: Schema.String,
-					conditionalSuffix: Schema.optional(Schema.String),
-					clientCTags: Schema.Array(Schema.String),
-					timestamp: Schema.Number
-				}),
-				(args) =>
-					Effect.gen(function* () {
-						const clientId = yield* clockService.getNodeId
-						const noteOpt = yield* noteRepo.findById(args.id)
-						if (Option.isSome(noteOpt)) {
-							const note = noteOpt.value
-							const newContent =
-								clientId === "clientA"
-									? args.baseContent + (args.conditionalSuffix ?? "")
-									: args.baseContent
-							const nextTags =
-								clientId === "clientC" ? Array.from(args.clientCTags) : Array.from(note.tags ?? [])
+		const conditionalUpdateWithClientCExtraAction = actionRegistry.defineAction(
+			"test-conditional-update-clientc-extra",
+			Schema.Struct({
+				id: Schema.String,
+				baseContent: Schema.String,
+				conditionalSuffix: Schema.optional(Schema.String),
+				clientCTags: Schema.Array(Schema.String),
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const clientId = yield* clientIdentity.get
+					const noteOpt = yield* noteRepo.findById(args.id)
+					if (Option.isSome(noteOpt)) {
+						const note = noteOpt.value
+						const newContent =
+							clientId === "clientA"
+								? args.baseContent + (args.conditionalSuffix ?? "")
+								: args.baseContent
+						const nextTags =
+							clientId === "clientC" ? Array.from(args.clientCTags) : Array.from(note.tags ?? [])
 
-							yield* noteRepo.updateVoid({
-								...note,
-								content: newContent,
-								tags: nextTags,
-								updated_at: new Date(args.timestamp)
-							})
-						}
-					})
-			)
+						yield* noteRepo.updateVoid({
+							...note,
+							content: newContent,
+							tags: nextTags,
+							updated_at: new Date(args.timestamp)
+						})
+					}
+				})
+		)
 
-			const clientSpecificContentAction = actionRegistry.defineAction(
-				"test-client-specific-content",
-				Schema.Struct({
-					id: Schema.String,
-					baseContent: Schema.String,
-					timestamp: Schema.Number
-				}),
-				(args) =>
-					Effect.gen(function* () {
-						const clientId = yield* clockService.getNodeId
-						const noteOpt = yield* noteRepo.findById(args.id)
-						if (Option.isSome(noteOpt)) {
-							const note = noteOpt.value
-							yield* noteRepo.updateVoid({
-								...note,
-								content: `${args.baseContent}-${clientId}`,
-								updated_at: new Date(args.timestamp)
-							})
-						}
-					})
-			)
+		const clientSpecificContentAction = actionRegistry.defineAction(
+			"test-client-specific-content",
+			Schema.Struct({
+				id: Schema.String,
+				baseContent: Schema.String,
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const clientId = yield* clientIdentity.get
+					const noteOpt = yield* noteRepo.findById(args.id)
+					if (Option.isSome(noteOpt)) {
+						const note = noteOpt.value
+						yield* noteRepo.updateVoid({
+							...note,
+							content: `${args.baseContent}-${clientId}`,
+							updated_at: new Date(args.timestamp)
+						})
+					}
+				})
+		)
 
-			const deleteContentAction = actionRegistry.defineAction(
-				"test-delete-content",
-				Schema.Struct({ id: Schema.String, user_id: Schema.String, timestamp: Schema.Number }),
-				(args) =>
-					Effect.gen(function* () {
-						yield* noteRepo.delete(args.id)
-					})
-			)
+		const deleteContentAction = actionRegistry.defineAction(
+			"test-delete-content",
+			Schema.Struct({ id: Schema.String, user_id: Schema.String, timestamp: Schema.Number }),
+			(args) =>
+				Effect.gen(function* () {
+					yield* noteRepo.delete(args.id)
+				})
+		)
 
-			return {
-				createNoteAction,
-				createNoteWithIdAction,
-				updateTagsAction,
-				updateContentAction,
-				updateTitleAction,
-				conditionalUpdateAction,
-				conditionalUpdateWithClientCExtraAction,
-				clientSpecificContentAction,
-				deleteContentAction,
-				noteRepo
-			}
-		})
-	}) {}
+		return {
+			createNoteAction,
+			createNoteWithIdAction,
+			updateTagsAction,
+			updateContentAction,
+			updateTitleAction,
+			conditionalUpdateAction,
+			conditionalUpdateWithClientCExtraAction,
+			clientSpecificContentAction,
+			deleteContentAction,
+			noteRepo
+		}
+	})
+}) {}

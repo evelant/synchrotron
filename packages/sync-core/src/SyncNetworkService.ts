@@ -1,9 +1,9 @@
 import { SqlClient } from "@effect/sql"
-import { ClockService } from "@synchrotron/sync-core/ClockService"
 import type { HLC } from "@synchrotron/sync-core/HLC"
 import { Data, Effect, Schema } from "effect"
 import { type ActionModifiedRow, type ActionRecord } from "./models" // Import ActionModifiedRow
 import type { BadArgument } from "@effect/platform/Error"
+import { ClientClockState } from "./ClientClockState"
 
 export class RemoteActionFetchError extends Schema.TaggedError<RemoteActionFetchError>()(
 	"RemoteActionFetchError",
@@ -142,9 +142,9 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 	 * Live implementation using actual network requests
 	 */
 	effect: Effect.gen(function* () {
-		const sql = yield* SqlClient.SqlClient
-		const clockService = yield* ClockService // Keep clockService dependency
-		const clientId = yield* clockService.getNodeId // Keep clientId dependency
+		yield* SqlClient.SqlClient
+		const clockState = yield* ClientClockState
+		const clientId = yield* clockState.getClientId
 
 		return {
 			fetchBootstrapSnapshot: (): Effect.Effect<
@@ -158,7 +158,7 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 				),
 			fetchRemoteActions: (): Effect.Effect<FetchResult, FetchRemoteActionsFailure | BadArgument> =>
 				Effect.gen(function* () {
-					const sinceServerIngestId = yield* clockService.getLastSeenServerIngestId
+					const sinceServerIngestId = yield* clockState.getLastSeenServerIngestId
 					// TODO: Implement actual network request to fetch remote actions
 					// This would use fetch or another HTTP client to contact the sync server
 					yield* Effect.logInfo(
@@ -184,19 +184,23 @@ export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("Sy
 					)
 				),
 
-	sendLocalActions: (
-		actions: readonly ActionRecord[],
-		amrs: readonly ActionModifiedRow[],
-		basisServerIngestId: number
-	): Effect.Effect<boolean, SendLocalActionsFailure | NetworkRequestError | BadArgument, never> =>
-		Effect.gen(function* () {
-			// TODO: Implement actual network request to send actions to remote server
-			yield* Effect.logInfo(`Sending ${actions.length} local actions to server`)
-			yield* Effect.logDebug(`basisServerIngestId=${basisServerIngestId}`)
+			sendLocalActions: (
+				actions: readonly ActionRecord[],
+				amrs: readonly ActionModifiedRow[],
+				basisServerIngestId: number
+			): Effect.Effect<
+				boolean,
+				SendLocalActionsFailure | NetworkRequestError | BadArgument,
+				never
+			> =>
+				Effect.gen(function* () {
+					// TODO: Implement actual network request to send actions to remote server
+					yield* Effect.logInfo(`Sending ${actions.length} local actions to server`)
+					yield* Effect.logDebug(`basisServerIngestId=${basisServerIngestId}`)
 
-			// For now just return true as placeholder
-			return true
-		}).pipe(
+					// For now just return true as placeholder
+					return true
+				}).pipe(
 					Effect.catchAll((error) =>
 						Effect.fail(
 							new NetworkRequestError({

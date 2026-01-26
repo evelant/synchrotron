@@ -1,5 +1,5 @@
 import { SqlClient } from "@effect/sql"
-import { ClientDbAdapter, ClockService } from "@synchrotron/sync-core"
+import { ClientDbAdapter, ClientIdentity } from "@synchrotron/sync-core"
 import { Effect } from "effect"
 
 const toNumber = (value: unknown): number => {
@@ -22,8 +22,8 @@ const boolFromPresent = (value: unknown): boolean => value === true || value ===
 export const logInitialSyncDbState = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient
 	const clientDbAdapter = yield* ClientDbAdapter
-	const clockService = yield* ClockService
-	const clientId = yield* clockService.getNodeId
+	const identity = yield* ClientIdentity
+	const clientId = yield* identity.get
 
 	const requiredTables = [
 		"action_records",
@@ -60,7 +60,9 @@ export const logInitialSyncDbState = Effect.gen(function* () {
 		{ concurrency: 1 }
 	)
 
-	const missingTables = tablePresence.filter(([, present]) => !present).map(([tableName]) => tableName)
+	const missingTables = tablePresence
+		.filter(([, present]) => !present)
+		.map(([tableName]) => tableName)
 	if (missingTables.length > 0) {
 		yield* Effect.logDebug("synchrotron.db.initialState.skipped", {
 			clientId,
@@ -133,7 +135,9 @@ export const logInitialSyncDbState = Effect.gen(function* () {
 		SELECT COUNT(*) AS n FROM client_sync_status
 	`.pipe(Effect.map((rows) => toNumber(rows[0]?.n ?? 0)))
 
-	const lastSeenServerIngestId = yield* sql<{ readonly last_seen_server_ingest_id: number | string | null }>`
+	const lastSeenServerIngestId = yield* sql<{
+		readonly last_seen_server_ingest_id: number | string | null
+	}>`
 		SELECT last_seen_server_ingest_id
 		FROM client_sync_status
 		WHERE client_id = ${clientId}
@@ -147,7 +151,9 @@ export const logInitialSyncDbState = Effect.gen(function* () {
 		actionRecordsSynced: toNumber(actionCounts.action_records_synced),
 		actionRecordsUnsynced: toNumber(actionCounts.action_records_unsynced),
 		actionRecordsWithServerIngestId: toNumber(actionCounts.action_records_with_server_ingest_id),
-		actionRecordsWithoutServerIngestId: toNumber(actionCounts.action_records_without_server_ingest_id),
+		actionRecordsWithoutServerIngestId: toNumber(
+			actionCounts.action_records_without_server_ingest_id
+		),
 		actionRecordsLocal: toNumber(actionCounts.action_records_local),
 		actionRecordsRemote: toNumber(actionCounts.action_records_remote),
 		actionRecordsLocalUnsynced: toNumber(actionCounts.action_records_local_unsynced),
@@ -172,4 +178,3 @@ export const logInitialSyncDbState = Effect.gen(function* () {
 	),
 	Effect.withSpan("SynchrotronClient.logInitialSyncDbState")
 )
-

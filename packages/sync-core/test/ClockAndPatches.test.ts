@@ -1,8 +1,10 @@
 import { SqlClient } from "@effect/sql"
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, it } from "@effect/vitest" // Import describe
-import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { ClientClockState } from "@synchrotron/sync-core/ClientClockState"
+import { compareClock, findLatestCommonClock, sortClocks } from "@synchrotron/sync-core/ClockOrder"
 import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
+import * as HLC from "@synchrotron/sync-core/HLC"
 import { applySyncTriggers } from "@synchrotron/sync-core/db"
 import { ActionModifiedRow } from "@synchrotron/sync-core/models"
 import { Effect } from "effect"
@@ -16,16 +18,16 @@ describe("Clock Operations", () => {
 		"should correctly increment clock with single client",
 		() =>
 			Effect.gen(function* (_) {
-				const clockService = yield* ClockService
-				const clientId = yield* clockService.getNodeId
+				const clockState = yield* ClientClockState
+				const clientId = yield* clockState.getClientId
 
 				// Get initial state
-				const initialState = yield* clockService.getClientClock
+				const initialState = yield* clockState.getCurrentClock
 				expect(initialState.vector).toBeDefined()
 				expect(initialState.timestamp).toBeDefined()
 
 				// Increment clock
-				const incremented = yield* clockService.incrementClock
+				const incremented = yield* clockState.incrementClock
 				expect(incremented.timestamp).toBeGreaterThanOrEqual(initialState.timestamp)
 
 				// The vector for this client should have incremented by 1
@@ -40,8 +42,6 @@ describe("Clock Operations", () => {
 		"should correctly merge clocks from different clients",
 		() =>
 			Effect.gen(function* (_) {
-				const clockService = yield* ClockService
-
 				// Test vector merging rules: max value wins, entries are added, never reset
 				// Test case 1: Second timestamp is larger, counters should never reset
 				const clock1 = {
@@ -52,7 +52,7 @@ describe("Clock Operations", () => {
 					timestamp: 1200,
 					vector: { client1: 4 }
 				}
-				const merged1 = clockService.mergeClock(clock1, clock2)
+				const merged1 = HLC.receiveRemoteMutation(clock1, clock2, "client1")
 
 				// Since actual system time is used, we can only verify relative behaviors
 				expect(merged1.timestamp).toBeGreaterThanOrEqual(
@@ -69,7 +69,7 @@ describe("Clock Operations", () => {
 					timestamp: 1200,
 					vector: { client1: 7 }
 				}
-				const merged2 = clockService.mergeClock(clock3, clock4)
+				const merged2 = HLC.receiveRemoteMutation(clock3, clock4, "client1")
 
 				expect(merged2.timestamp).toBeGreaterThanOrEqual(
 					Math.max(clock3.timestamp, clock4.timestamp)
@@ -85,7 +85,7 @@ describe("Clock Operations", () => {
 					timestamp: 1000,
 					vector: { client1: 5, client3: 3 }
 				}
-				const merged3 = clockService.mergeClock(clock5, clock6)
+				const merged3 = HLC.receiveRemoteMutation(clock5, clock6, "client1")
 
 				expect(merged3.timestamp).toBeGreaterThanOrEqual(
 					Math.max(clock5.timestamp, clock6.timestamp)
@@ -104,38 +104,36 @@ describe("Clock Operations", () => {
 		"should correctly compare clocks",
 		() =>
 			Effect.gen(function* (_) {
-				const clockService = yield* ClockService
-
 				// Test different timestamps
 				// Note: compareClock derives the logical counter from `clock.vector[clientId]`
 				const clientId = "client1"
-				const result1 = clockService.compareClock(
+				const result1 = compareClock(
 					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId },
 					{ clock: { timestamp: 2000, vector: { client1: 1 } }, clientId }
 				)
 				expect(result1).toBeLessThan(0)
 
-				const result2 = clockService.compareClock(
+				const result2 = compareClock(
 					{ clock: { timestamp: 2000, vector: { client1: 1 } }, clientId },
 					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId }
 				)
 				expect(result2).toBeGreaterThan(0)
 
 				// Test different vectors with same timestamp
-				const result3 = clockService.compareClock(
+				const result3 = compareClock(
 					{ clock: { timestamp: 1000, vector: { client1: 2 } }, clientId },
 					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId }
 				)
 				expect(result3).toBeGreaterThan(0)
 
-				const result4 = clockService.compareClock(
+				const result4 = compareClock(
 					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId },
 					{ clock: { timestamp: 1000, vector: { client1: 2 } }, clientId }
 				)
 				expect(result4).toBeLessThan(0)
 
 				// Test identical clocks
-				const result5 = clockService.compareClock(
+				const result5 = compareClock(
 					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId },
 					{ clock: { timestamp: 1000, vector: { client1: 1 } }, clientId }
 				)
@@ -148,7 +146,6 @@ describe("Clock Operations", () => {
 		"should use client ID as tiebreaker when comparing identical clocks",
 		() =>
 			Effect.gen(function* (_) {
-				const clockService = yield* ClockService
 				const clientId1 = "client-aaa"
 				const clientId2 = "client-bbb"
 
@@ -158,13 +155,13 @@ describe("Clock Operations", () => {
 
 				// Assuming compareClock uses clientId for tie-breaking when timestamp and vector are equal
 				// and assuming string comparison ('client-aaa' < 'client-bbb')
-				const result = clockService.compareClock(itemA, itemB)
+				const result = compareClock(itemA, itemB)
 
 				// Expecting result < 0 because clientId1 < clientId2
 				expect(result).toBeLessThan(0)
 
 				// Test the reverse comparison
-				const resultReverse = clockService.compareClock(itemB, itemA)
+				const resultReverse = compareClock(itemB, itemA)
 				expect(resultReverse).toBeGreaterThan(0)
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer here
 	)
@@ -174,8 +171,6 @@ describe("Clock Operations", () => {
 		"should sort clocks correctly",
 		() =>
 			Effect.gen(function* (_) {
-				const clockService = yield* ClockService
-
 				const items = [
 					// Add clientId to match the expected structure for sortClocks
 					{ id: 1, clock: { timestamp: 2000, vector: { client1: 1 } }, clientId: "client1" },
@@ -184,7 +179,7 @@ describe("Clock Operations", () => {
 					{ id: 4, clock: { timestamp: 3000, vector: { client1: 1 } }, clientId: "client1" }
 				]
 
-				const sorted = clockService.sortClocks(items)
+				const sorted = sortClocks(items)
 
 				// Items should be sorted first by timestamp, then by vector values
 				expect(sorted[0]!.id).toBe(3) // 1000, {client1: 1}
@@ -199,8 +194,6 @@ describe("Clock Operations", () => {
 		"should find latest common clock",
 		() =>
 			Effect.gen(function* (_) {
-				const clock = yield* ClockService
-
 				// Test case: common ancestor exists
 				// Add client_id to match the expected structure for findLatestCommonClock
 				const localActions = [
@@ -239,7 +232,7 @@ describe("Clock Operations", () => {
 					}
 				]
 
-				const commonClock = clock.findLatestCommonClock(localActions, remoteActions)
+				const commonClock = findLatestCommonClock(localActions, remoteActions)
 				expect(commonClock).not.toBeNull()
 				expect(commonClock?.timestamp).toBe(2000)
 				expect(commonClock?.vector.client1).toBe(1)
@@ -254,7 +247,7 @@ describe("Clock Operations", () => {
 					}
 				]
 
-				const noCommonClock = clock.findLatestCommonClock(localActions, laterRemoteActions)
+				const noCommonClock = findLatestCommonClock(localActions, laterRemoteActions)
 				expect(noCommonClock).toBeNull()
 
 				// Test case: no synced local actions
@@ -267,7 +260,7 @@ describe("Clock Operations", () => {
 					}
 				]
 
-				const noSyncedClock = clock.findLatestCommonClock(unSyncedLocalActions, remoteActions)
+				const noSyncedClock = findLatestCommonClock(unSyncedLocalActions, remoteActions)
 				expect(noSyncedClock).toBeNull()
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer here
 	)

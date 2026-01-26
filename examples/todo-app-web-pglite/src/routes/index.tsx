@@ -15,7 +15,12 @@ import {
 	TextField
 } from "@radix-ui/themes"
 import { ElectricSyncLive, makeSynchrotronClientLayer } from "@synchrotron/sync-client"
-import { ClientDbAdapter, ClockService, SyncService, type ActionExecutionError } from "@synchrotron/sync-core"
+import {
+	ClientClockState,
+	ClientDbAdapter,
+	SyncService,
+	type ActionExecutionError
+} from "@synchrotron/sync-core"
 import { ElectricSyncService } from "@synchrotron/sync-client/electric/ElectricSyncService"
 import { TodoActions } from "../actions"
 import logo from "../assets/logo.svg"
@@ -104,8 +109,7 @@ const viteSyncRpcAuthTokenBFromProcessEnv = (() => {
 })()
 
 const defaults = {
-	serverUrl:
-		metaEnv?.VITE_SERVER_URL ?? viteServerUrlFromProcessEnv ?? "http://localhost:3010",
+	serverUrl: metaEnv?.VITE_SERVER_URL ?? viteServerUrlFromProcessEnv ?? "http://localhost:3010",
 	syncRpcAuthTokenA:
 		metaEnv?.VITE_SYNC_RPC_AUTH_TOKEN_A ??
 		metaEnv?.VITE_SYNC_RPC_AUTH_TOKEN ??
@@ -124,18 +128,10 @@ const defaults = {
 		viteSyncUserIdAFromProcessEnv ??
 		viteSyncUserIdFromProcessEnv ??
 		"user1",
-	userIdB:
-		metaEnv?.VITE_SYNC_USER_ID_B ??
-		viteSyncUserIdBFromProcessEnv ??
-		"user2",
-	projectId:
-		metaEnv?.VITE_TODO_PROJECT_ID ??
-		viteTodoProjectIdFromProcessEnv ??
-		"project-demo",
+	userIdB: metaEnv?.VITE_SYNC_USER_ID_B ?? viteSyncUserIdBFromProcessEnv ?? "user2",
+	projectId: metaEnv?.VITE_TODO_PROJECT_ID ?? viteTodoProjectIdFromProcessEnv ?? "project-demo",
 	electricUrl:
-		metaEnv?.VITE_ELECTRIC_URL ??
-		viteElectricUrlFromProcessEnv ??
-		"http://localhost:5133"
+		metaEnv?.VITE_ELECTRIC_URL ?? viteElectricUrlFromProcessEnv ?? "http://localhost:5133"
 } as const
 
 const normalizeRpcUrl = (serverUrl: string) => {
@@ -166,7 +162,10 @@ const resetClientDatabase = Effect.gen(function* () {
 	yield* Effect.logInfo("todoAppWeb.resetLocalDb.done", { dbDialect: clientDbAdapter.dialect })
 })
 
-const deleteIndexedDbDatabaseByName = async (name: string, options?: { readonly timeoutMs?: number }) =>
+const deleteIndexedDbDatabaseByName = async (
+	name: string,
+	options?: { readonly timeoutMs?: number }
+) =>
 	new Promise<void>((resolve, reject) => {
 		const timeoutMs = options?.timeoutMs ?? 250
 		const req = indexedDB.deleteDatabase(name)
@@ -184,7 +183,8 @@ const deleteIndexedDbDatabaseByName = async (name: string, options?: { readonly 
 		const timeoutId = setTimeout(() => settle(resolve), timeoutMs)
 
 		req.onsuccess = () => settle(resolve)
-		req.onerror = () => settle(() => reject(req.error ?? new Error(`Failed to delete IndexedDB database: ${name}`)))
+		req.onerror = () =>
+			settle(() => reject(req.error ?? new Error(`Failed to delete IndexedDB database: ${name}`)))
 		req.onblocked = () => {
 			// Intentionally do nothing: allow onsuccess to fire, or fall back to timeout.
 		}
@@ -318,7 +318,9 @@ const makeClientLayer = (options: {
 		options.clientKey === "clientA" ? defaults.syncRpcAuthTokenA : defaults.syncRpcAuthTokenB
 
 	const rootLayer =
-		options.transportMode === "electric" ? Layer.mergeAll(TodoRepo.Default, ElectricSyncLive) : TodoRepo.Default
+		options.transportMode === "electric"
+			? Layer.mergeAll(TodoRepo.Default, ElectricSyncLive)
+			: TodoRepo.Default
 
 	const clientLayer = rootLayer.pipe(
 		Layer.provideMerge(TodoActions.Default),
@@ -355,7 +357,10 @@ const makeClientLayer = (options: {
 			)
 		),
 		Layer.provideMerge(
-			Logger.replace(Logger.defaultLogger, Logger.prettyLoggerDefault.pipe(Logger.withLeveledConsole))
+			Logger.replace(
+				Logger.defaultLogger,
+				Logger.prettyLoggerDefault.pipe(Logger.withLeveledConsole)
+			)
 		),
 		Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Info)),
 		Layer.provideMerge(Layer.scope)
@@ -528,66 +533,66 @@ function ClientRuntimePanel(props: {
 	)
 }
 
-	function ClientPanel(props: {
-		readonly label: string
-		readonly transportMode: TransportMode
-		readonly userId: string
-		readonly projectId: string
-		readonly isResetting: boolean
-		readonly onResetDb: () => void
-		readonly onResetIdentity: () => void
-	}) {
-		const runtime = useRuntime()
+function ClientPanel(props: {
+	readonly label: string
+	readonly transportMode: TransportMode
+	readonly userId: string
+	readonly projectId: string
+	readonly isResetting: boolean
+	readonly onResetDb: () => void
+	readonly onResetIdentity: () => void
+}) {
+	const runtime = useRuntime()
 
-		const { todos, isLoading } = useReactiveTodos()
-		const [newTodoText, setNewTodoText] = useState("")
-		const [offline, setOffline] = useState(false)
-		const offlineRef = useRef(false)
-		const [isSyncing, setIsSyncing] = useState(false)
-		const syncingRef = useRef(false)
-		const offlineSupported = props.transportMode === "rpc-poll"
+	const { todos, isLoading } = useReactiveTodos()
+	const [newTodoText, setNewTodoText] = useState("")
+	const [offline, setOffline] = useState(false)
+	const offlineRef = useRef(false)
+	const [isSyncing, setIsSyncing] = useState(false)
+	const syncingRef = useRef(false)
+	const offlineSupported = props.transportMode === "rpc-poll"
 
-		useEffect(() => {
-			if (!offlineSupported && offline) {
-				offlineRef.current = false
-				setOffline(false)
-			}
-		}, [offline, offlineSupported])
+	useEffect(() => {
+		if (!offlineSupported && offline) {
+			offlineRef.current = false
+			setOffline(false)
+		}
+	}, [offline, offlineSupported])
 
-		useEffect(() => {
-			offlineRef.current = offline
-		}, [offline])
+	useEffect(() => {
+		offlineRef.current = offline
+	}, [offline])
 
-		const toggleOffline = useCallback(() => {
-			setOffline((prev) => {
-				const next = !prev
-				offlineRef.current = next
-				return next
-			})
-		}, [])
+	const toggleOffline = useCallback(() => {
+		setOffline((prev) => {
+			const next = !prev
+			offlineRef.current = next
+			return next
+		})
+	}, [])
 
-		const runSync = useCallback(() => {
-			if (offlineRef.current) return Promise.resolve()
-			if (syncingRef.current) return Promise.resolve()
-			syncingRef.current = true
-			setIsSyncing(true)
+	const runSync = useCallback(() => {
+		if (offlineRef.current) return Promise.resolve()
+		if (syncingRef.current) return Promise.resolve()
+		syncingRef.current = true
+		setIsSyncing(true)
 
 		const effect = Effect.gen(function* () {
 			const syncService = yield* SyncService
 			yield* syncService.performSync()
 		})
 
-			return runtime
-				.runPromise(effect)
-				.catch((e) => {
-					if (String(e).includes("ManagedRuntime disposed")) return
-					console.warn(`${props.label}: sync failed`, e)
-				})
-				.finally(() => {
-					syncingRef.current = false
-					setIsSyncing(false)
-				})
-		}, [props.label, runtime])
+		return runtime
+			.runPromise(effect)
+			.catch((e) => {
+				if (String(e).includes("ManagedRuntime disposed")) return
+				console.warn(`${props.label}: sync failed`, e)
+			})
+			.finally(() => {
+				syncingRef.current = false
+				setIsSyncing(false)
+			})
+	}, [props.label, runtime])
 
 	useEffect(() => {
 		if (props.transportMode !== "rpc-poll") return
@@ -681,14 +686,9 @@ function ClientRuntimePanel(props: {
 						<Badge color={offline ? "red" : "green"} variant="soft">
 							{offline ? "Offline" : "Online"}
 						</Badge>
-							<Button
-								size="2"
-								variant="soft"
-								disabled={!offlineSupported}
-								onClick={toggleOffline}
-							>
-								{offlineSupported ? (offline ? "Go online" : "Go offline") : "Offline (RPC only)"}
-							</Button>
+						<Button size="2" variant="soft" disabled={!offlineSupported} onClick={toggleOffline}>
+							{offlineSupported ? (offline ? "Go online" : "Go offline") : "Offline (RPC only)"}
+						</Button>
 						<Button size="2" onClick={() => void runSync()} disabled={offline || isSyncing}>
 							{isSyncing ? "Syncing…" : "Sync now"}
 						</Button>
@@ -704,7 +704,11 @@ function ClientRuntimePanel(props: {
 						<Text color="gray">No to-dos yet.</Text>
 					) : (
 						todos.map((todo) => (
-							<Card key={todo.id} onClick={() => handleToggleTodo(todo)} style={{ cursor: "pointer" }}>
+							<Card
+								key={todo.id}
+								onClick={() => handleToggleTodo(todo)}
+								style={{ cursor: "pointer" }}
+							>
 								<Flex gap="2" align="center" justify="between">
 									<Text as="label">
 										<Flex gap="2" align="center">
@@ -754,13 +758,13 @@ function ClientRuntimePanel(props: {
 						color="red"
 						disabled={props.isResetting}
 						onClick={() => {
-								if (
-									!confirm(
-										`Reset local DB for ${props.label}?\n\nThis keeps the client identity. If the backend still has action history, the next sync will restore this client by re-fetching and replaying its own history.\n\nUse “Reset DB + identity” if you want a brand new client id.`
-									)
+							if (
+								!confirm(
+									`Reset local DB for ${props.label}?\n\nThis keeps the client identity. If the backend still has action history, the next sync will restore this client by re-fetching and replaying its own history.\n\nUse “Reset DB + identity” if you want a brand new client id.`
 								)
-									return
-								props.onResetDb()
+							)
+								return
+							props.onResetDb()
 						}}
 					>
 						Reset DB (keep id)
@@ -805,10 +809,10 @@ function ClientDebugPanel(props: { readonly transportMode: TransportMode }) {
 		let cancelled = false
 		const load = () => {
 			const effect = Effect.gen(function* () {
-				const clockService = yield* ClockService
+				const clockState = yield* ClientClockState
 				// Ensure client_sync_status exists
-				const lastSeenServerIngestId = yield* clockService.getLastSeenServerIngestId
-				const clientId = yield* clockService.getNodeId
+				const lastSeenServerIngestId = yield* clockState.getLastSeenServerIngestId
+				const clientId = yield* clockState.getClientId
 				const sql = yield* SqlClient.SqlClient
 				const electricFullySynced =
 					props.transportMode === "electric"
@@ -826,15 +830,21 @@ function ClientDebugPanel(props: { readonly transportMode: TransportMode }) {
 					)
 
 				const actionTotal = yield* readCount(
-					sql<{ readonly count: number | string }>`SELECT count(*)::int as count FROM action_records`
+					sql<{
+						readonly count: number | string
+					}>`SELECT count(*)::int as count FROM action_records`
 				)
 				const actionUnsynced = yield* readCount(
-					sql<{ readonly count: number | string }>`SELECT count(*)::int as count FROM action_records WHERE synced = 0`
+					sql<{
+						readonly count: number | string
+					}>`SELECT count(*)::int as count FROM action_records WHERE synced = 0`
 				)
 				const actionSynced = yield* readCount(
-					sql<{ readonly count: number | string }>`SELECT count(*)::int as count FROM action_records WHERE synced = 1`
+					sql<{
+						readonly count: number | string
+					}>`SELECT count(*)::int as count FROM action_records WHERE synced = 1`
 				)
-					const syncedButUnapplied = yield* readCount(sql<{ readonly count: number | string }>`
+				const syncedButUnapplied = yield* readCount(sql<{ readonly count: number | string }>`
 						SELECT count(*)::int as count
 						FROM action_records ar
 						LEFT JOIN local_applied_action_ids la ON ar.id = la.action_record_id
@@ -843,7 +853,9 @@ function ClientDebugPanel(props: { readonly transportMode: TransportMode }) {
 					`)
 
 				const amrTotal = yield* readCount(
-					sql<{ readonly count: number | string }>`SELECT count(*)::int as count FROM action_modified_rows`
+					sql<{
+						readonly count: number | string
+					}>`SELECT count(*)::int as count FROM action_modified_rows`
 				)
 				const amrUnsynced = yield* readCount(sql<{ readonly count: number | string }>`
 					SELECT count(*)::int as count
@@ -917,11 +929,13 @@ function ClientDebugPanel(props: { readonly transportMode: TransportMode }) {
 				last_seen_server_ingest_id: {state.lastSeenServerIngestId}
 			</Text>
 			<Text size="2" color="gray">
-				action_records: total {state.actionRecords.total} · unsynced {state.actionRecords.unsynced} ·
-				synced {state.actionRecords.synced} · synced-but-unapplied {state.actionRecords.syncedButUnapplied}
+				action_records: total {state.actionRecords.total} · unsynced {state.actionRecords.unsynced}{" "}
+				· synced {state.actionRecords.synced} · synced-but-unapplied{" "}
+				{state.actionRecords.syncedButUnapplied}
 			</Text>
 			<Text size="2" color="gray">
-				action_modified_rows: total {state.actionModifiedRows.total} · unsynced {state.actionModifiedRows.unsynced}
+				action_modified_rows: total {state.actionModifiedRows.total} · unsynced{" "}
+				{state.actionModifiedRows.unsynced}
 			</Text>
 		</Box>
 	)
