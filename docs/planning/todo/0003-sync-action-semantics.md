@@ -161,13 +161,13 @@ When comparing `P_replay(B, u)` to `P_known(B, u)`, classify differences into:
 - **Missing effects** (common case): replay writes a row/field that is absent from `P_known` (often private rows filtered by RLS) → include in `Δ`.
 - **Conflicting effects** (“overwrite”): replay writes a different value for a row/field already present in `P_known`.
 
-	Conflicting effects are not, by themselves, a purity violation. They can be:
+  Conflicting effects are not, by themselves, a purity violation. They can be:
 
 - a valid “stabilization” effect due to late-arriving actions / rollback+replay changing the state an earlier action runs against,
-	- a shared-row divergence case (different views legitimately compute different shared-field writes; semantics become last-writer-wins for that field and may leak information),
+  - a shared-row divergence case (different views legitimately compute different shared-field writes; semantics become last-writer-wins for that field and may leak information),
 - an actual action impurity bug (nondeterminism).
 
-To identify *impurity*, you need evidence that replay is not repeatable on the **same** basis/snapshot.
+To identify _impurity_, you need evidence that replay is not repeatable on the **same** basis/snapshot.
 
 ### Handling the violation (bounded convergence + loud error)
 
@@ -220,7 +220,7 @@ Covered today (SyncService unit/integration tests):
 - Divergence creates an outgoing SYNC delta and associates AMRs with it: `packages/sync-core/test/sync/sync-divergence.test.ts`
 - Incoming SYNC is applied as patches and can suppress redundant outgoing deltas: `packages/sync-core/test/sync/sync-divergence.test.ts`
 - Outgoing SYNC sorts after the corrected batch (observe remotes, then increment): `packages/sync-core/test/sync/sync-delta-semantics.test.ts`
-	- Idempotency: re-applying the same received SYNC does not create another outgoing SYNC: `packages/sync-core/test/sync/ingest-idempotency.test.ts`
+  - Idempotency: re-applying the same received SYNC does not create another outgoing SYNC: `packages/sync-core/test/sync/ingest-idempotency.test.ts`
 
 Also covered (Postgres/RLS e2e):
 

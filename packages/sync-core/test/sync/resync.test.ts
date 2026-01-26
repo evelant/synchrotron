@@ -15,7 +15,9 @@ describe("Resync primitives (hard resync + rebase)", () => {
 			`
 			const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
 
-			const minRows = yield* serverSql<{ readonly min_server_ingest_id: number | string | bigint | null }>`
+			const minRows = yield* serverSql<{
+				readonly min_server_ingest_id: number | string | bigint | null
+			}>`
 				SELECT COALESCE(MIN(server_ingest_id), 0) as min_server_ingest_id
 				FROM action_records
 			`
@@ -67,7 +69,9 @@ describe("Resync primitives (hard resync + rebase)", () => {
 				)
 				yield* clientB.syncService.performSync()
 
-				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(
+					serverNotesSnapshot(serverSql)
+				)
 
 				yield* clientA.syncService.executeAction(
 					clientA.testHelpers.createNoteAction({
@@ -94,7 +98,7 @@ describe("Resync primitives (hard resync + rebase)", () => {
 				const localNotes = yield* clientA.noteRepo.findByTitle("Local note")
 				expect(localNotes.length).toBe(0)
 
-				const lastSeen = yield* clientA.clockService.getLastSeenServerIngestId
+				const lastSeen = yield* clientA.clockState.getLastSeenServerIngestId
 				expect(lastSeen).toBeGreaterThan(0)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30000 }
@@ -107,7 +111,9 @@ describe("Resync primitives (hard resync + rebase)", () => {
 				const serverSql = yield* PgliteClient.PgliteClient
 
 				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
-				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(
+					serverNotesSnapshot(serverSql)
+				)
 
 				const { result: note } = yield* clientA.syncService.executeAction(
 					clientA.testHelpers.createNoteAction({
@@ -118,7 +124,11 @@ describe("Resync primitives (hard resync + rebase)", () => {
 					})
 				)
 				yield* clientA.syncService.executeAction(
-					clientA.testHelpers.updateContentAction({ id: note.id, content: "updated", timestamp: 1100 })
+					clientA.testHelpers.updateContentAction({
+						id: note.id,
+						content: "updated",
+						timestamp: 1100
+					})
 				)
 
 				const pendingBefore = yield* clientA.actionRecordRepo.allUnsynced()

@@ -27,4 +27,3 @@ describe("E2E harness (smoke)", () => {
 		{ timeout: 30000 }
 	)
 })
-

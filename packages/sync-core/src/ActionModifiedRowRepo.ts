@@ -13,17 +13,17 @@ export class ActionModifiedRowRepo extends Effect.Service<ActionModifiedRowRepo>
 			const sql = yield* SqlClient.SqlClient
 
 			const repo = yield* Model.makeRepository(ActionModifiedRow, {
-				tableName: "action_modified_rows", 
+				tableName: "action_modified_rows",
 				idColumn: "id",
-				spanPrefix: "ActionModifiedRowRepository" 
+				spanPrefix: "ActionModifiedRowRepository"
 			})
 
 			const findByActionRecordIds = SqlSchema.findAll({
-				Request: Schema.Array(Schema.String), 
+				Request: Schema.Array(Schema.String),
 				Result: ActionModifiedRow,
 				execute: (ids) => {
 					if (ids.length === 0) {
-						return sql`SELECT * FROM action_modified_rows WHERE 1 = 0` 
+						return sql`SELECT * FROM action_modified_rows WHERE 1 = 0`
 					}
 					return sql`
 						SELECT amr.* 
@@ -31,7 +31,7 @@ export class ActionModifiedRowRepo extends Effect.Service<ActionModifiedRowRepo>
 						JOIN action_records ar ON amr.action_record_id = ar.id
 						WHERE amr.action_record_id IN ${sql.in(ids)} 
 						ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC, amr.sequence ASC
-					` 
+					`
 				}
 			})
 
@@ -54,13 +54,12 @@ export class ActionModifiedRowRepo extends Effect.Service<ActionModifiedRowRepo>
 					sql`SELECT amr.* FROM action_modified_rows amr join action_records ar on amr.action_record_id = ar.id WHERE ar.synced = 0 ORDER BY amr.sequence ASC`
 			})
 
-
 			const deleteByActionRecordIds = (...actionRecordId: string[]) =>
 				Effect.gen(function* () {
 					if (actionRecordId.length === 0) return
 					yield* sql`DELETE FROM action_modified_rows WHERE action_record_id IN ${sql.in(actionRecordId)}`
 				})
-			
+
 			const all = SqlSchema.findAll({
 				Request: Schema.Void,
 				Result: ActionModifiedRow,
@@ -73,14 +72,14 @@ export class ActionModifiedRowRepo extends Effect.Service<ActionModifiedRowRepo>
 				allUnsynced,
 				findByActionRecordIds,
 				findByTransactionId,
-				deleteByActionRecordIds,
+				deleteByActionRecordIds
 			} as const
-		}),
+		})
 	}
 ) {}
 
 /**
- * Deep compares two sets of ActionModifiedRow arrays based on the *final* state 
+ * Deep compares two sets of ActionModifiedRow arrays based on the *final* state
  * implied by the sequence of changes for each modified row.
  */
 export const compareActionModifiedRows = (
@@ -93,15 +92,15 @@ export const compareActionModifiedRows = (
 
 		for (const row of rows) {
 			const key = `${row.table_name}|${row.row_id}`
-			
+
 			// Track the latest operation for each row
 			operationsByKey.set(key, row.operation)
-			
+
 			// Get or initialize the column map for this row
 			if (!lastAmrsByColumn.has(key)) {
 				lastAmrsByColumn.set(key, {})
 			}
-			
+
 			// Update each column with the latest value from the patches
 			const columnValues = lastAmrsByColumn.get(key)!
 			for (const [columnKey, columnValue] of Object.entries(row.forward_patches)) {
@@ -112,8 +111,10 @@ export const compareActionModifiedRows = (
 		return { lastAmrsByColumn, operationsByKey }
 	}
 
-	const { lastAmrsByColumn: lastColumnValuesA, operationsByKey: operationsA } = findLastAmrForKeyAndColumn(rowsA)
-	const { lastAmrsByColumn: lastColumnValuesB, operationsByKey: operationsB } = findLastAmrForKeyAndColumn(rowsB)
+	const { lastAmrsByColumn: lastColumnValuesA, operationsByKey: operationsA } =
+		findLastAmrForKeyAndColumn(rowsA)
+	const { lastAmrsByColumn: lastColumnValuesB, operationsByKey: operationsB } =
+		findLastAmrForKeyAndColumn(rowsB)
 
 	// Check if we have the same set of row keys
 	if (lastColumnValuesA.size !== lastColumnValuesB.size) {
@@ -135,10 +136,7 @@ export const compareActionModifiedRows = (
 		}
 
 		// Get all unique column keys from both sets
-		const allColumnKeys = new Set([
-			...Object.keys(columnsA),
-			...Object.keys(columnsB)
-		])
+		const allColumnKeys = new Set([...Object.keys(columnsA), ...Object.keys(columnsB)])
 
 		// Compare each column value
 		for (const columnKey of allColumnKeys) {

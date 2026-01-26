@@ -1,24 +1,20 @@
 {
-    "extends": "./tsconfig.src.json",
-    "compilerOptions": {
-        "types": [
-            "node"
-        ],
-        "tsBuildInfoFile": ".tsbuildinfo/build.tsbuildinfo",
-        "outDir": "dist",
-        "declarationDir": "dist",
-        "declaration": true,
-        "declarationMap": true,
-        "emitDeclarationOnly": false,
-        "stripInternal": true
-    },
-    "include": [
-        "src"
-    ],
-    "references": [
-        {
-            "path": "../sql-pglite/tsconfig.build.json"
-        },
-        { "path": "../sync-core/tsconfig.build.json" }
-    ]
+	"extends": "./tsconfig.src.json",
+	"compilerOptions": {
+		"types": ["node"],
+		"tsBuildInfoFile": ".tsbuildinfo/build.tsbuildinfo",
+		"outDir": "dist",
+		"declarationDir": "dist",
+		"declaration": true,
+		"declarationMap": true,
+		"emitDeclarationOnly": false,
+		"stripInternal": true
+	},
+	"include": ["src"],
+	"references": [
+		{
+			"path": "../sql-pglite/tsconfig.build.json"
+		},
+		{ "path": "../sync-core/tsconfig.build.json" }
+	]
 }

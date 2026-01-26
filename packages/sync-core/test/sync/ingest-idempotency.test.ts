@@ -97,8 +97,7 @@ describe("Ingest/apply idempotency", () => {
 				expect(syncActionsC.length).toBe(1)
 				expect(syncActionsC[0]!.id).toBe(syncActionB.id)
 
-				const baseIngestId =
-					(yield* serverSql<{ server_ingest_id: number }>`
+				const baseIngestId = (yield* serverSql<{ server_ingest_id: number }>`
 						SELECT server_ingest_id
 						FROM action_records
 						WHERE id = ${baseAction.id}
@@ -122,4 +121,3 @@ describe("Ingest/apply idempotency", () => {
 		{ timeout: 30000 }
 	)
 })
-

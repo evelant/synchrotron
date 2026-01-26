@@ -6,4 +6,3 @@ export interface SqliteReactNativeClientConfig {
 	readonly transformResultNames?: ((str: string) => string) | undefined
 	readonly transformQueryNames?: ((str: string) => string) | undefined
 }
-

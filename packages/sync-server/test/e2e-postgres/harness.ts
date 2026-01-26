@@ -59,8 +59,8 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 			);
 		`.raw
 
-			// Notes are scoped to a project; audience_key is derived from project_id.
-			yield* sql`
+		// Notes are scoped to a project; audience_key is derived from project_id.
+		yield* sql`
 				CREATE TABLE IF NOT EXISTS notes (
 					id TEXT PRIMARY KEY,
 					content TEXT NOT NULL,
@@ -69,9 +69,9 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 				);
 			`.raw
 
-				// Admin-only per-note metadata. This is used to exercise "private divergence" where a replica
-				// with strictly more visibility emits a SYNC delta that should be filtered from other users.
-				yield* sql`
+		// Admin-only per-note metadata. This is used to exercise "private divergence" where a replica
+		// with strictly more visibility emits a SYNC delta that should be filtered from other users.
+		yield* sql`
 					CREATE TABLE IF NOT EXISTS note_admin_meta (
 						id TEXT PRIMARY KEY,
 						-- Deferrable so server rollback+replay can temporarily violate FK order within a transaction.
@@ -82,8 +82,8 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 					);
 				`.raw
 
-			// Convention: app-provided membership mapping for audience visibility.
-			yield* sql`
+		// Convention: app-provided membership mapping for audience visibility.
+		yield* sql`
 				CREATE OR REPLACE VIEW synchrotron.user_audiences AS
 				SELECT user_id, audience_key
 				FROM project_members
@@ -112,18 +112,23 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 		yield* sql`GRANT USAGE ON SCHEMA synchrotron TO synchrotron_app`.raw
 
 		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_records TO synchrotron_app`.raw
-		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_modified_rows TO synchrotron_app`.raw
-		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE local_applied_action_ids TO synchrotron_app`.raw
-		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE client_sync_status TO synchrotron_app`.raw
-		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE sync_server_meta TO synchrotron_app`.raw
-		yield* sql`GRANT USAGE, SELECT ON SEQUENCE action_records_server_ingest_id_seq TO synchrotron_app`.raw
+		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_modified_rows TO synchrotron_app`
+			.raw
+		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE local_applied_action_ids TO synchrotron_app`
+			.raw
+		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE client_sync_status TO synchrotron_app`
+			.raw
+		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE sync_server_meta TO synchrotron_app`
+			.raw
+		yield* sql`GRANT USAGE, SELECT ON SEQUENCE action_records_server_ingest_id_seq TO synchrotron_app`
+			.raw
 		yield* sql`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO synchrotron_app`.raw
 
-			yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE projects TO synchrotron_app`.raw
-			yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE project_members TO synchrotron_app`.raw
-			yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE notes TO synchrotron_app`.raw
-			yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE note_admin_meta TO synchrotron_app`.raw
-			yield* sql`GRANT SELECT ON TABLE synchrotron.user_audiences TO synchrotron_app`.raw
+		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE projects TO synchrotron_app`.raw
+		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE project_members TO synchrotron_app`.raw
+		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE notes TO synchrotron_app`.raw
+		yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE note_admin_meta TO synchrotron_app`.raw
+		yield* sql`GRANT SELECT ON TABLE synchrotron.user_audiences TO synchrotron_app`.raw
 
 		// Avoid RLS recursion when a sync-table policy needs to verify action_record ownership.
 		// (SELECT policy on action_records references action_modified_rows; an insert policy on
@@ -144,8 +149,10 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 				);
 			$$;
 		`.raw
-		yield* sql`REVOKE ALL ON FUNCTION synchrotron.action_record_belongs_to_user(TEXT, TEXT) FROM PUBLIC`.raw
-		yield* sql`GRANT EXECUTE ON FUNCTION synchrotron.action_record_belongs_to_user(TEXT, TEXT) TO synchrotron_app`.raw
+		yield* sql`REVOKE ALL ON FUNCTION synchrotron.action_record_belongs_to_user(TEXT, TEXT) FROM PUBLIC`
+			.raw
+		yield* sql`GRANT EXECUTE ON FUNCTION synchrotron.action_record_belongs_to_user(TEXT, TEXT) TO synchrotron_app`
+			.raw
 
 		// Sync tables RLS
 		yield* sql`ALTER TABLE action_records ENABLE ROW LEVEL SECURITY`.raw
@@ -178,8 +185,10 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 				WITH CHECK (user_id = current_setting('synchrotron.user_id', true))
 		`.raw
 
-		yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_select ON action_modified_rows`.raw
-		yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_insert ON action_modified_rows`.raw
+		yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_select ON action_modified_rows`
+			.raw
+		yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_insert ON action_modified_rows`
+			.raw
 		yield* sql`
 			CREATE POLICY synchrotron_action_modified_rows_select ON action_modified_rows
 				FOR SELECT
@@ -214,10 +223,10 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 				)
 		`.raw
 
-			// Example app table RLS
-			yield* sql`ALTER TABLE notes ENABLE ROW LEVEL SECURITY`.raw
-			yield* sql`DROP POLICY IF EXISTS notes_user_policy ON notes`.raw
-			yield* sql`
+		// Example app table RLS
+		yield* sql`ALTER TABLE notes ENABLE ROW LEVEL SECURITY`.raw
+		yield* sql`DROP POLICY IF EXISTS notes_user_policy ON notes`.raw
+		yield* sql`
 				CREATE POLICY notes_user_policy ON notes
 				USING (
 					EXISTS (
@@ -237,9 +246,9 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 					)
 			`.raw
 
-			yield* sql`ALTER TABLE note_admin_meta ENABLE ROW LEVEL SECURITY`.raw
-			yield* sql`DROP POLICY IF EXISTS note_admin_meta_user_policy ON note_admin_meta`.raw
-			yield* sql`
+		yield* sql`ALTER TABLE note_admin_meta ENABLE ROW LEVEL SECURITY`.raw
+		yield* sql`DROP POLICY IF EXISTS note_admin_meta_user_policy ON note_admin_meta`.raw
+		yield* sql`
 				CREATE POLICY note_admin_meta_user_policy ON note_admin_meta
 					USING (
 						EXISTS (
@@ -258,7 +267,7 @@ const setupServerDatabasePostgres = (params: { readonly databaseName: string }) 
 						)
 					)
 			`.raw
-		})
+	})
 
 export const makeInProcessSyncRpcServerPostgres = (options: {
 	readonly configProvider: ConfigProvider.ConfigProvider
@@ -290,7 +299,10 @@ export const makeInProcessSyncRpcServerPostgres = (options: {
 			maxConnections: 1
 		}).pipe(Layer.fresh)
 
-		yield* setupServerDatabasePostgres({ databaseName }).pipe(Effect.provide(AdminDbLive), Effect.scoped)
+		yield* setupServerDatabasePostgres({ databaseName }).pipe(
+			Effect.provide(AdminDbLive),
+			Effect.scoped
+		)
 
 		const AppDbLive = PgClient.layer({
 			url: Redacted.make(appDbUrl),
@@ -306,7 +318,9 @@ export const makeInProcessSyncRpcServerPostgres = (options: {
 			createSyncSnapshotConfig(["notes"])
 		)
 
-		const runtime = yield* Layer.toRuntime(serverLayer).pipe(Effect.withConfigProvider(options.configProvider))
+		const runtime = yield* Layer.toRuntime(serverLayer).pipe(
+			Effect.withConfigProvider(options.configProvider)
+		)
 		const rpcHttpApp = yield* RpcServer.toHttpApp(SyncNetworkRpcGroup).pipe(Effect.provide(runtime))
 		const handler = HttpApp.toWebHandlerRuntime(runtime)(rpcHttpApp)
 

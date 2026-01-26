@@ -1,6 +1,6 @@
 # Shared rows: `audience_key`
 
-For multi-user / collaborative data, clients must be able to receive each other’s actions *only* for rows they are allowed to see. Synchrotron does this with an application-defined `audience_key` token stored on both your app tables and the sync log.
+For multi-user / collaborative data, clients must be able to receive each other’s actions _only_ for rows they are allowed to see. Synchrotron does this with an application-defined `audience_key` token stored on both your app tables and the sync log.
 
 ## The model
 
@@ -14,7 +14,7 @@ RLS and sync-log filtering are simple equality checks on `audience_key`, so the 
 - Prefer `'<kind>:' || <stable id>` derived from a single column (project id, thread id, owner id, …).
 - Keep it opaque: don’t embed sensitive data (emails, names, etc).
 - Keep it cheap: compute from the row itself (string concat). Avoid triggers/functions that query other tables to compute it.
-- Avoid encoding *sets* (e.g. a list of members) into the key. If you need “visible to many disjoint groups”, create an explicit share-group/audience id in your schema and use that as the `<id>`.
+- Avoid encoding _sets_ (e.g. a list of members) into the key. If you need “visible to many disjoint groups”, create an explicit share-group/audience id in your schema and use that as the `<id>`.
 - If you must encode multiple parts, define a canonical order and delimiter so the same audience can’t produce multiple strings.
 
 ## Required schema (synced tables)
@@ -108,7 +108,7 @@ Sync table RLS (typical pattern):
 - `action_modified_rows`: `USING/WITH CHECK` membership on `audience_key`.
 - `action_records`: visible iff there exists at least one visible `action_modified_rows` row for that `action_record_id`.
 
-If you also want to enforce that users can only insert AMRs for their *own* actions, avoid a direct `SELECT action_records ...` inside the `action_modified_rows` `WITH CHECK` (it can trigger Postgres RLS rewrite recursion). Use a `SECURITY DEFINER` helper like `synchrotron.action_record_belongs_to_user(action_record_id, user_id)` and call it from the policy instead.
+If you also want to enforce that users can only insert AMRs for their _own_ actions, avoid a direct `SELECT action_records ...` inside the `action_modified_rows` `WITH CHECK` (it can trigger Postgres RLS rewrite recursion). Use a `SECURITY DEFINER` helper like `synchrotron.action_record_belongs_to_user(action_record_id, user_id)` and call it from the policy instead.
 
 See `examples/backend/src/db/setup.ts` for a working policy set.
 
@@ -125,4 +125,4 @@ See `examples/backend/src/db/setup.ts` for a working policy set.
 This is fine, but it means:
 
 - args must be safe to reveal to the **union** of all audiences touched by that action.
-- avoid “bulk” actions that touch many unrelated audiences *and* include cross-audience details in args (e.g. listing project ids); prefer per-audience actions or keep args audience-neutral.
+- avoid “bulk” actions that touch many unrelated audiences _and_ include cross-audience details in args (e.g. listing project ids); prefer per-audience actions or keep args audience-neutral.

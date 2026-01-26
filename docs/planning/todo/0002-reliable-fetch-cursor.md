@@ -40,7 +40,7 @@ Client B can create actions while offline with timestamps that are earlier than 
 - `compare_hlc(clock, last_synced_clock) > 0` is false forever
 - A will never fetch these actions at all (permanent hole), even though they are new rows on the server
 
-This can happen even with “perfect” clocks; it’s fundamentally about *late arrival*.
+This can happen even with “perfect” clocks; it’s fundamentally about _late arrival_.
 
 ## Goals / Non-goals
 
@@ -127,7 +127,7 @@ Server:
 
 Client/core:
 
-- Store `last_seen_server_ingest_id` in `client_sync_status` and expose accessors (implemented in `ClockService`).
+- Store `last_seen_server_ingest_id` in `client_sync_status` and expose accessors (implemented in `ClientClockState`).
 - Update network fetch to pass `sinceServerIngestId` and have the server filter by `server_ingest_id`.
 - After a successful remote apply, advance the watermark to the max `server_ingest_id` among remote (other-client) actions that are already marked as locally applied (i.e. incorporated into materialized state).
 

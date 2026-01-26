@@ -27,7 +27,7 @@ Consumer-facing docs:
 
 The server materializer applies `action_modified_rows` patches to base tables to reach the canonical end state. Today, that patch-apply path is intended to run **under the originating `user_id`** with **base-table RLS enabled**, so a client can’t write rows they aren’t allowed to access.
 
-This interacts badly with **membership churn** when membership is treated as *out-of-band state* (not part of the Synchrotron action history):
+This interacts badly with **membership churn** when membership is treated as _out-of-band state_ (not part of the Synchrotron action history):
 
 - Base-table RLS decisions depend on current membership (`synchrotron.user_audiences`).
 - Late-arriving actions can force the server to **rollback+replay** base tables, which re-applies historical patches.
@@ -83,7 +83,7 @@ Pros:
 Cons / follow-ups:
 
 - Consuming apps must avoid mutating membership/ACL state out-of-band (or must also record it as actions).
-- Revocation visibility is subtle: once removed, a user may not be able to *see* the revocation action via audience-based filtering. They’ll discover it via rejection / missing data unless we add a “revocation notification” pattern.
+- Revocation visibility is subtle: once removed, a user may not be able to _see_ the revocation action via audience-based filtering. They’ll discover it via rejection / missing data unless we add a “revocation notification” pattern.
 - Server materialization should apply patches **per action** under `action_records.user_id` (not under the current request user), otherwise per-user permission rules can be violated during replay.
 
 ### Option B — Decouple materialization from base-table RLS (apply as privileged)

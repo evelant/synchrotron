@@ -86,8 +86,8 @@ In the shared-row model, both typically use the same predicate:
 
 Sync-table RLS has two distinct jobs:
 
-1) **Client visibility**: filter `action_modified_rows` and `action_records` so clients only receive rows they’re authorized to see.
-2) **Ingest-time safety**: reject a user inserting sync-log rows for an action they don’t own, or for an audience they aren’t a member of.
+1. **Client visibility**: filter `action_modified_rows` and `action_records` so clients only receive rows they’re authorized to see.
+2. **Ingest-time safety**: reject a user inserting sync-log rows for an action they don’t own, or for an audience they aren’t a member of.
 
 The v1 model is:
 
@@ -96,7 +96,7 @@ The v1 model is:
 
 ### 7) Server materialization + membership churn
 
-Server rollback+replay needs to read the full canonical sync log even when the *request user* cannot see it (e.g. after membership revocation). The recommended pattern is:
+Server rollback+replay needs to read the full canonical sync log even when the _request user_ cannot see it (e.g. after membership revocation). The recommended pattern is:
 
 - allow sync-log `SELECT` when `synchrotron.internal_materializer=true` (transaction-local), additionally gated by DB role (`current_user = 'synchrotron_app'`)
 - keep base-table RLS as the enforcement boundary by applying patches under the **originating action principal** (`action_records.user_id`)

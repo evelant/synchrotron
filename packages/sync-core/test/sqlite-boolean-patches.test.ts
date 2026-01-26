@@ -45,7 +45,9 @@ describe("SQLite patch capture encodes booleans", () => {
 							createTodo({ id: crypto.randomUUID(), completed: false })
 						)
 
-						const amrs = yield* client.actionModifiedRowRepo.findByActionRecordIds([actionRecord.id])
+						const amrs = yield* client.actionModifiedRowRepo.findByActionRecordIds([
+							actionRecord.id
+						])
 						expect(amrs.length).toBe(1)
 
 						const amr = amrs[0]

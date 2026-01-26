@@ -4,7 +4,11 @@ import { ConfigProvider, Effect } from "effect"
 import { SignJWT, exportJWK, generateKeyPair } from "jose"
 import { SyncAuthService } from "../src/SyncAuthService"
 
-const signHs256Jwt = (params: { readonly secret: string; readonly sub: string; readonly aud?: string }) =>
+const signHs256Jwt = (params: {
+	readonly secret: string
+	readonly sub: string
+	readonly aud?: string
+}) =>
 	new SignJWT({ role: "authenticated" })
 		.setProtectedHeader({ alg: "HS256" })
 		.setSubject(params.sub)
@@ -21,18 +25,18 @@ describe("SyncAuthService (JWT)", () => {
 				signHs256Jwt({ secret, sub: "userA", aud: "authenticated" })
 			)
 
-				const userId = yield* Effect.gen(function* () {
-					const auth = yield* SyncAuthService
-					return yield* auth.requireUserId(
-						Headers.fromInput({
-							authorization: `Bearer ${token}`
-						})
-					)
-				}).pipe(
-					Effect.provide(SyncAuthService.Default),
-					Effect.withConfigProvider(
-						ConfigProvider.fromMap(
-							new Map([
+			const userId = yield* Effect.gen(function* () {
+				const auth = yield* SyncAuthService
+				return yield* auth.requireUserId(
+					Headers.fromInput({
+						authorization: `Bearer ${token}`
+					})
+				)
+			}).pipe(
+				Effect.provide(SyncAuthService.Default),
+				Effect.withConfigProvider(
+					ConfigProvider.fromMap(
+						new Map([
 							["SYNC_JWT_SECRET", secret],
 							["SYNC_JWT_AUD", "authenticated"]
 						])
@@ -136,18 +140,18 @@ describe("SyncAuthService (JWT)", () => {
 				signHs256Jwt({ secret: "wrong-secret-wrong-secret-wrong", sub: "userA" })
 			)
 
-				const error = yield* Effect.gen(function* () {
-					const auth = yield* SyncAuthService
-					return yield* auth.requireUserId(
-						Headers.fromInput({
-							authorization: `Bearer ${token}`
-						})
-					)
-				}).pipe(
-					Effect.provide(SyncAuthService.Default),
-					Effect.withConfigProvider(ConfigProvider.fromMap(new Map([["SYNC_JWT_SECRET", secret]]))),
-					Effect.flip
+			const error = yield* Effect.gen(function* () {
+				const auth = yield* SyncAuthService
+				return yield* auth.requireUserId(
+					Headers.fromInput({
+						authorization: `Bearer ${token}`
+					})
 				)
+			}).pipe(
+				Effect.provide(SyncAuthService.Default),
+				Effect.withConfigProvider(ConfigProvider.fromMap(new Map([["SYNC_JWT_SECRET", secret]]))),
+				Effect.flip
+			)
 
 			expect(error._tag).toBe("UnauthorizedError")
 			expect(error.message).toContain("Invalid JWT")

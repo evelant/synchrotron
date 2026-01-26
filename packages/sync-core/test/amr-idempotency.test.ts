@@ -63,8 +63,7 @@ describe("AMR apply idempotency", () => {
 				yield* sql`SELECT apply_forward_amr(${amrId})`
 				yield* sql`SELECT apply_forward_amr(${amrId})`
 
-				const row =
-					yield* sql<{ id: string; value: string }>`
+				const row = yield* sql<{ id: string; value: string }>`
 						SELECT id, value FROM test_amr_idempotent_insert WHERE id = ${rowId}
 					`
 				expect(row[0]?.value).toBe("value-1")
@@ -77,8 +76,8 @@ describe("AMR apply idempotency", () => {
 				),
 				Effect.provide(makeTestLayers("server"))
 			),
-			{ timeout: 30000 }
-		)
+		{ timeout: 30000 }
+	)
 
 	it.scoped(
 		"apply_forward_amr supplies base-table audience_key from AMR audience_key when patches omit it",
@@ -140,8 +139,7 @@ describe("AMR apply idempotency", () => {
 				yield* sql`SELECT set_config('sync.disable_trigger', 'true', true)`
 				yield* sql`SELECT apply_forward_amr(${amrId})`
 
-				const row =
-					yield* sql<{ id: string; value: string; audience_key: string }>`
+				const row = yield* sql<{ id: string; value: string; audience_key: string }>`
 						SELECT id, value, audience_key
 						FROM test_amr_insert_audience_key
 						WHERE id = ${rowId}

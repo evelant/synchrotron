@@ -76,7 +76,7 @@ Today:
 
 Adapter implications:
 
-- Needs a stable concept of “tracking action id” for patch capture (which is *not always* the action id used for deterministic IDs).
+- Needs a stable concept of “tracking action id” for patch capture (which is _not always_ the action id used for deterministic IDs).
 - Must support sequence numbering per tracked action record.
 
 ### 3) Rollback + replay correctness
@@ -135,40 +135,40 @@ The sync engine (SyncService + repos) should depend on a narrow adapter instead 
 
 ```ts
 // Client-only scope: server remains Postgres.
-export type ClientDbBackend = "pglite" | "sqlite";
+export type ClientDbBackend = "pglite" | "sqlite"
 
 export interface SyncDbAdapter {
-  readonly backend: ClientDbBackend;
-  // Consider also exposing the @effect/sql dialect name for sql.onDialect usage:
-  // readonly dialect: "pg" | "sqlite";
+	readonly backend: ClientDbBackend
+	// Consider also exposing the @effect/sql dialect name for sql.onDialect usage:
+	// readonly dialect: "pg" | "sqlite";
 
-  // Schema/bootstrap
-  initializeSyncSchema: Effect<void>;
-  installSyncTriggers: (tables: readonly string[]) => Effect<void>;
-  validateSyncedTables: (tables: readonly string[]) => Effect<void>;
+	// Schema/bootstrap
+	initializeSyncSchema: Effect<void>
+	installSyncTriggers: (tables: readonly string[]) => Effect<void>
+	validateSyncedTables: (tables: readonly string[]) => Effect<void>
 
-  // Transactions & trigger context
-  withTransaction: <A, E, R>(fa: Effect<A, E, R>) => Effect<A, E, R>;
-  setIdGenerationContext: (actionRecordId: string) => Effect<void>;
-  setPatchTrackingContext: (trackingActionRecordId: string) => Effect<void>;
-  setTriggerMode: (mode: "normal" | "applyPatches" | "rollback" | "disabled") => Effect<void>;
+	// Transactions & trigger context
+	withTransaction: <A, E, R>(fa: Effect<A, E, R>) => Effect<A, E, R>
+	setIdGenerationContext: (actionRecordId: string) => Effect<void>
+	setPatchTrackingContext: (trackingActionRecordId: string) => Effect<void>
+	setTriggerMode: (mode: "normal" | "applyPatches" | "rollback" | "disabled") => Effect<void>
 
-  // Query utilities
-  computeSortableClock: (clock: HLC) => string;
+	// Query utilities
+	computeSortableClock: (clock: HLC) => string
 
-  // Patch/rollback primitives (portable TS implementation can live behind these)
-  getAmrsForActionIds: (actionIds: readonly string[]) => Effect<readonly ActionModifiedRow[]>;
-  getAmrsForTrackingAction: (trackingActionId: string) => Effect<readonly ActionModifiedRow[]>;
-  applyForwardAmrs: (amrIds: readonly string[]) => Effect<void>;
-  applyReverseAmrs: (amrIds: readonly string[]) => Effect<void>;
-  rollbackToAction: (actionIdOrNull: string | null) => Effect<void>;
-  findCommonAncestor: () => Effect<Option<ActionRecord>>;
+	// Patch/rollback primitives (portable TS implementation can live behind these)
+	getAmrsForActionIds: (actionIds: readonly string[]) => Effect<readonly ActionModifiedRow[]>
+	getAmrsForTrackingAction: (trackingActionId: string) => Effect<readonly ActionModifiedRow[]>
+	applyForwardAmrs: (amrIds: readonly string[]) => Effect<void>
+	applyReverseAmrs: (amrIds: readonly string[]) => Effect<void>
+	rollbackToAction: (actionIdOrNull: string | null) => Effect<void>
+	findCommonAncestor: () => Effect<Option<ActionRecord>>
 }
 ```
 
 Notes:
 
-- This interface is intentionally *behavioral* rather than “SQL feature mapping”.
+- This interface is intentionally _behavioral_ rather than “SQL feature mapping”.
 - The adapter can implement methods either in SQL (Postgres) or in TypeScript (SQLite) as long as invariants hold.
 
 ### Capability flags (optional but recommended)
@@ -177,10 +177,10 @@ Some backends may not support all features equally. Add capabilities so the engi
 
 ```ts
 export interface SyncDbCapabilities {
-  hasTriggers: boolean;
-  canAssignIdInTrigger: boolean; // SQLite needs a pattern workaround
-  hasJsonFunctions: boolean;     // e.g. SQLite JSON1
-  hasSessionVariables: boolean;  // Postgres set_config/current_setting
+	hasTriggers: boolean
+	canAssignIdInTrigger: boolean // SQLite needs a pattern workaround
+	hasJsonFunctions: boolean // e.g. SQLite JSON1
+	hasSessionVariables: boolean // Postgres set_config/current_setting
 }
 ```
 
@@ -198,7 +198,7 @@ This implies:
 1. **Define a backend-agnostic spec** for content hashing (no reliance on Postgres `jsonb::text` formatting).
 2. **Define a backend-agnostic encoding** for patch values (types, nulls, dates, arrays).
 
-If we do *not* enforce compatibility, we must explicitly require “all clients for a dataset use the same backend”, which is usually an unacceptable product constraint.
+If we do _not_ enforce compatibility, we must explicitly require “all clients for a dataset use the same backend”, which is usually an unacceptable product constraint.
 
 ## Deterministic ID spec (proposed)
 
@@ -227,7 +227,7 @@ Where:
   - booleans → `"true"|"false"`
   - numbers → decimal string with no trailing `.0` normalization surprises (define exact rules)
   - strings → UTF-8 with escaping (or use JSON string encoding)
-  - structured values → require storing as JSON *text* and treat it as an opaque string (initially)
+  - structured values → require storing as JSON _text_ and treat it as an opaque string (initially)
 
 Then:
 
@@ -269,9 +269,9 @@ Introduce typed patch values:
 
 ```json
 {
-  "colA": { "t": "text", "v": "hello" },
-  "colB": { "t": "int64", "v": "1700000000000" },
-  "colC": { "t": "json", "v": "{\"x\":1}" }
+	"colA": { "t": "text", "v": "hello" },
+	"colB": { "t": "int64", "v": "1700000000000" },
+	"colC": { "t": "json", "v": "{\"x\":1}" }
 }
 ```
 
@@ -370,24 +370,27 @@ Pseudo-wiring:
 ```ts
 // sync-client
 export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConfigData>) => {
-  const configLayer = createSynchrotronConfig(config)
+	const configLayer = createSynchrotronConfig(config)
+	const keyValueStoreLayer = BrowserKeyValueStore.layerLocalStorage
 
-  const dbLayer = Layer.unwrapEffect(
-    Effect.gen(function* () {
-      const cfg = yield* SynchrotronClientConfig
-      return cfg.clientDb === "sqlite" ? SqliteClientLive : PgLiteClientLive
-    })
-  )
+	const dbLayer = Layer.unwrapEffect(
+		Effect.gen(function* () {
+			const cfg = yield* SynchrotronClientConfig
+			return cfg.clientDb === "sqlite" ? SqliteClientLive : PgLiteClientLive
+		})
+	)
 
-  return SyncDbAdapterLive.pipe(
-    Layer.provideMerge(dbLayer),
-    Layer.provideMerge(SyncService.Default),
-    Layer.provideMerge(ActionRecordRepo.Default),
-    Layer.provideMerge(ActionModifiedRowRepo.Default),
-    Layer.provideMerge(ActionRegistry.Default),
-    Layer.provideMerge(ClockService.Default),
-    Layer.provideMerge(configLayer)
-  )
+	return SyncDbAdapterLive.pipe(
+		Layer.provideMerge(dbLayer),
+		Layer.provideMerge(SyncService.Default),
+		Layer.provideMerge(ActionRecordRepo.Default),
+		Layer.provideMerge(ActionModifiedRowRepo.Default),
+		Layer.provideMerge(ActionRegistry.Default),
+		Layer.provideMerge(ClientClockState.Default),
+		Layer.provideMerge(ClientIdentityLive),
+		Layer.provideMerge(keyValueStoreLayer),
+		Layer.provideMerge(configLayer)
+	)
 }
 ```
 

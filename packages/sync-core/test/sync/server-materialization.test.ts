@@ -30,9 +30,13 @@ describe("Server materialization", () => {
 
 				const actionsToSend = yield* clientA.actionRecordRepo.allUnsynced()
 				const amrsToSend = yield* clientA.actionModifiedRowRepo.allUnsynced()
-				const basisServerIngestId = yield* clientA.clockService.getLastSeenServerIngestId
+				const basisServerIngestId = yield* clientA.clockState.getLastSeenServerIngestId
 
-				yield* clientA.syncNetworkService.sendLocalActions(actionsToSend, amrsToSend, basisServerIngestId)
+				yield* clientA.syncNetworkService.sendLocalActions(
+					actionsToSend,
+					amrsToSend,
+					basisServerIngestId
+				)
 
 				const before = yield* serverSql<{ id: string; title: string }>`
 					SELECT id, title FROM notes WHERE id = ${note.id}
@@ -44,7 +48,11 @@ describe("Server materialization", () => {
 				`
 
 				// Retry the exact same upload (e.g. lost ACK); server should not duplicate rows or re-apply.
-				yield* clientA.syncNetworkService.sendLocalActions(actionsToSend, amrsToSend, basisServerIngestId)
+				yield* clientA.syncNetworkService.sendLocalActions(
+					actionsToSend,
+					amrsToSend,
+					basisServerIngestId
+				)
 
 				const after = yield* serverSql<{ id: string; title: string }>`
 					SELECT id, title FROM notes WHERE id = ${note.id}
@@ -61,7 +69,7 @@ describe("Server materialization", () => {
 				`
 				expect(amrCountAfter[0]?.count).toBe(amrCountBefore[0]?.count)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
-			{ timeout: 30000 }
+		{ timeout: 30000 }
 	)
 
 	it.scoped(
@@ -210,16 +218,12 @@ describe("Server materialization", () => {
 						Effect.gen(function* () {
 							yield* clientOldSql`
 								UPDATE notes
-								SET title = ${args.firstTitle}, updated_at = ${new Date(
-									args.timestamp
-								).toISOString()}
+								SET title = ${args.firstTitle}, updated_at = ${new Date(args.timestamp).toISOString()}
 								WHERE id = ${args.id}
 							`
 							yield* clientOldSql`
 								UPDATE notes
-								SET title = ${args.secondTitle}, updated_at = ${new Date(
-									args.timestamp + 1
-								).toISOString()}
+								SET title = ${args.secondTitle}, updated_at = ${new Date(args.timestamp + 1).toISOString()}
 								WHERE id = ${args.id}
 							`
 						})
@@ -361,12 +365,12 @@ describe("Server materialization", () => {
 	it.scoped(
 		"late-arriving insert does not resurrect a row after a newer delete (delete ordering)",
 		() =>
-				Effect.gen(function* () {
-					const serverSql = yield* PgliteClient.PgliteClient
+			Effect.gen(function* () {
+				const serverSql = yield* PgliteClient.PgliteClient
 
-					const creator = yield* createTestClient("creator", serverSql).pipe(Effect.orDie)
-					const deleter = yield* createTestClient("deleter", serverSql).pipe(Effect.orDie)
-					const reCreator = yield* createTestClient("reCreator", serverSql).pipe(Effect.orDie)
+				const creator = yield* createTestClient("creator", serverSql).pipe(Effect.orDie)
+				const deleter = yield* createTestClient("deleter", serverSql).pipe(Effect.orDie)
+				const reCreator = yield* createTestClient("reCreator", serverSql).pipe(Effect.orDie)
 
 				const noteId = crypto.randomUUID()
 				yield* creator.syncService.executeAction(
@@ -380,33 +384,33 @@ describe("Server materialization", () => {
 				)
 				yield* creator.syncService.performSync()
 
-					// Ensure deleter sees the note so its delete produces patches.
-					yield* deleter.syncService.performSync()
+				// Ensure deleter sees the note so its delete produces patches.
+				yield* deleter.syncService.performSync()
 
-					// Create the same note offline (same id), but keep it pending.
-					const { result: recreated, actionRecord: recreateAction } =
-						yield* reCreator.syncService.executeAction(
-							reCreator.testHelpers.createNoteWithIdAction({
-								id: noteId,
-								title: "Base",
-								content: "",
-								user_id: "user-1",
-								timestamp: 1000
-							})
-						)
-					expect(recreated.id).toBe(noteId)
+				// Create the same note offline (same id), but keep it pending.
+				const { result: recreated, actionRecord: recreateAction } =
+					yield* reCreator.syncService.executeAction(
+						reCreator.testHelpers.createNoteWithIdAction({
+							id: noteId,
+							title: "Base",
+							content: "",
+							user_id: "user-1",
+							timestamp: 1000
+						})
+					)
+				expect(recreated.id).toBe(noteId)
 
 				yield* waitForNextMillisecond
 
-					const { actionRecord: deleteAction } = yield* deleter.syncService.executeAction(
-						deleter.testHelpers.deleteContentAction({
-							id: noteId,
-							user_id: "user-1",
-							timestamp: 2000
-						})
-					)
-					expect(recreateAction.clock.timestamp).toBeLessThan(deleteAction.clock.timestamp)
-					yield* deleter.syncService.performSync()
+				const { actionRecord: deleteAction } = yield* deleter.syncService.executeAction(
+					deleter.testHelpers.deleteContentAction({
+						id: noteId,
+						user_id: "user-1",
+						timestamp: 2000
+					})
+				)
+				expect(recreateAction.clock.timestamp).toBeLessThan(deleteAction.clock.timestamp)
+				yield* deleter.syncService.performSync()
 
 				const afterDelete = yield* serverSql<{ count: number }>`
 					SELECT count(*)::int as count FROM notes WHERE id = ${noteId}
@@ -421,18 +425,22 @@ describe("Server materialization", () => {
 					SELECT max(server_ingest_id) as head FROM action_records
 				`
 				const head = Number(headRow[0]?.head ?? 0)
-				yield* reCreator.clockService.advanceLastSeenServerIngestId(head)
+				yield* reCreator.clockState.advanceLastSeenServerIngestId(head)
 
 				const actionsToSend = yield* reCreator.actionRecordRepo.allUnsynced()
 				const amrsToSend = yield* reCreator.actionModifiedRowRepo.allUnsynced()
-				const basisServerIngestId = yield* reCreator.clockService.getLastSeenServerIngestId
-				yield* reCreator.syncNetworkService.sendLocalActions(actionsToSend, amrsToSend, basisServerIngestId)
+				const basisServerIngestId = yield* reCreator.clockState.getLastSeenServerIngestId
+				yield* reCreator.syncNetworkService.sendLocalActions(
+					actionsToSend,
+					amrsToSend,
+					basisServerIngestId
+				)
 
-					const afterLateInsert = yield* serverSql<{ count: number }>`
+				const afterLateInsert = yield* serverSql<{ count: number }>`
 						SELECT count(*)::int as count FROM notes WHERE id = ${noteId}
 					`
-					expect(afterLateInsert[0]?.count).toBe(0)
-				}).pipe(Effect.provide(makeTestLayers("server"))),
+				expect(afterLateInsert[0]?.count).toBe(0)
+			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30000 }
 	)
 })

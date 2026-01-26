@@ -4,11 +4,12 @@ This folder contains **internal planning docs** for Synchrotron. These are not u
 
 ## Active / Open
 
-| ID     | Topic                                       | Status              | Next                                                                                                                                          |
-| ------ | ------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0015` | Failure modes + recovery (no stuck clients) | In progress         | Add discontinuity detection + unsyncable local work recovery; typed `SendLocalActions*` failures + bounded behind-head retry are implemented. |
-| `0014` | Dev/test action purity check                | Proposed (optional) | Add an opt-in “replay twice” purity check (diagnostics only), likely for CI/dev.                                                              |
-| `0013` | Transport abstraction                       | Proposed (on hold)  | Revisit after core semantics + server correctness stabilize.                                                                                  |
+| ID     | Topic                                       | Status              | Next                                                                                                                                           |
+| ------ | ------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0016` | Architecture + maintainability review       | Draft               | Convert into concrete refactor tasks (package boundaries, ingress/apply contract, layer composition), then track in smaller focused TODO docs. |
+| `0015` | Failure modes + recovery (no stuck clients) | In progress         | Add discontinuity detection + unsyncable local work recovery; typed `SendLocalActions*` failures + bounded behind-head retry are implemented.  |
+| `0014` | Dev/test action purity check                | Proposed (optional) | Add an opt-in “replay twice” purity check (diagnostics only), likely for CI/dev.                                                               |
+| `0013` | Transport abstraction                       | Proposed (on hold)  | Revisit after core semantics + server correctness stabilize.                                                                                   |
 
 ## Chores
 

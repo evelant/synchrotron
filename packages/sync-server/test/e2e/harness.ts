@@ -135,8 +135,10 @@ export const setupServerDatabase = Effect.gen(function* () {
 			WITH CHECK (true)
 	`
 
-	yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_select ON action_modified_rows`.raw
-	yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_insert ON action_modified_rows`.raw
+	yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_select ON action_modified_rows`
+		.raw
+	yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_insert ON action_modified_rows`
+		.raw
 	yield* sql`
 		CREATE POLICY synchrotron_action_modified_rows_select ON action_modified_rows
 			FOR SELECT
@@ -226,7 +228,9 @@ export const makeInProcessSyncRpcServer = (options: {
 			createSyncSnapshotConfig(["notes"])
 		)
 
-		const runtime = yield* Layer.toRuntime(serverLayer).pipe(Effect.withConfigProvider(options.configProvider))
+		const runtime = yield* Layer.toRuntime(serverLayer).pipe(
+			Effect.withConfigProvider(options.configProvider)
+		)
 
 		yield* setupServerDatabase.pipe(Effect.provide(runtime))
 

@@ -19,7 +19,9 @@ describe("SyncService: quarantine + recovery policy", () => {
 			`
 			const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
 
-			const minRows = yield* serverSql<{ readonly min_server_ingest_id: number | string | bigint | null }>`
+			const minRows = yield* serverSql<{
+				readonly min_server_ingest_id: number | string | bigint | null
+			}>`
 				SELECT COALESCE(MIN(server_ingest_id), 0) as min_server_ingest_id
 				FROM action_records
 			`
@@ -59,14 +61,16 @@ describe("SyncService: quarantine + recovery policy", () => {
 				const serverSql = yield* PgliteClient.PgliteClient
 				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
 
-				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(
+					serverNotesSnapshot(serverSql)
+				)
 				yield* clientA.syncNetworkServiceTestHelpers.setSendResults([
 					Effect.fail(
 						new SendLocalActionsInvalid({
 							message: "Simulated invalid upload (should trigger rebase)",
 							code: "E_INVALID"
 						})
-					),
+					)
 				])
 
 				const { result: note } = yield* clientA.syncService.executeAction(
@@ -178,7 +182,9 @@ describe("SyncService: quarantine + recovery policy", () => {
 				const before = yield* clientA.syncService.getQuarantinedActions()
 				expect(before.length).toBeGreaterThan(0)
 
-				const discardResult = yield* clientA.syncService.discardQuarantinedActions().pipe(Effect.orDie)
+				const discardResult = yield* clientA.syncService
+					.discardQuarantinedActions()
+					.pipe(Effect.orDie)
 				expect(discardResult.discardedActionCount).toBeGreaterThan(0)
 
 				const after = yield* clientA.syncService.getQuarantinedActions()

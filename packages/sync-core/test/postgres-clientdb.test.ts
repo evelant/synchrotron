@@ -29,12 +29,14 @@ describe("Postgres ClientDbAdapter (PGlite)", () => {
 				expect(noteAfterFailedInsert[0]?.count).toBe(0)
 
 				const disabledWriteResult = yield* Effect.either(
-					clientDbAdapter.withPatchTrackingDisabled(
-						sql`
+					clientDbAdapter
+						.withPatchTrackingDisabled(
+							sql`
 							INSERT INTO notes (id, title, content, user_id)
 							VALUES ('note-direct', 'X', 'Y', 'user1')
 						`.raw
-					).pipe(sql.withTransaction)
+						)
+						.pipe(sql.withTransaction)
 				)
 				expect(disabledWriteResult._tag).toBe("Right")
 

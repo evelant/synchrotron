@@ -6,9 +6,12 @@ import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowR
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ClientDbAdapter } from "@synchrotron/sync-core/ClientDbAdapter"
+import { ClientIdentity } from "@synchrotron/sync-core"
 import { ClientIdOverride } from "@synchrotron/sync-core/ClientIdOverride"
-import { ClockService } from "@synchrotron/sync-core/ClockService"
-import { SendLocalActionsBehindHead, SyncNetworkService } from "@synchrotron/sync-core/SyncNetworkService"
+import {
+	SendLocalActionsBehindHead,
+	SyncNetworkService
+} from "@synchrotron/sync-core/SyncNetworkService"
 import { SyncService } from "@synchrotron/sync-core/SyncService"
 import { ConfigProvider, Effect, Layer, Runtime, Schema } from "effect"
 import { SignJWT } from "jose"
@@ -21,7 +24,11 @@ const waitForNextMillisecond = Effect.sync(() => {
 	}
 })
 
-const signHs256Jwt = (params: { readonly secret: string; readonly sub: string; readonly aud?: string }) =>
+const signHs256Jwt = (params: {
+	readonly secret: string
+	readonly sub: string
+	readonly aud?: string
+}) =>
 	new SignJWT({ role: "authenticated" })
 		.setProtectedHeader({ alg: "HS256" })
 		.setSubject(params.sub)
@@ -71,7 +78,7 @@ const setupClientNotes = Effect.gen(function* () {
 const defineClientActions = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient
 	const actionRegistry = yield* ActionRegistry
-	const clockService = yield* ClockService
+	const identity = yield* ClientIdentity
 
 	const createNoteWithId = actionRegistry.defineAction(
 		"e2e-create-note-with-id",
@@ -99,7 +106,7 @@ const defineClientActions = Effect.gen(function* () {
 		}),
 		(args) =>
 			Effect.gen(function* () {
-				const clientId = yield* clockService.getNodeId
+				const clientId = yield* identity.get
 				yield* sql`
 					UPDATE notes
 					SET content = ${`${args.baseContent}-${clientId}`}
@@ -171,13 +178,16 @@ const makeClientLayer = (params: {
 			pglite: { dataDir: params.pgliteDataDir, debug: 0, relaxedDurability: true }
 		},
 		{ keyValueStoreLayer: KeyValueStore.layerMemory.pipe(Layer.fresh) }
-	).pipe(Layer.provideMerge(Layer.succeed(ClientIdOverride, params.clientId)), Layer.provideMerge(Layer.scope))
+	).pipe(
+		Layer.provideMerge(Layer.succeed(ClientIdOverride, params.clientId)),
+		Layer.provideMerge(Layer.scope)
+	)
 
-	describe("E2E (HTTP RPC): SyncNetworkServiceLive + SyncNetworkRpcHandlersLive", () => {
-		it.scoped(
-			"bootstrap from empty client DB uses server snapshot (no action replay)",
-			() =>
-				Effect.gen(function* () {
+describe("E2E (HTTP RPC): SyncNetworkServiceLive + SyncNetworkRpcHandlersLive", () => {
+	it.scoped(
+		"bootstrap from empty client DB uses server snapshot (no action replay)",
+		() =>
+			Effect.gen(function* () {
 				const secret = "supersecretvalue-supersecretvalue"
 				const token = yield* Effect.promise(() =>
 					signHs256Jwt({ secret, sub: "userA", aud: "authenticated" })
@@ -195,21 +205,25 @@ const makeClientLayer = (params: {
 				})
 
 				const syncRpcUrl = `${server.baseUrl}/rpc`
-					const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-						Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
-					const runOnServerAsUser =
-						(userId: string) =>
-						<A, E, R>(effect: Effect.Effect<A, E, R>) =>
-							runOnServer(
-								Effect.gen(function* () {
-									const sql = yield* SqlClient.SqlClient
-									return yield* Effect.gen(function* () {
-										yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
-										yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
-										return yield* effect
-									}).pipe(sql.withTransaction)
-								})
-							)
+				const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<
+						A,
+						E,
+						never
+					>
+				const runOnServerAsUser =
+					(userId: string) =>
+					<A, E, R>(effect: Effect.Effect<A, E, R>) =>
+						runOnServer(
+							Effect.gen(function* () {
+								const sql = yield* SqlClient.SqlClient
+								return yield* Effect.gen(function* () {
+									yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+									yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+									return yield* effect
+								}).pipe(sql.withTransaction)
+							})
+						)
 
 				const noteId = crypto.randomUUID()
 				const projectId = `project-${crypto.randomUUID()}`
@@ -263,144 +277,144 @@ const makeClientLayer = (params: {
 						)
 						const clientFreshSync = yield* SyncService.pipe(Effect.provide(clientFreshContext))
 
-							yield* setupClientNotes.pipe(Effect.provide(clientFreshContext))
-							yield* defineClientActions.pipe(Effect.provide(clientFreshContext))
-							yield* clientFreshSync.performSync()
+						yield* setupClientNotes.pipe(Effect.provide(clientFreshContext))
+						yield* defineClientActions.pipe(Effect.provide(clientFreshContext))
+						yield* clientFreshSync.performSync()
 
-								const restored = yield* getNoteContent(noteId).pipe(Effect.provide(clientFreshContext))
-								expect(restored).toBe("hello")
-								const freshLogCount = yield* Effect.gen(function* () {
-									const sql = yield* SqlClient.SqlClient
-									const rows = yield* sql<{ readonly count: number | string }>`
+						const restored = yield* getNoteContent(noteId).pipe(Effect.provide(clientFreshContext))
+						expect(restored).toBe("hello")
+						const freshLogCount = yield* Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient
+							const rows = yield* sql<{ readonly count: number | string }>`
 										SELECT count(*)::int as count
 									FROM action_records
 								`
-								return typeof rows[0]?.count === "number"
-									? rows[0].count
-									: Number(rows[0]?.count ?? 0)
-							}).pipe(Effect.provide(clientFreshContext))
-							expect(freshLogCount).toBe(0)
-							const serverCount = yield* runOnServerAsUser("userA")(getNoteCount)
-							expect(serverCount).toBe(1)
-						})
-					)
-				}),
-			{ timeout: 30000 }
-		)
-
-		it.scoped(
-			"bootstrap snapshot then tail sync applies subsequent remote actions",
-			() =>
-				Effect.gen(function* () {
-					const secret = "supersecretvalue-supersecretvalue"
-					const token = yield* Effect.promise(() =>
-						signHs256Jwt({ secret, sub: "userA", aud: "authenticated" })
-					)
-
-					const server = yield* makeInProcessSyncRpcServer({
-						dataDir: `memory://server-${crypto.randomUUID()}`,
-						baseUrl: TestSyncRpcBaseUrl,
-						configProvider: ConfigProvider.fromMap(
-							new Map([
-								["SYNC_JWT_SECRET", secret],
-								["SYNC_JWT_AUD", "authenticated"]
-							])
-						)
+							return typeof rows[0]?.count === "number"
+								? rows[0].count
+								: Number(rows[0]?.count ?? 0)
+						}).pipe(Effect.provide(clientFreshContext))
+						expect(freshLogCount).toBe(0)
+						const serverCount = yield* runOnServerAsUser("userA")(getNoteCount)
+						expect(serverCount).toBe(1)
 					})
+				)
+			}),
+		{ timeout: 30000 }
+	)
 
-					const syncRpcUrl = `${server.baseUrl}/rpc`
-					const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-						Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<
-							A,
-							E,
-							never
-						>
+	it.scoped(
+		"bootstrap snapshot then tail sync applies subsequent remote actions",
+		() =>
+			Effect.gen(function* () {
+				const secret = "supersecretvalue-supersecretvalue"
+				const token = yield* Effect.promise(() =>
+					signHs256Jwt({ secret, sub: "userA", aud: "authenticated" })
+				)
 
-					const projectId = `project-${crypto.randomUUID()}`
-					const noteId = crypto.randomUUID()
+				const server = yield* makeInProcessSyncRpcServer({
+					dataDir: `memory://server-${crypto.randomUUID()}`,
+					baseUrl: TestSyncRpcBaseUrl,
+					configProvider: ConfigProvider.fromMap(
+						new Map([
+							["SYNC_JWT_SECRET", secret],
+							["SYNC_JWT_AUD", "authenticated"]
+						])
+					)
+				})
 
-					yield* runOnServer(
-						Effect.gen(function* () {
-							const sql = yield* SqlClient.SqlClient
-							yield* sql`INSERT INTO projects (id) VALUES (${projectId}) ON CONFLICT DO NOTHING`
-							yield* sql`
+				const syncRpcUrl = `${server.baseUrl}/rpc`
+				const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<
+						A,
+						E,
+						never
+					>
+
+				const projectId = `project-${crypto.randomUUID()}`
+				const noteId = crypto.randomUUID()
+
+				yield* runOnServer(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient
+						yield* sql`INSERT INTO projects (id) VALUES (${projectId}) ON CONFLICT DO NOTHING`
+						yield* sql`
 								INSERT INTO project_members (id, project_id, user_id)
 								VALUES (${`${projectId}-userA`}, ${projectId}, 'userA')
 								ON CONFLICT DO NOTHING
 							`
-						})
-					)
+					})
+				)
 
-					yield* withInProcessFetch(
-						server.baseUrl,
-						server.handler,
-						Effect.gen(function* () {
-							const clientAContext = yield* Layer.build(
-								makeClientLayer({
-									clientId: "clientA",
-									syncRpcUrl,
-									syncRpcAuthToken: token,
-									pgliteDataDir: `memory://clientA-${crypto.randomUUID()}`
-								})
-							)
+				yield* withInProcessFetch(
+					server.baseUrl,
+					server.handler,
+					Effect.gen(function* () {
+						const clientAContext = yield* Layer.build(
+							makeClientLayer({
+								clientId: "clientA",
+								syncRpcUrl,
+								syncRpcAuthToken: token,
+								pgliteDataDir: `memory://clientA-${crypto.randomUUID()}`
+							})
+						)
 
-							const clientAActions = yield* defineClientActions.pipe(Effect.provide(clientAContext))
-							const clientASync = yield* SyncService.pipe(Effect.provide(clientAContext))
+						const clientAActions = yield* defineClientActions.pipe(Effect.provide(clientAContext))
+						const clientASync = yield* SyncService.pipe(Effect.provide(clientAContext))
 
-							yield* setupClientNotes.pipe(Effect.provide(clientAContext))
-							yield* clientASync.executeAction(
-								clientAActions.createNoteWithId({
-									id: noteId,
-									content: "hello",
-									project_id: projectId,
-									timestamp: 1000
-								})
-							)
-							yield* clientASync.performSync()
+						yield* setupClientNotes.pipe(Effect.provide(clientAContext))
+						yield* clientASync.executeAction(
+							clientAActions.createNoteWithId({
+								id: noteId,
+								content: "hello",
+								project_id: projectId,
+								timestamp: 1000
+							})
+						)
+						yield* clientASync.performSync()
 
-							const clientFreshContext = yield* Layer.build(
-								makeClientLayer({
-									clientId: "clientFresh",
-									syncRpcUrl,
-									syncRpcAuthToken: token,
-									pgliteDataDir: `memory://clientFresh-${crypto.randomUUID()}`
-								})
-							)
-							const clientFreshSync = yield* SyncService.pipe(Effect.provide(clientFreshContext))
+						const clientFreshContext = yield* Layer.build(
+							makeClientLayer({
+								clientId: "clientFresh",
+								syncRpcUrl,
+								syncRpcAuthToken: token,
+								pgliteDataDir: `memory://clientFresh-${crypto.randomUUID()}`
+							})
+						)
+						const clientFreshSync = yield* SyncService.pipe(Effect.provide(clientFreshContext))
 
-								yield* setupClientNotes.pipe(Effect.provide(clientFreshContext))
-								yield* defineClientActions.pipe(Effect.provide(clientFreshContext))
-								yield* clientFreshSync.performSync()
+						yield* setupClientNotes.pipe(Effect.provide(clientFreshContext))
+						yield* defineClientActions.pipe(Effect.provide(clientFreshContext))
+						yield* clientFreshSync.performSync()
 
-							expect(yield* getNoteContent(noteId).pipe(Effect.provide(clientFreshContext))).toBe(
-								"hello"
-							)
+						expect(yield* getNoteContent(noteId).pipe(Effect.provide(clientFreshContext))).toBe(
+							"hello"
+						)
 
-							yield* waitForNextMillisecond
+						yield* waitForNextMillisecond
 
-							yield* clientASync.executeAction(
-								clientAActions.updateNoteContent({
-									id: noteId,
-									content: "world",
-									timestamp: 2000
-								})
-							)
-							yield* clientASync.performSync()
+						yield* clientASync.executeAction(
+							clientAActions.updateNoteContent({
+								id: noteId,
+								content: "world",
+								timestamp: 2000
+							})
+						)
+						yield* clientASync.performSync()
 
-							yield* clientFreshSync.performSync()
-							expect(yield* getNoteContent(noteId).pipe(Effect.provide(clientFreshContext))).toBe(
-								"world"
-							)
-						})
-					)
-				}),
-			{ timeout: 30000 }
-		)
+						yield* clientFreshSync.performSync()
+						expect(yield* getNoteContent(noteId).pipe(Effect.provide(clientFreshContext))).toBe(
+							"world"
+						)
+					})
+				)
+			}),
+		{ timeout: 30000 }
+	)
 
-		it.scoped(
-			"RLS isolates users across the HTTP RPC boundary",
-			() =>
-				Effect.gen(function* () {
+	it.scoped(
+		"RLS isolates users across the HTTP RPC boundary",
+		() =>
+			Effect.gen(function* () {
 				const secret = "supersecretvalue-supersecretvalue"
 				const tokenA = yield* Effect.promise(() =>
 					signHs256Jwt({ secret, sub: "userA", aud: "authenticated" })
@@ -421,21 +435,25 @@ const makeClientLayer = (params: {
 				})
 
 				const syncRpcUrl = `${server.baseUrl}/rpc`
-					const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-						Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
-					const runOnServerAsUser =
-						(userId: string) =>
-						<A, E, R>(effect: Effect.Effect<A, E, R>) =>
-							runOnServer(
-								Effect.gen(function* () {
-									const sql = yield* SqlClient.SqlClient
-									return yield* Effect.gen(function* () {
-										yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
-										yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
-										return yield* effect
-									}).pipe(sql.withTransaction)
-								})
-							)
+				const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<
+						A,
+						E,
+						never
+					>
+				const runOnServerAsUser =
+					(userId: string) =>
+					<A, E, R>(effect: Effect.Effect<A, E, R>) =>
+						runOnServer(
+							Effect.gen(function* () {
+								const sql = yield* SqlClient.SqlClient
+								return yield* Effect.gen(function* () {
+									yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+									yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+									return yield* effect
+								}).pipe(sql.withTransaction)
+							})
+						)
 
 				const noteId = crypto.randomUUID()
 				const projectId = `project-${crypto.randomUUID()}`
@@ -525,21 +543,25 @@ const makeClientLayer = (params: {
 				})
 
 				const syncRpcUrl = `${server.baseUrl}/rpc`
-					const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-						Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
-					const runOnServerAsUser =
-						(userId: string) =>
-						<A, E, R>(effect: Effect.Effect<A, E, R>) =>
-							runOnServer(
-								Effect.gen(function* () {
-									const sql = yield* SqlClient.SqlClient
-									return yield* Effect.gen(function* () {
-										yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
-										yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
-										return yield* effect
-									}).pipe(sql.withTransaction)
-								})
-							)
+				const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<
+						A,
+						E,
+						never
+					>
+				const runOnServerAsUser =
+					(userId: string) =>
+					<A, E, R>(effect: Effect.Effect<A, E, R>) =>
+						runOnServer(
+							Effect.gen(function* () {
+								const sql = yield* SqlClient.SqlClient
+								return yield* Effect.gen(function* () {
+									yield* sql`SELECT set_config('synchrotron.user_id', ${userId}, true)`
+									yield* sql`SELECT set_config('request.jwt.claim.sub', ${userId}, true)`
+									return yield* effect
+								}).pipe(sql.withTransaction)
+							})
+						)
 
 				const mkClient = (clientId: string) =>
 					Layer.build(
@@ -629,8 +651,8 @@ const makeClientLayer = (params: {
 					})
 				)
 			}),
-			{ timeout: 30000 }
-		)
+		{ timeout: 30000 }
+	)
 
 	it.scoped(
 		"SendLocalActions rejects with typed BehindHead error over RPC",
@@ -654,7 +676,11 @@ const makeClientLayer = (params: {
 
 				const syncRpcUrl = `${server.baseUrl}/rpc`
 				const runOnServer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<A, E, never>
+					Effect.promise(() => Runtime.runPromise(server.runtime)(effect as any)) as Effect.Effect<
+						A,
+						E,
+						never
+					>
 
 				const projectId = `project-${crypto.randomUUID()}`
 				yield* runOnServer(
@@ -718,7 +744,9 @@ const makeClientLayer = (params: {
 						)
 
 						const actionRecordRepo = yield* ActionRecordRepo.pipe(Effect.provide(clientAContext))
-						const actionModifiedRowRepo = yield* ActionModifiedRowRepo.pipe(Effect.provide(clientAContext))
+						const actionModifiedRowRepo = yield* ActionModifiedRowRepo.pipe(
+							Effect.provide(clientAContext)
+						)
 						const network = yield* SyncNetworkService.pipe(Effect.provide(clientAContext))
 
 						const actionsToSend = yield* actionRecordRepo.allUnsynced()
@@ -728,18 +756,18 @@ const makeClientLayer = (params: {
 							Effect.map((value) => ({ ok: true as const, value })),
 							Effect.catchAll((error) => Effect.succeed({ ok: false as const, error }))
 						)
-							expect(sendAttempt.ok).toBe(false)
-							if (!sendAttempt.ok) {
-								expect(sendAttempt.error._tag).toBe("SendLocalActionsBehindHead")
-								expect(sendAttempt.error).toBeInstanceOf(SendLocalActionsBehindHead)
-								if (sendAttempt.error instanceof SendLocalActionsBehindHead) {
-									expect(sendAttempt.error.basisServerIngestId).toBe(0)
-									expect(sendAttempt.error.firstUnseenServerIngestId).toBeGreaterThan(0)
-								}
+						expect(sendAttempt.ok).toBe(false)
+						if (!sendAttempt.ok) {
+							expect(sendAttempt.error._tag).toBe("SendLocalActionsBehindHead")
+							expect(sendAttempt.error).toBeInstanceOf(SendLocalActionsBehindHead)
+							if (sendAttempt.error instanceof SendLocalActionsBehindHead) {
+								expect(sendAttempt.error.basisServerIngestId).toBe(0)
+								expect(sendAttempt.error.firstUnseenServerIngestId).toBeGreaterThan(0)
 							}
-						})
-					)
-				}),
+						}
+					})
+				)
+			}),
 		{ timeout: 30000 }
 	)
 })

@@ -28,15 +28,19 @@ const ensureExampleRlsRole = Effect.gen(function* () {
 	yield* sql`GRANT USAGE ON SCHEMA public TO synchrotron_app`.raw
 	yield* sql`GRANT USAGE ON SCHEMA synchrotron TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_records TO synchrotron_app`.raw
-	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_modified_rows TO synchrotron_app`.raw
-	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE local_applied_action_ids TO synchrotron_app`.raw
-	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE client_sync_status TO synchrotron_app`.raw
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE action_modified_rows TO synchrotron_app`
+		.raw
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE local_applied_action_ids TO synchrotron_app`
+		.raw
+	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE client_sync_status TO synchrotron_app`
+		.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE sync_server_meta TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE projects TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE project_members TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE todos TO synchrotron_app`.raw
 	yield* sql`GRANT SELECT ON TABLE synchrotron.user_audiences TO synchrotron_app`.raw
-	yield* sql`GRANT USAGE, SELECT ON SEQUENCE action_records_server_ingest_id_seq TO synchrotron_app`.raw
+	yield* sql`GRANT USAGE, SELECT ON SEQUENCE action_records_server_ingest_id_seq TO synchrotron_app`
+		.raw
 	yield* sql`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO synchrotron_app`.raw
 })
 
@@ -66,8 +70,10 @@ const enableExampleRlsPolicies = Effect.gen(function* () {
 			);
 		$$;
 	`.raw
-	yield* sql`REVOKE ALL ON FUNCTION synchrotron.action_record_belongs_to_user(TEXT, TEXT) FROM PUBLIC`.raw
-	yield* sql`GRANT EXECUTE ON FUNCTION synchrotron.action_record_belongs_to_user(TEXT, TEXT) TO synchrotron_app`.raw
+	yield* sql`REVOKE ALL ON FUNCTION synchrotron.action_record_belongs_to_user(TEXT, TEXT) FROM PUBLIC`
+		.raw
+	yield* sql`GRANT EXECUTE ON FUNCTION synchrotron.action_record_belongs_to_user(TEXT, TEXT) TO synchrotron_app`
+		.raw
 
 	yield* sql`DROP POLICY IF EXISTS synchrotron_action_records_select ON action_records`.raw
 	yield* sql`DROP POLICY IF EXISTS synchrotron_action_records_insert ON action_records`.raw
@@ -97,8 +103,10 @@ const enableExampleRlsPolicies = Effect.gen(function* () {
 			WITH CHECK (user_id = current_setting('synchrotron.user_id', true))
 	`.raw
 
-	yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_select ON action_modified_rows`.raw
-	yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_insert ON action_modified_rows`.raw
+	yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_select ON action_modified_rows`
+		.raw
+	yield* sql`DROP POLICY IF EXISTS synchrotron_action_modified_rows_insert ON action_modified_rows`
+		.raw
 	yield* sql`
 		CREATE POLICY synchrotron_action_modified_rows_select ON action_modified_rows
 			FOR SELECT

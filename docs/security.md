@@ -53,7 +53,7 @@ model this as a `user:<user_id>` audience.
 ## Server materialization (rollback+replay)
 
 - Patch apply must run under the originating principal (`action_records.user_id`), not the request principal. Synchrotron does this by setting `synchrotron.user_id` (and `request.jwt.claim.sub`) per action/AMR during replay.
-- Sync-table RLS is for *client visibility*. The server materializer must be able to read the full canonical sync log to do rollback+replay, even if the current request user can’t see those rows (e.g. after membership revocation).
+- Sync-table RLS is for _client visibility_. The server materializer must be able to read the full canonical sync log to do rollback+replay, even if the current request user can’t see those rows (e.g. after membership revocation).
   - Recommended escape hatch for sync-table `SELECT` policies:
     - `current_setting('synchrotron.internal_materializer', true) = 'true'`
   - The server sets `synchrotron.internal_materializer=true` only in server code, and only transaction-locally (`set_config(..., true)`).
@@ -66,7 +66,7 @@ model this as a `user:<user_id>` audience.
         or <normal client visibility predicate>
       )
       ```
-- This bypass is only for reading the *sync log tables*. It must not bypass base-table RLS; base-table RLS remains the enforcement boundary during patch apply.
+- This bypass is only for reading the _sync log tables_. It must not bypass base-table RLS; base-table RLS remains the enforcement boundary during patch apply.
 - If your base-table RLS depends on membership/ACL tables, those tables must be replayable as part of canonical history (don’t mutate them out-of-band if you want late-arrival correctness across membership churn).
 
 ## Sensitive data

@@ -107,8 +107,7 @@ export class ActionRecordRepo extends Effect.Service<ActionRecordRepo>()("Action
 			`
 		})
 
-		const markAsSynced = (id: string) =>
-			sql`UPDATE action_records SET synced = 1 WHERE id = ${id}`
+		const markAsSynced = (id: string) => sql`UPDATE action_records SET synced = 1 WHERE id = ${id}`
 
 		const deleteById = (id: string) => sql`DELETE FROM action_records WHERE id = ${id}`
 

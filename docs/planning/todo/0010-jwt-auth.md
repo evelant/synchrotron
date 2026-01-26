@@ -45,12 +45,12 @@ The goal is to be compatible with most auth systems (including Supabase Auth / G
 
 ## What integrates best with real apps?
 
-Most apps already have *one* of these:
+Most apps already have _one_ of these:
 
-1) **An identity provider that issues JWTs** (most common)
+1. **An identity provider that issues JWTs** (most common)
    - Web/mobile clients already have an access token.
    - Servers already have either an HS256 secret (Supabase/GoTrue) or a JWKS URL (Auth0/Clerk/Firebase/etc).
-2) **A backend session/cookie model**
+2. **A backend session/cookie model**
    - The browser sends cookies; there may not be a client-accessible JWT.
 
 Synchrotron should make (1) trivial, and keep (2) possible via a pluggable server auth service.
@@ -176,7 +176,7 @@ Unit / integration tests in `packages/sync-server`:
 
 Implemented:
 
- - `packages/sync-server/test/jwt-auth.test.ts` covers HS256 + JWKS verification and basic failures.
+- `packages/sync-server/test/jwt-auth.test.ts` covers HS256 + JWKS verification and basic failures.
 
 Follow-ups (optional):
 
@@ -185,5 +185,5 @@ Follow-ups (optional):
 
 ## Concrete next steps
 
-1) Docs/examples: document the expected “bring your own auth” setups (HS256 vs JWKS) and show one snippet per (Supabase + generic JWKS provider).
-2) Consider optional issuer/audience defaults for Supabase/GoTrue compatibility (`aud=authenticated`).
+1. Docs/examples: document the expected “bring your own auth” setups (HS256 vs JWKS) and show one snippet per (Supabase + generic JWKS provider).
+2. Consider optional issuer/audience defaults for Supabase/GoTrue compatibility (`aud=authenticated`).

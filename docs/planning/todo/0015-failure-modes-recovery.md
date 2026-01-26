@@ -112,10 +112,10 @@ When upload fails with `BehindHead`, the correct recovery is usually just “ret
 
 Proposed behavior:
 
-1) fetch remote actions
-2) apply remote actions
-3) advance applied watermark
-4) retry upload using a backoff `Schedule` (fibonacci/exponential + jitter)
+1. fetch remote actions
+2. apply remote actions
+3. advance applied watermark
+4. retry upload using a backoff `Schedule` (fibonacci/exponential + jitter)
 
 Notes:
 
@@ -135,9 +135,9 @@ When upload fails with `UploadDenied` (or a clearly non-recoverable `UploadInval
 
 Options (pick one; document behavior):
 
-1) **Auto-rollback + delete** the smallest suffix of pending actions that cannot be uploaded.
-2) **Quarantine** those actions (new local status + UI hook), and continue syncing other audiences.
-3) Surface a deterministic “needs user intervention” error + an explicit `hardResync()` action.
+1. **Auto-rollback + delete** the smallest suffix of pending actions that cannot be uploaded.
+2. **Quarantine** those actions (new local status + UI hook), and continue syncing other audiences.
+3. Surface a deterministic “needs user intervention” error + an explicit `hardResync()` action.
 
 ### D) Resync primitives (hard + rebase)
 
@@ -164,13 +164,13 @@ This is a recovery operation for when the client cannot incrementally catch up (
 
 High-level behavior:
 
-1) **Extract pending local actions** (`action_records.synced = 0`) as an ordered list of `{ id, _tag, args, transaction_id, clock }`.
-2) **Reset local state** to match the server:
+1. **Extract pending local actions** (`action_records.synced = 0`) as an ordered list of `{ id, _tag, args, transaction_id, clock }`.
+2. **Reset local state** to match the server:
    - clear base tables
    - delete all synced action log rows and any derived state (`action_modified_rows`, `local_applied_action_ids`, etc)
    - reset `client_sync_status` from snapshot metadata (watermark/clocks)
-3) **Bootstrap** from `FetchBootstrapSnapshot` (now the client is “at head” again).
-4) **Re-run the pending local actions** on top of the fresh snapshot (in their original order) so their patches/AMRs are regenerated against the new base.
+3. **Bootstrap** from `FetchBootstrapSnapshot` (now the client is “at head” again).
+4. **Re-run the pending local actions** on top of the fresh snapshot (in their original order) so their patches/AMRs are regenerated against the new base.
 
 Decision / implementation approach:
 
@@ -179,12 +179,11 @@ Decision / implementation approach:
 
 Concrete example (why new action ids can break a naive “re-record”):
 
-- Pending action A: `test-create-note` (see `packages/sync-core/test/helpers/TestHelpers.ts`) does *not* take a note id in args; it generates the inserted note id via `DeterministicId.forRow(...)` (namespaced by the action id).
+- Pending action A: `test-create-note` (see `packages/sync-core/test/helpers/TestHelpers.ts`) does _not_ take a note id in args; it generates the inserted note id via `DeterministicId.forRow(...)` (namespaced by the action id).
 - Pending action B: `test-update-content` takes `{ id: noteId, ... }` in args.
 - If rebase “re-records” A as a new action with a new id, the created note id changes. B’s args still reference the old note id, so the update becomes a no-op (or fails), even though we re-ran the actions in order.
 
-This problem does *not* exist if “create” actions take explicit row ids in args (e.g. `test-create-note-with-id`).
-5) Attempt `performSync()` again (including normal “behind head” bounded retry).
+This problem does _not_ exist if “create” actions take explicit row ids in args (e.g. `test-create-note-with-id`). 5) Attempt `performSync()` again (including normal “behind head” bounded retry).
 
 If a pending action cannot be replayed (missing action creator, non-pure action, etc), the client should fall back to either:
 

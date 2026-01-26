@@ -13,14 +13,15 @@ describe("Unknown remote actions", () => {
 				const source = yield* createTestClient("source", serverSql).pipe(Effect.orDie)
 				const receiver = yield* createTestClient("receiver", serverSql).pipe(Effect.orDie)
 
-				const { result: note, actionRecord: createAction } = yield* source.syncService.executeAction(
-					source.testHelpers.createNoteAction({
-						title: "Unknown-action atomicity",
-						content: "",
-						user_id: "user-1",
-						timestamp: 1000
-					})
-				)
+				const { result: note, actionRecord: createAction } =
+					yield* source.syncService.executeAction(
+						source.testHelpers.createNoteAction({
+							title: "Unknown-action atomicity",
+							content: "",
+							user_id: "user-1",
+							timestamp: 1000
+						})
+					)
 				yield* source.syncService.performSync()
 
 				const { actionRecord: updateAction } = yield* source.syncService.executeAction(

@@ -133,7 +133,7 @@ Materialization runs after ingesting a batch of `(actions, amrs)`:
 3. Rewind + replay strategy (baseline):
    - Find a rollback target `T` that is the predecessor action just before `K_min_incoming` (or genesis).
    - Roll back server base tables to `T` (reverse patches for applied actions after `T`).
-   - Re-apply forward patches for *all* actions after `T` in canonical order.
+   - Re-apply forward patches for _all_ actions after `T` in canonical order.
 
 This guarantees correctness (at the cost of replaying a suffix).
 

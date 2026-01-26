@@ -14,7 +14,9 @@ const serverNotesSnapshot = (serverSql: PgliteClient.PgliteClient) =>
 		`.pipe(Effect.orDie)
 		const serverEpoch = epochRows[0]?.server_epoch ?? "test-epoch"
 
-		const minRows = yield* serverSql<{ readonly min_server_ingest_id: number | string | bigint | null }>`
+		const minRows = yield* serverSql<{
+			readonly min_server_ingest_id: number | string | bigint | null
+		}>`
 			SELECT COALESCE(MIN(server_ingest_id), 0) as min_server_ingest_id
 			FROM action_records
 		`.pipe(Effect.orDie)
@@ -57,11 +59,13 @@ describe("SyncService: server history discontinuity recovery", () => {
 				const serverSql = yield* PgliteClient.PgliteClient
 				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
 
-				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(
+					serverNotesSnapshot(serverSql)
+				)
 				yield* clientA.syncService.performSync()
 
 				const epochBefore = yield* readServerEpoch(serverSql)
-				const localEpochBefore = yield* clientA.clockService.getServerEpoch
+				const localEpochBefore = yield* clientA.clockState.getServerEpoch
 				expect(localEpochBefore).toBe(epochBefore)
 
 				yield* serverSql`
@@ -76,7 +80,7 @@ describe("SyncService: server history discontinuity recovery", () => {
 				const exit = yield* clientA.syncService.performSync().pipe(Effect.exit)
 				expect(exit._tag).toBe("Success")
 
-				const localEpochAfter = yield* clientA.clockService.getServerEpoch
+				const localEpochAfter = yield* clientA.clockState.getServerEpoch
 				expect(localEpochAfter).toBe(epochAfter)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30_000 }
@@ -89,7 +93,9 @@ describe("SyncService: server history discontinuity recovery", () => {
 				const serverSql = yield* PgliteClient.PgliteClient
 				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
 
-				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(
+					serverNotesSnapshot(serverSql)
+				)
 				yield* clientA.syncService.performSync()
 
 				const epochBefore = yield* readServerEpoch(serverSql)
@@ -117,7 +123,7 @@ describe("SyncService: server history discontinuity recovery", () => {
 				const exit = yield* clientA.syncService.performSync().pipe(Effect.exit)
 				expect(exit._tag).toBe("Success")
 
-				const localEpochAfter = yield* clientA.clockService.getServerEpoch
+				const localEpochAfter = yield* clientA.clockState.getServerEpoch
 				expect(localEpochAfter).toBe(epochAfter)
 
 				const pendingAfter = yield* clientA.actionRecordRepo.allUnsynced()
@@ -147,7 +153,9 @@ describe("SyncService: server history discontinuity recovery", () => {
 				const clientB = yield* createTestClient("clientB", serverSql).pipe(Effect.orDie)
 				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
 
-				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(
+					serverNotesSnapshot(serverSql)
+				)
 
 				for (let i = 0; i < 10; i++) {
 					yield* clientB.syncService.executeAction(
@@ -165,7 +173,7 @@ describe("SyncService: server history discontinuity recovery", () => {
 					DELETE FROM action_records WHERE server_ingest_id <= 5
 				`.pipe(Effect.orDie)
 
-				yield* clientA.clockService.getLastSeenServerIngestId
+				yield* clientA.clockState.getLastSeenServerIngestId
 				yield* clientA.rawSql`
 					UPDATE client_sync_status
 					SET last_seen_server_ingest_id = 1
@@ -175,7 +183,7 @@ describe("SyncService: server history discontinuity recovery", () => {
 				const exit = yield* clientA.syncService.performSync().pipe(Effect.exit)
 				expect(exit._tag).toBe("Success")
 
-				const lastSeen = yield* clientA.clockService.getLastSeenServerIngestId
+				const lastSeen = yield* clientA.clockState.getLastSeenServerIngestId
 				expect(lastSeen).toBeGreaterThanOrEqual(10)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30_000 }
@@ -189,7 +197,9 @@ describe("SyncService: server history discontinuity recovery", () => {
 				const clientB = yield* createTestClient("clientB", serverSql).pipe(Effect.orDie)
 				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
 
-				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(
+					serverNotesSnapshot(serverSql)
+				)
 
 				for (let i = 0; i < 10; i++) {
 					yield* clientB.syncService.executeAction(
@@ -218,7 +228,7 @@ describe("SyncService: server history discontinuity recovery", () => {
 				const pendingIdsBefore = (yield* clientA.actionRecordRepo.allUnsynced()).map((a) => a.id)
 				expect(pendingIdsBefore.length).toBeGreaterThan(0)
 
-				yield* clientA.clockService.getLastSeenServerIngestId
+				yield* clientA.clockState.getLastSeenServerIngestId
 				yield* clientA.rawSql`
 					UPDATE client_sync_status
 					SET last_seen_server_ingest_id = 1
@@ -251,11 +261,13 @@ describe("SyncService: server history discontinuity recovery", () => {
 				const serverSql = yield* PgliteClient.PgliteClient
 				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
 
-				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(
+					serverNotesSnapshot(serverSql)
+				)
 				yield* clientA.syncService.performSync()
 
 				const epochBefore = yield* readServerEpoch(serverSql)
-				expect(yield* clientA.clockService.getServerEpoch).toBe(epochBefore)
+				expect(yield* clientA.clockState.getServerEpoch).toBe(epochBefore)
 
 				yield* clientA.syncService.executeAction(
 					clientA.testHelpers.createNoteAction({
@@ -293,7 +305,7 @@ describe("SyncService: server history discontinuity recovery", () => {
 
 				const quarantinedAfter = yield* clientA.syncService.getQuarantinedActions()
 				expect(quarantinedAfter.length).toBe(1)
-				expect(yield* clientA.clockService.getServerEpoch).toBe(epochBefore)
+				expect(yield* clientA.clockState.getServerEpoch).toBe(epochBefore)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30_000 }
 	)
@@ -306,7 +318,9 @@ describe("SyncService: server history discontinuity recovery", () => {
 				const clientB = yield* createTestClient("clientB", serverSql).pipe(Effect.orDie)
 				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
 
-				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(serverNotesSnapshot(serverSql))
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(
+					serverNotesSnapshot(serverSql)
+				)
 
 				for (let i = 0; i < 10; i++) {
 					yield* clientB.syncService.executeAction(
@@ -347,7 +361,7 @@ describe("SyncService: server history discontinuity recovery", () => {
 					SET last_seen_server_ingest_id = 1
 					WHERE client_id = ${clientA.clientId}
 				`.pipe(Effect.orDie)
-				expect(yield* clientA.clockService.getLastSeenServerIngestId).toBe(1)
+				expect(yield* clientA.clockState.getLastSeenServerIngestId).toBe(1)
 
 				const syncAttempt = yield* Effect.either(clientA.syncService.performSync())
 				expect(syncAttempt._tag).toBe("Left")
@@ -357,7 +371,7 @@ describe("SyncService: server history discontinuity recovery", () => {
 				}
 
 				expect((yield* clientA.syncService.getQuarantinedActions()).length).toBe(1)
-				expect(yield* clientA.clockService.getLastSeenServerIngestId).toBe(1)
+				expect(yield* clientA.clockState.getLastSeenServerIngestId).toBe(1)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30_000 }
 	)

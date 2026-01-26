@@ -49,8 +49,7 @@ describe("AMR sequencing", () => {
 					`
 				}).pipe(sql.withTransaction)
 
-				const amrs =
-					yield* sql<{ id: string; sequence: number }>`
+				const amrs = yield* sql<{ id: string; sequence: number }>`
 						SELECT id, sequence
 						FROM action_modified_rows
 						WHERE action_record_id = ${actionId}
@@ -78,4 +77,3 @@ describe("AMR sequencing", () => {
 		{ timeout: 30000 }
 	)
 })
-

@@ -26,67 +26,67 @@ export * from "@effect/sql/Migrator/FileSystem"
  * @since 1.0.0
  */
 export const run: <R2 = never>(
-  options: Migrator.MigratorOptions<R2>
+	options: Migrator.MigratorOptions<R2>
 ) => Effect.Effect<
-  ReadonlyArray<readonly [id: number, name: string]>,
-  Migrator.MigrationError | SqlError,
-  FileSystem | Path | PgliteClient | Client.SqlClient | R2
+	ReadonlyArray<readonly [id: number, name: string]>,
+	Migrator.MigrationError | SqlError,
+	FileSystem | Path | PgliteClient | Client.SqlClient | R2
 > = Migrator.make({
-  dumpSchema(path, table) {
-    const runPgDump = (args: Array<string>) =>
-      Effect.gen(function*() {
-        const pg = yield* PgliteClient
-        return Effect.tryPromise({
-          try: async () => {
-            const file = await pgDump({ pg: pg.client, args })
-            return (await file.text())
-              .replace(/^--.*$/gm, "")
-              .replace(/^SET .*$/gm, "")
-              .replace(/^SELECT pg_catalog\..*$/gm, "")
-              .replace(/\n{2,}/gm, "\n\n")
-              .trim()
-          },
-          catch: (error) =>
-            new Migrator.MigrationError({
-              reason: "failed",
-              message: error instanceof Error ? error.message : String(error)
-            })
-        })
-      })
+	dumpSchema(path, table) {
+		const runPgDump = (args: Array<string>) =>
+			Effect.gen(function* () {
+				const pg = yield* PgliteClient
+				return Effect.tryPromise({
+					try: async () => {
+						const file = await pgDump({ pg: pg.client, args })
+						return (await file.text())
+							.replace(/^--.*$/gm, "")
+							.replace(/^SET .*$/gm, "")
+							.replace(/^SELECT pg_catalog\..*$/gm, "")
+							.replace(/\n{2,}/gm, "\n\n")
+							.trim()
+					},
+					catch: (error) =>
+						new Migrator.MigrationError({
+							reason: "failed",
+							message: error instanceof Error ? error.message : String(error)
+						})
+				})
+			})
 
-    const pgDumpSchema = runPgDump(["--schema-only"])
+		const pgDumpSchema = runPgDump(["--schema-only"])
 
-    const pgDumpMigrations = runPgDump(["--column-inserts", "--data-only", `--table=${table}`])
+		const pgDumpMigrations = runPgDump(["--column-inserts", "--data-only", `--table=${table}`])
 
-    const pgDumpAll = Effect.map(
-      Effect.all([pgDumpSchema, pgDumpMigrations], { concurrency: 2 }),
-      ([schema, migrations]) => schema + "\n\n" + migrations
-    )
+		const pgDumpAll = Effect.map(
+			Effect.all([pgDumpSchema, pgDumpMigrations], { concurrency: 2 }),
+			([schema, migrations]) => schema + "\n\n" + migrations
+		)
 
-    const pgDumpFile = (path: string) =>
-      Effect.gen(function*() {
-        const fs = yield* FileSystem
-        const { dirname } = yield* Path
-        const dump = yield* pgDumpAll
-        yield* fs.makeDirectory(dirname(path), { recursive: true })
-        yield* fs.writeFileString(path, dump)
-      }).pipe(
-        Effect.mapError(
-          (error) => new Migrator.MigrationError({ reason: "failed", message: error.message })
-        )
-      )
+		const pgDumpFile = (path: string) =>
+			Effect.gen(function* () {
+				const fs = yield* FileSystem
+				const { dirname } = yield* Path
+				const dump = yield* pgDumpAll
+				yield* fs.makeDirectory(dirname(path), { recursive: true })
+				yield* fs.writeFileString(path, dump)
+			}).pipe(
+				Effect.mapError(
+					(error) => new Migrator.MigrationError({ reason: "failed", message: error.message })
+				)
+			)
 
-    return pgDumpFile(path)
-  }
+		return pgDumpFile(path)
+	}
 })
 /**
  * @category layers
  * @since 1.0.0
  */
 export const layer = <R>(
-  options: Migrator.MigratorOptions<R>
+	options: Migrator.MigratorOptions<R>
 ): Layer.Layer<
-  never,
-  Migrator.MigrationError | SqlError,
-  PgliteClient | Client.SqlClient | FileSystem | Path | R
+	never,
+	Migrator.MigrationError | SqlError,
+	PgliteClient | Client.SqlClient | FileSystem | Path | R
 > => Layer.effectDiscard(run(options))

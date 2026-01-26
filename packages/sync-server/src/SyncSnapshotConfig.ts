@@ -16,4 +16,3 @@ export class SyncSnapshotConfig extends Context.Tag("SyncSnapshotConfig")<
 
 export const createSyncSnapshotConfig = (tables: readonly string[]) =>
 	Layer.succeed(SyncSnapshotConfig, { tables })
-

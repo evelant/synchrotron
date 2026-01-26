@@ -20,7 +20,12 @@ import { TodoActions } from "./src/actions"
 import type { Todo } from "./src/db/schema"
 import { TodoRepo } from "./src/db/repositories"
 import { setupClientDatabase } from "./src/db/setup"
-import { RuntimeProvider, sqliteFilename, sqliteFilenameStorageKey, useRuntime } from "./src/runtime"
+import {
+	RuntimeProvider,
+	sqliteFilename,
+	sqliteFilenameStorageKey,
+	useRuntime
+} from "./src/runtime"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
 
 const demoProjectId = process.env.EXPO_PUBLIC_TODO_PROJECT_ID ?? "project-demo"
@@ -177,15 +182,18 @@ function AppInner() {
 				return
 			}
 
-				runtime
-					.runPromise(resetDatabaseEffect(options))
-					.then(() => {
-						if (options.resetIdentity) {
-							if (typeof DevSettings.reload === "function") {
-								DevSettings.reload()
-								return
-							}
-						Alert.alert("Reload required", "Please restart the app to finish resetting the identity.")
+			runtime
+				.runPromise(resetDatabaseEffect(options))
+				.then(() => {
+					if (options.resetIdentity) {
+						if (typeof DevSettings.reload === "function") {
+							DevSettings.reload()
+							return
+						}
+						Alert.alert(
+							"Reload required",
+							"Please restart the app to finish resetting the identity."
+						)
 						return
 					}
 
@@ -365,7 +373,9 @@ function AppInner() {
 						</Pressable>
 					</View>
 				</View>
-				<Text style={styles.subtitle}>{isResetting ? "Resetting…" : isSyncing ? "Syncing…" : " "}</Text>
+				<Text style={styles.subtitle}>
+					{isResetting ? "Resetting…" : isSyncing ? "Syncing…" : " "}
+				</Text>
 			</View>
 
 			{error ? <Text style={styles.error}>{error}</Text> : null}

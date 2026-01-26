@@ -12,7 +12,13 @@ export type AppRuntime = ManagedRuntime.ManagedRuntime<any, any>
 
 const RuntimeContext = createContext<AppRuntime | null>(null)
 
-export const RuntimeProvider = ({ runtime, children }: { runtime: AppRuntime; children: ReactNode }) => {
+export const RuntimeProvider = ({
+	runtime,
+	children
+}: {
+	runtime: AppRuntime
+	children: ReactNode
+}) => {
 	return <RuntimeContext.Provider value={runtime}>{children}</RuntimeContext.Provider>
 }
 

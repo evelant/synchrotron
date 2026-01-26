@@ -40,4 +40,3 @@ export const SyncRpcAuthTokenStatic = (token: string | Redacted.Redacted) =>
 			get: Effect.succeed(Option.some(typeof token === "string" ? Redacted.make(token) : token))
 		})
 	)
-

@@ -3,11 +3,7 @@
 	"compilerOptions": {
 		"composite": true,
 		"outDir": "build",
-		"lib": [
-			"ES2022",
-			"DOM",
-			"DOM.Iterable"
-		],
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
 		"tsBuildInfoFile": ".tsbuildinfo/tsconfig.build.tsbuildinfo",
 		"declaration": true,
 		"declarationMap": true,

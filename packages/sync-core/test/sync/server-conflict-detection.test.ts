@@ -81,7 +81,12 @@ describe("Server upload gating (client must be at HEAD)", () => {
 							`.pipe(Effect.orDie)
 							const minRetainedServerIngestId = Number(minRows[0]?.min_server_ingest_id ?? 0)
 
-							return { serverEpoch, minRetainedServerIngestId, actions: [], modifiedRows: [] } as const
+							return {
+								serverEpoch,
+								minRetainedServerIngestId,
+								actions: [],
+								modifiedRows: []
+							} as const
 						})
 					}
 				}).pipe(Effect.orDie)
@@ -139,7 +144,12 @@ describe("Server upload gating (client must be at HEAD)", () => {
 							`.pipe(Effect.orDie)
 							const minRetainedServerIngestId = Number(minRows[0]?.min_server_ingest_id ?? 0)
 
-							return { serverEpoch, minRetainedServerIngestId, actions: [], modifiedRows: [] } as const
+							return {
+								serverEpoch,
+								minRetainedServerIngestId,
+								actions: [],
+								modifiedRows: []
+							} as const
 						})
 					}
 				}).pipe(Effect.orDie)

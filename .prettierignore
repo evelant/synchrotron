@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+coverage/
+.output/
+.vinxi/
+
+# Local tooling output
+.out-of-code-insights/
+
+# React Native / Expo build artifacts
+**/.expo/
+**/android/**/.cxx/
+**/android/**/build/
+**/ios/Pods/
+**/ios/build/
+
+# Lockfiles
+pnpm-lock.yaml

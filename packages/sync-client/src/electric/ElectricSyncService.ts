@@ -4,7 +4,6 @@ import type { Row } from "@electric-sql/client"
 import { isChangeMessage, isControlMessage } from "@electric-sql/client"
 import { TransactionalMultiShapeStream, type MultiShapeMessages } from "@electric-sql/experimental"
 import { SyncService } from "@synchrotron/sync-core"
-import { ClockService } from "@synchrotron/sync-core/ClockService"
 import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
 import { Effect, Ref, Schema, Stream } from "effect"
 
@@ -21,7 +20,6 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 	{
 		scoped: Effect.gen(function* () {
 			yield* Effect.logInfo(`creating ElectricSyncService`)
-			const clockService = yield* ClockService
 			const syncService = yield* SyncService
 			const config = yield* SynchrotronClientConfig
 			const sql = yield* SqlClient.SqlClient

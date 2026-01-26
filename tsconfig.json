@@ -13,8 +13,7 @@
 		},
 		{
 			"path": "packages/sql-pglite/tsconfig.json"
-		}
-		,
+		},
 		{
 			"path": "examples/backend/tsconfig.json"
 		},

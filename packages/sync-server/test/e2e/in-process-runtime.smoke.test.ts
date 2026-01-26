@@ -24,9 +24,13 @@ describe("E2E in-process server runtime (smoke)", () => {
 				expect(typeof sql).toBe("function")
 
 				// And we can build the RPC http app (which will fork the server fiber in scope).
-				const httpApp = yield* RpcServer.toHttpApp(SyncNetworkRpcGroup).pipe(Effect.provide(runtime))
+				const httpApp = yield* RpcServer.toHttpApp(SyncNetworkRpcGroup).pipe(
+					Effect.provide(runtime)
+				)
 				expect(httpApp).toBeDefined()
-			}).pipe(Effect.withConfigProvider(ConfigProvider.fromMap(new Map([["SYNC_JWT_SECRET", secret]]))))
+			}).pipe(
+				Effect.withConfigProvider(ConfigProvider.fromMap(new Map([["SYNC_JWT_SECRET", secret]])))
+			)
 		},
 		{ timeout: 30000 }
 	)

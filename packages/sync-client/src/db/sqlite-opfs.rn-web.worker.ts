@@ -66,7 +66,8 @@ const start = async () => {
 	}
 
 	const Effect = require("effect/Effect") as typeof import("effect/Effect")
-	const OpfsWorker = require("@effect/sql-sqlite-wasm/OpfsWorker") as typeof import("@effect/sql-sqlite-wasm/OpfsWorker")
+	const OpfsWorker =
+		require("@effect/sql-sqlite-wasm/OpfsWorker") as typeof import("@effect/sql-sqlite-wasm/OpfsWorker")
 
 	await Effect.runPromise(
 		Effect.sync(() => assertOpfsWorkerSupport()).pipe(

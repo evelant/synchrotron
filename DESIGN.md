@@ -90,7 +90,7 @@ Backend state:
   - if capture context is missing, triggers raise an error (prevents untracked writes to synced tables)
   - SQLite triggers are generated from the current table schema; call `ClientDbAdapter.installPatchCapture` after schema migrations that change tracked table columns
   - patch capture can be disabled transaction-locally (`sync.disable_trigger`) during rollback / patch-apply phases
-- HLC service: generates/merges clocks and provides a total order for action replay using `(clock_time_ms, clock_counter, client_id, id)` (btree index-friendly).
+- Clock/identity: `HLC.ts` + `ClockOrder.ts` are pure (merge + canonical ordering by `(clock_time_ms, clock_counter, client_id, id)`); client runtimes provide `ClientIdentity` (stable `clientId`) and `ClientClockState` (persists HLC + cursors in `client_sync_status`); the server derives `server_epoch` / `serverClock` via `ServerMetaService`.
 - Electric SQL integration: streams `action_records` and `action_modified_rows` using a reliable receipt cursor (`server_ingest_id`) and up-to-date signals so a transaction's full set of patches arrives before applying.
 
 ## Observability
@@ -212,7 +212,7 @@ This caused problems (especially on the server: rollback patches could reference
   - Action-log restore (fallback): if snapshot bootstrapping isn’t configured, fetch actions with `includeSelf=true` starting at `sinceServerIngestId=0`, then apply from the local action tables to rebuild materialized state (O(history)).
   - Recovery primitives:
     - Hard resync: discard local base state + sync log and re-apply a bootstrap snapshot (escape hatch for corrupted/unknown local state).
-    - Rebase (soft resync): discard local base state + *synced* history, apply a fresh snapshot, then re-run pending local actions (preserving `action_records.id` so `DeterministicId`-generated row ids remain stable) before attempting to sync again. This is the intended recovery path for future server-side action-log compaction/retention windows.
+    - Rebase (soft resync): discard local base state + _synced_ history, apply a fresh snapshot, then re-run pending local actions (preserving `action_records.id` so `DeterministicId`-generated row ids remain stable) before attempting to sync again. This is the intended recovery path for future server-side action-log compaction/retention windows.
   - History discontinuity detection (epoch + retention watermark):
     - `sync_server_meta.server_epoch` is a server-generated UUID “generation token” returned with sync RPC responses. Clients persist it in `client_sync_status.server_epoch`. If it ever changes, the client treats the server history as discontinuous (restore/reset/breaking migration) and must `hardResync()` (no pending actions) or `rebase()` (pending actions).
     - `minRetainedServerIngestId` is returned with sync RPC responses and represents the earliest `action_records.server_ingest_id` still retained on the server. If `client_sync_status.last_seen_server_ingest_id + 1 < minRetainedServerIngestId`, the server cannot serve an incremental delta; clients must `hardResync()` / `rebase()`.

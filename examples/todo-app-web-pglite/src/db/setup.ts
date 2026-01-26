@@ -41,9 +41,13 @@ const createTodoTables = Effect.gen(function* () {
 export const setupClientDatabase = Effect.gen(function* () {
 	yield* Effect.logInfo("todoAppWeb.db.setup.start")
 	const clientDbAdapter = yield* ClientDbAdapter
-	yield* Effect.logInfo("todoAppWeb.db.syncSchema.ensure.start", { dbDialect: clientDbAdapter.dialect })
+	yield* Effect.logInfo("todoAppWeb.db.syncSchema.ensure.start", {
+		dbDialect: clientDbAdapter.dialect
+	})
 	yield* clientDbAdapter.initializeSyncSchema
-	yield* Effect.logInfo("todoAppWeb.db.syncSchema.ensure.done", { dbDialect: clientDbAdapter.dialect })
+	yield* Effect.logInfo("todoAppWeb.db.syncSchema.ensure.done", {
+		dbDialect: clientDbAdapter.dialect
+	})
 
 	yield* createTodoTables
 

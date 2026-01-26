@@ -104,10 +104,10 @@ describe("ActionRegistry", () => {
 				// Should return the same action creator
 				expect(retrievedCreator).toBeDefined()
 
-					// Create actions with both creators and compare
-					const timestamp = Date.now()
-					const originalAction = testAction({ value: "test", timestamp })
-					const retrievedAction = retrievedCreator!({ value: "test", timestamp })
+				// Create actions with both creators and compare
+				const timestamp = Date.now()
+				const originalAction = testAction({ value: "test", timestamp })
+				const retrievedAction = retrievedCreator!({ value: "test", timestamp })
 
 				expect(retrievedAction._tag).toBe(originalAction._tag)
 				expect(retrievedAction.args).toEqual(originalAction.args)

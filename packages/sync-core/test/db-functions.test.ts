@@ -18,65 +18,65 @@ it.scoped(
 			// Create two independent PgLite layers with unique memory identifiers
 			// Use unique identifiers with timestamps to ensure they don't clash
 			const uniqueId1 = `memory://db1-${Date.now()}-1`
-		const uniqueId2 = `memory://db2-${Date.now()}-2`
+			const uniqueId2 = `memory://db2-${Date.now()}-2`
 
-		// Create completely separate layers
-		const PgLiteLayer1 = PgliteClient.layer({ dataDir: uniqueId1 })
-		const PgLiteLayer2 = PgliteClient.layer({ dataDir: uniqueId2 }).pipe(Layer.fresh)
+			// Create completely separate layers
+			const PgLiteLayer1 = PgliteClient.layer({ dataDir: uniqueId1 })
+			const PgLiteLayer2 = PgliteClient.layer({ dataDir: uniqueId2 }).pipe(Layer.fresh)
 
-		const client1 = yield* Effect.provide(PgliteClient.PgliteClient, PgLiteLayer1)
-		const client2 = yield* Effect.provide(PgliteClient.PgliteClient, PgLiteLayer2)
+			const client1 = yield* Effect.provide(PgliteClient.PgliteClient, PgLiteLayer1)
+			const client2 = yield* Effect.provide(PgliteClient.PgliteClient, PgLiteLayer2)
 
-		// Initialize the first database
-		yield* client1`CREATE TABLE IF NOT EXISTS test_table (id TEXT PRIMARY KEY, value TEXT)`
+			// Initialize the first database
+			yield* client1`CREATE TABLE IF NOT EXISTS test_table (id TEXT PRIMARY KEY, value TEXT)`
 
-		// Initialize the second database
-		yield* client2`CREATE TABLE IF NOT EXISTS test_table (id TEXT PRIMARY KEY, value TEXT)`
+			// Initialize the second database
+			yield* client2`CREATE TABLE IF NOT EXISTS test_table (id TEXT PRIMARY KEY, value TEXT)`
 
-		// Insert data into the first database
-		yield* client1`INSERT INTO test_table (id, value) VALUES ('id1', 'value from db1')`
-		const result1 = yield* client1`SELECT * FROM test_table WHERE id = 'id1'`
+			// Insert data into the first database
+			yield* client1`INSERT INTO test_table (id, value) VALUES ('id1', 'value from db1')`
+			const result1 = yield* client1`SELECT * FROM test_table WHERE id = 'id1'`
 
-		// Insert data into the second database
-		yield* client2`INSERT INTO test_table (id, value) VALUES ('id1', 'value from db2')`
-		const result2 = yield* client2`SELECT * FROM test_table WHERE id = 'id1'`
+			// Insert data into the second database
+			yield* client2`INSERT INTO test_table (id, value) VALUES ('id1', 'value from db2')`
+			const result2 = yield* client2`SELECT * FROM test_table WHERE id = 'id1'`
 
-		// Verify each database has its own independent data
-		expect(result1[0]?.value).toBe("value from db1")
-		expect(result2[0]?.value).toBe("value from db2")
+			// Verify each database has its own independent data
+			expect(result1[0]?.value).toBe("value from db1")
+			expect(result2[0]?.value).toBe("value from db2")
 
-		// Update data in the first database
-		yield* client1`UPDATE test_table SET value = 'updated value in db1' WHERE id = 'id1'`
-		const updatedResult1 = yield* client1`SELECT * FROM test_table WHERE id = 'id1'`
+			// Update data in the first database
+			yield* client1`UPDATE test_table SET value = 'updated value in db1' WHERE id = 'id1'`
+			const updatedResult1 = yield* client1`SELECT * FROM test_table WHERE id = 'id1'`
 
-		// Check data in the second database remains unchanged
-		const unchangedResult2 = yield* client2`SELECT * FROM test_table WHERE id = 'id1'`
+			// Check data in the second database remains unchanged
+			const unchangedResult2 = yield* client2`SELECT * FROM test_table WHERE id = 'id1'`
 
-		// Verify first database was updated but second database remains unchanged
-		expect(updatedResult1[0]?.value).toBe("updated value in db1")
-		expect(unchangedResult2[0]?.value).toBe("value from db2")
+			// Verify first database was updated but second database remains unchanged
+			expect(updatedResult1[0]?.value).toBe("updated value in db1")
+			expect(unchangedResult2[0]?.value).toBe("value from db2")
 
-		// Alter schema in the first database
-		yield* client1`ALTER TABLE test_table ADD COLUMN extra TEXT`
-		yield* client1`UPDATE test_table SET extra = 'extra data' WHERE id = 'id1'`
-		const schemaResult1 = yield* client1`SELECT * FROM test_table WHERE id = 'id1'`
+			// Alter schema in the first database
+			yield* client1`ALTER TABLE test_table ADD COLUMN extra TEXT`
+			yield* client1`UPDATE test_table SET extra = 'extra data' WHERE id = 'id1'`
+			const schemaResult1 = yield* client1`SELECT * FROM test_table WHERE id = 'id1'`
 
-		// Try to access new column in the second database (should fail)
-		let schemaResult2 = yield* Effect.gen(function* () {
-			// This will throw an error - we're just trying to catch it
-			// If we get here, the test failed because the column exists in the second database
-			// This is the expected path - the column should not exist in the second database
-			const result = yield* client2`SELECT extra FROM test_table WHERE id = 'id1'`
-			return { success: true, error: undefined }
-		}).pipe(Effect.catchAllCause((e) => Effect.succeed({ success: false, error: e })))
+			// Try to access new column in the second database (should fail)
+			let schemaResult2 = yield* Effect.gen(function* () {
+				// This will throw an error - we're just trying to catch it
+				// If we get here, the test failed because the column exists in the second database
+				// This is the expected path - the column should not exist in the second database
+				const result = yield* client2`SELECT extra FROM test_table WHERE id = 'id1'`
+				return { success: true, error: undefined }
+			}).pipe(Effect.catchAllCause((e) => Effect.succeed({ success: false, error: e })))
 
-		// Verify schema change worked in first database
-		// Type assertion to handle the unknown type from SQL query
-		const typedResult = schemaResult1[0] as { extra: string }
-		expect(typedResult.extra).toBe("extra data")
+			// Verify schema change worked in first database
+			// Type assertion to handle the unknown type from SQL query
+			const typedResult = schemaResult1[0] as { extra: string }
+			expect(typedResult.extra).toBe("extra data")
 
-		// Verify schema change didn't affect second database
-		expect(schemaResult2.success).toBe(false)
+			// Verify schema change didn't affect second database
+			expect(schemaResult2.success).toBe(false)
 
 			return true
 		}),

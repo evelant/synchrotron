@@ -63,7 +63,4 @@ for (const serial of deviceSerials) {
 	}
 }
 
-console.log(
-	`[adb-reverse] Reversed ports (${ports.join(", ")}) for: ${deviceSerials.join(", ")}`
-)
-
+console.log(`[adb-reverse] Reversed ports (${ports.join(", ")}) for: ${deviceSerials.join(", ")}`)

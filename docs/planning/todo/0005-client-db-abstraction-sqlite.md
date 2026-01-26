@@ -56,7 +56,7 @@ Proposed surface (exact names TBD):
   Creates/updates triggers for application tables.
 
 - `setCaptureContext(captureActionRecordId: string): Effect<void>`  
-  Sets per-transaction context so triggers can associate new `action_modified_rows` with the *current* action record that is collecting patches.
+  Sets per-transaction context so triggers can associate new `action_modified_rows` with the _current_ action record that is collecting patches.
 
 - `setPatchTrackingEnabled(enabled: boolean): Effect<void>`  
   Used to disable triggers during rollback/patch-apply phases that must not generate new patches.
@@ -101,7 +101,7 @@ Create a TEMP table in `initializeSyncSchema()`:
 `ClientDbAdapter.setPatchTrackingEnabled(false)` sets `disable_tracking = 1` and triggers include a `WHEN disable_tracking = 0` guard.
 
 > Note: SQLite’s `RAISE(FAIL, ...)` does **not** roll back the statement’s changes.  
-> The SQLite triggers use `RAISE(ABORT, ...)` so direct writes outside an action fail *and* the statement is rolled back.
+> The SQLite triggers use `RAISE(ABORT, ...)` so direct writes outside an action fail _and_ the statement is rolled back.
 
 ### Trigger generation per table
 

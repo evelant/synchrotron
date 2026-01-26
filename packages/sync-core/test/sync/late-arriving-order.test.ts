@@ -70,7 +70,9 @@ describe("Late-arriving action ordering", () => {
 							user_id: "user-1"
 						})
 					)
-				const createAmrs = yield* remoteNew.actionModifiedRowRepo.findByActionRecordIds([createAction.id])
+				const createAmrs = yield* remoteNew.actionModifiedRowRepo.findByActionRecordIds([
+					createAction.id
+				])
 				expect(createAmrs.length).toBeGreaterThan(0)
 				yield* insertOnServer(serverSql, createAction, createAmrs)
 
@@ -98,7 +100,9 @@ describe("Late-arriving action ordering", () => {
 
 				expect(oldUpdate.clock.timestamp).toBeLessThan(newUpdate.clock.timestamp)
 
-				const newUpdateAmrs = yield* remoteNew.actionModifiedRowRepo.findByActionRecordIds([newUpdate.id])
+				const newUpdateAmrs = yield* remoteNew.actionModifiedRowRepo.findByActionRecordIds([
+					newUpdate.id
+				])
 				expect(newUpdateAmrs.length).toBeGreaterThan(0)
 				yield* insertOnServer(serverSql, newUpdate, newUpdateAmrs)
 
@@ -112,7 +116,9 @@ describe("Late-arriving action ordering", () => {
 				const syncActionsAfterNew = yield* receiver.actionRecordRepo.findByTag("_InternalSyncApply")
 				expect(syncActionsAfterNew.length).toBe(0)
 
-				const oldUpdateAmrs = yield* remoteOld.actionModifiedRowRepo.findByActionRecordIds([oldUpdate.id])
+				const oldUpdateAmrs = yield* remoteOld.actionModifiedRowRepo.findByActionRecordIds([
+					oldUpdate.id
+				])
 				expect(oldUpdateAmrs.length).toBeGreaterThan(0)
 				yield* insertOnServer(serverSql, oldUpdate, oldUpdateAmrs)
 
@@ -147,7 +153,9 @@ describe("Late-arriving action ordering", () => {
 							timestamp: 1000
 						})
 					)
-				const createAmrs = yield* remoteNew.actionModifiedRowRepo.findByActionRecordIds([createAction.id])
+				const createAmrs = yield* remoteNew.actionModifiedRowRepo.findByActionRecordIds([
+					createAction.id
+				])
 				expect(createAmrs.length).toBeGreaterThan(0)
 				yield* insertOnServer(serverSql, createAction, createAmrs)
 
@@ -160,7 +168,9 @@ describe("Late-arriving action ordering", () => {
 						timestamp: 1100
 					})
 				)
-				const oldUpdateAmrs = yield* remoteOld.actionModifiedRowRepo.findByActionRecordIds([oldUpdate.id])
+				const oldUpdateAmrs = yield* remoteOld.actionModifiedRowRepo.findByActionRecordIds([
+					oldUpdate.id
+				])
 				expect(oldUpdateAmrs.length).toBeGreaterThan(0)
 
 				yield* waitForNextMillisecond
@@ -172,7 +182,9 @@ describe("Late-arriving action ordering", () => {
 						timestamp: 1200
 					})
 				)
-				const newUpdateAmrs = yield* remoteNew.actionModifiedRowRepo.findByActionRecordIds([newUpdate.id])
+				const newUpdateAmrs = yield* remoteNew.actionModifiedRowRepo.findByActionRecordIds([
+					newUpdate.id
+				])
 				expect(newUpdateAmrs.length).toBeGreaterThan(0)
 				yield* insertOnServer(serverSql, newUpdate, newUpdateAmrs)
 

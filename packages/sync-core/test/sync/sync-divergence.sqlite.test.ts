@@ -58,10 +58,10 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 							yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
 						expect(syncApplyActionsB.length).toBe(1)
 						const syncApplyAction = syncApplyActionsB[0]
-							expect(syncApplyAction).toBeDefined()
-							if (!syncApplyAction) return
+						expect(syncApplyAction).toBeDefined()
+						if (!syncApplyAction) return
 
-							expect(syncApplyAction.synced).toBe(true)
+						expect(syncApplyAction.synced).toBe(true)
 
 						const syncApplyAmrs = yield* clientB.actionModifiedRowRepo.findByActionRecordIds([
 							syncApplyAction.id
@@ -228,11 +228,11 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 						const syncApplyActionsB =
 							yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
 						expect(syncApplyActionsB.length).toBe(1)
-							const syncActionBRecord = syncApplyActionsB[0]
-							expect(syncActionBRecord).toBeDefined()
-							if (!syncActionBRecord) return
+						const syncActionBRecord = syncApplyActionsB[0]
+						expect(syncActionBRecord).toBeDefined()
+						if (!syncActionBRecord) return
 
-							expect(syncActionBRecord.synced).toBe(true)
+						expect(syncActionBRecord.synced).toBe(true)
 
 						yield* clientB.syncService.performSync()
 
@@ -255,8 +255,8 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 						expect(localSyncOnC).toBeDefined()
 						if (!receivedSyncOnC || !localSyncOnC) return
 
-							expect(receivedSyncOnC.synced).toBe(true)
-							expect(localSyncOnC.synced).toBe(true)
+						expect(receivedSyncOnC.synced).toBe(true)
+						expect(localSyncOnC.synced).toBe(true)
 
 						const localSyncAmrs = yield* clientC.actionModifiedRowRepo.findByActionRecordIds([
 							localSyncOnC.id

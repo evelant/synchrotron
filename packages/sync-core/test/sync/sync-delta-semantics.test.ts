@@ -1,5 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
+import { compareClock } from "@synchrotron/sync-core/ClockOrder"
 import { Effect } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
@@ -95,7 +96,7 @@ describe("SYNC delta semantics", () => {
 				expect(syncActions.length).toBe(1)
 				const syncAction = syncActions[0]!
 
-				const ordering = clientB.clockService.compareClock(
+				const ordering = compareClock(
 					{ clock: syncAction.clock, clientId: syncAction.client_id, id: syncAction.id },
 					{
 						clock: observedBase.value.clock,

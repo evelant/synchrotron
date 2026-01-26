@@ -43,4 +43,3 @@ export class ClientDbAdapter extends Context.Tag("ClientDbAdapter")<
 	ClientDbAdapter,
 	ClientDbAdapterService
 >() {}
-

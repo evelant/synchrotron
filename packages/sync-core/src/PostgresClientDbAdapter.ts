@@ -81,7 +81,10 @@ export const PostgresClientDbAdapter = Layer.effect(
 				Effect.ensuring(setPatchTrackingEnabled(true).pipe(Effect.orDie))
 			)
 
-		const withCaptureContext = <A, E, R>(actionRecordId: string | null, effect: Effect.Effect<A, E, R>) =>
+		const withCaptureContext = <A, E, R>(
+			actionRecordId: string | null,
+			effect: Effect.Effect<A, E, R>
+		) =>
 			setCaptureContext(actionRecordId).pipe(
 				Effect.zipRight(effect),
 				Effect.ensuring(setCaptureContext(null).pipe(Effect.orDie))

@@ -48,8 +48,9 @@ const shouldWriteAudienceKey = (
 				const rows = yield* sql<{ name: string; hidden?: number | null }>`
 					SELECT name, hidden FROM pragma_table_xinfo(${tableName})
 				`.pipe(
-					Effect.catchAll(() =>
-						sql<{ name: string; hidden?: number | null }>`
+					Effect.catchAll(
+						() =>
+							sql<{ name: string; hidden?: number | null }>`
 							SELECT name, 0 as hidden FROM pragma_table_info(${tableName})
 						`
 					)
@@ -283,7 +284,9 @@ export const applyForwardAmrs = (
 		for (const amr of amrs) {
 			yield* applyForwardAmr(sql, amr)
 		}
-	}).pipe(Effect.withSpan("PatchApplier.applyForwardAmrs", { attributes: { amrCount: amrs.length } }))
+	}).pipe(
+		Effect.withSpan("PatchApplier.applyForwardAmrs", { attributes: { amrCount: amrs.length } })
+	)
 
 export const applyReverseAmrs = (
 	amrs: readonly ActionModifiedRow[]
@@ -294,4 +297,6 @@ export const applyReverseAmrs = (
 		for (const amr of amrs) {
 			yield* applyReverseAmr(sql, amr)
 		}
-	}).pipe(Effect.withSpan("PatchApplier.applyReverseAmrs", { attributes: { amrCount: amrs.length } }))
+	}).pipe(
+		Effect.withSpan("PatchApplier.applyReverseAmrs", { attributes: { amrCount: amrs.length } })
+	)

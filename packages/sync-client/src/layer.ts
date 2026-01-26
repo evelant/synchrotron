@@ -5,7 +5,7 @@ import {
 	ActionRecordRepo,
 	ActionRegistry,
 	ClientDbAdapter,
-	ClockService,
+	ClientClockState,
 	PostgresClientDbAdapter,
 	SqliteClientDbAdapter,
 	SyncService
@@ -18,6 +18,7 @@ import {
 import { Effect, Layer } from "effect"
 import { PgliteClientLive } from "./db/connection"
 import { SqliteWasmClientMemoryLive } from "./db/sqlite-wasm"
+import { ClientIdentityLive } from "./ClientIdentity"
 import { ElectricSyncService } from "./electric/ElectricSyncService"
 import { SyncNetworkServiceLive } from "./SyncNetworkService"
 import { SyncRpcAuthTokenFromConfig } from "./SyncRpcAuthToken"
@@ -77,9 +78,10 @@ export const makeSynchrotronClientLayer = (
 		Layer.provideMerge(SyncNetworkServiceLive),
 		Layer.provideMerge(SyncRpcAuthTokenFromConfig),
 		Layer.provideMerge(ActionRegistry.Default),
-		Layer.provideMerge(ClockService.Default),
+		Layer.provideMerge(ClientClockState.Default),
 		Layer.provideMerge(ActionRecordRepo.Default),
 		Layer.provideMerge(ActionModifiedRowRepo.Default),
+		Layer.provideMerge(ClientIdentityLive),
 		Layer.provideMerge(keyValueStoreLayer),
 		Layer.provideMerge(PostgresClientDbAdapter),
 		Layer.provideMerge(PgliteClientLive),
@@ -121,9 +123,10 @@ export const makeSynchrotronSqliteWasmClientLayer = (
 		Layer.provideMerge(SyncNetworkServiceLive),
 		Layer.provideMerge(SyncRpcAuthTokenFromConfig),
 		Layer.provideMerge(ActionRegistry.Default),
-		Layer.provideMerge(ClockService.Default),
+		Layer.provideMerge(ClientClockState.Default),
 		Layer.provideMerge(ActionRecordRepo.Default),
 		Layer.provideMerge(ActionModifiedRowRepo.Default),
+		Layer.provideMerge(ClientIdentityLive),
 		Layer.provideMerge(keyValueStoreLayer),
 		Layer.provideMerge(SqliteClientDbAdapter),
 		Layer.provideMerge(SqliteWasmClientMemoryLive),

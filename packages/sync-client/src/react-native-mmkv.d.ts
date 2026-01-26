@@ -14,4 +14,3 @@ declare module "react-native-mmkv" {
 
 	export const createMMKV: (config?: MmkvConfig) => MmkvInstance
 }
-

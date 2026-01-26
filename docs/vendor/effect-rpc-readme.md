@@ -19,31 +19,31 @@ import { Schema } from "effect"
 
 // Define a user with an ID and name
 export class User extends Schema.Class<User>("User")({
-  id: Schema.String, // User's ID as a string
-  name: Schema.String // User's name as a string
+	id: Schema.String, // User's ID as a string
+	name: Schema.String // User's name as a string
 }) {}
 
 // Define a group of RPCs for user management.
 // You can use the `RpcGroup.make` function to create a group of RPCs.
 export class UserRpcs extends RpcGroup.make(
-  // Request to retrieve a list of users
-  Rpc.make("UserList", {
-    success: User, // Succeed with a stream of users
-    stream: true
-  }),
-  Rpc.make("UserById", {
-    success: User,
-    error: Schema.String, // Indicates that errors, if any, will be returned as strings
-    payload: {
-      id: Schema.String
-    }
-  }),
-  Rpc.make("UserCreate", {
-    success: User,
-    payload: {
-      name: Schema.String
-    }
-  })
+	// Request to retrieve a list of users
+	Rpc.make("UserList", {
+		success: User, // Succeed with a stream of users
+		stream: true
+	}),
+	Rpc.make("UserById", {
+		success: User,
+		error: Schema.String, // Indicates that errors, if any, will be returned as strings
+		payload: {
+			id: Schema.String
+		}
+	}),
+	Rpc.make("UserCreate", {
+		success: User,
+		payload: {
+			name: Schema.String
+		}
+	})
 ) {}
 ```
 
@@ -61,55 +61,50 @@ import { User, UserRpcs } from "./request.js"
 // Imaginary Database
 // ---------------------------------------------
 
-class UserRepository extends Effect.Service<UserRepository>()(
-  "UserRepository",
-  {
-    effect: Effect.gen(function* () {
-      const ref = yield* Ref.make<Array<User>>([
-        new User({ id: "1", name: "Alice" }),
-        new User({ id: "2", name: "Bob" })
-      ])
+class UserRepository extends Effect.Service<UserRepository>()("UserRepository", {
+	effect: Effect.gen(function* () {
+		const ref = yield* Ref.make<Array<User>>([
+			new User({ id: "1", name: "Alice" }),
+			new User({ id: "2", name: "Bob" })
+		])
 
-      return {
-        findMany: ref.get,
-        findById: (id: string) =>
-          Ref.get(ref).pipe(
-            Effect.andThen((users) => {
-              const user = users.find((user) => user.id === id)
-              return user
-                ? Effect.succeed(user)
-                : Effect.fail(`User not found: ${id}`)
-            })
-          ),
-        create: (name: string) =>
-          Ref.updateAndGet(ref, (users) => [
-            ...users,
-            new User({ id: String(users.length + 1), name })
-          ]).pipe(Effect.andThen((users) => users[users.length - 1]))
-      }
-    })
-  }
-) {}
+		return {
+			findMany: ref.get,
+			findById: (id: string) =>
+				Ref.get(ref).pipe(
+					Effect.andThen((users) => {
+						const user = users.find((user) => user.id === id)
+						return user ? Effect.succeed(user) : Effect.fail(`User not found: ${id}`)
+					})
+				),
+			create: (name: string) =>
+				Ref.updateAndGet(ref, (users) => [
+					...users,
+					new User({ id: String(users.length + 1), name })
+				]).pipe(Effect.andThen((users) => users[users.length - 1]))
+		}
+	})
+}) {}
 
 // ---------------------------------------------
 // RPC handlers
 // ---------------------------------------------
 
 export const UsersLive: Layer.Layer<
-  Rpc.Handler<"UserList"> | Rpc.Handler<"UserById"> | Rpc.Handler<"UserCreate">
+	Rpc.Handler<"UserList"> | Rpc.Handler<"UserById"> | Rpc.Handler<"UserCreate">
 > = UserRpcs.toLayer(
-  Effect.gen(function* () {
-    const db = yield* UserRepository
+	Effect.gen(function* () {
+		const db = yield* UserRepository
 
-    return {
-      UserList: () => Stream.fromIterableEffect(db.findMany),
-      UserById: ({ id }) => db.findById(id),
-      UserCreate: ({ name }) => db.create(name)
-    }
-  })
+		return {
+			UserList: () => Stream.fromIterableEffect(db.findMany),
+			UserById: ({ id }) => db.findById(id),
+			UserCreate: ({ name }) => db.create(name)
+		}
+	})
 ).pipe(
-  // Provide the UserRepository layer
-  Layer.provide(UserRepository.Default)
+	// Provide the UserRepository layer
+	Layer.provide(UserRepository.Default)
 )
 ```
 
@@ -131,14 +126,14 @@ const RpcLayer = RpcServer.layer(UserRpcs).pipe(Layer.provide(UsersLive))
 
 // Choose the protocol and serialization format
 const HttpProtocol = RpcServer.layerProtocolHttp({
-  path: "/rpc"
+	path: "/rpc"
 }).pipe(Layer.provide(RpcSerialization.layerNdjson))
 
 // Create the main server layer
 const Main = HttpRouter.Default.serve().pipe(
-  Layer.provide(RpcLayer),
-  Layer.provide(HttpProtocol),
-  Layer.provide(BunHttpServer.layer({ port: 3000 }))
+	Layer.provide(RpcLayer),
+	Layer.provide(HttpProtocol),
+	Layer.provide(BunHttpServer.layer({ port: 3000 }))
 )
 
 BunRuntime.runMain(Layer.launch(Main))
@@ -167,28 +162,28 @@ import { UserRpcs } from "./request.js"
 
 // Choose which protocol to use
 const ProtocolLive = RpcClient.layerProtocolHttp({
-  url: "http://localhost:3000/rpc"
+	url: "http://localhost:3000/rpc"
 }).pipe(
-  Layer.provide([
-    // use fetch for http requests
-    FetchHttpClient.layer,
-    // use ndjson for serialization
-    RpcSerialization.layerNdjson
-  ])
+	Layer.provide([
+		// use fetch for http requests
+		FetchHttpClient.layer,
+		// use ndjson for serialization
+		RpcSerialization.layerNdjson
+	])
 )
 
 // Use the client
 const program = Effect.gen(function* () {
-  const client = yield* RpcClient.make(UserRpcs)
-  let users = yield* Stream.runCollect(client.UserList({}))
-  if (!Chunk.findFirst(users, (user) => user.id === "3")) {
-    console.log(`Creating user "Charlie"`)
-    yield* client.UserCreate({ name: "Charlie" })
-    users = yield* Stream.runCollect(client.UserList({}))
-  } else {
-    console.log(`User "Charlie" already exists`)
-  }
-  return users
+	const client = yield* RpcClient.make(UserRpcs)
+	let users = yield* Stream.runCollect(client.UserList({}))
+	if (!Chunk.findFirst(users, (user) => user.id === "3")) {
+		console.log(`Creating user "Charlie"`)
+		yield* client.UserCreate({ name: "Charlie" })
+		users = yield* Stream.runCollect(client.UserList({}))
+	} else {
+		console.log(`User "Charlie" already exists`)
+	}
+	return users
 }).pipe(Effect.scoped)
 
 program.pipe(Effect.provide(ProtocolLive), Effect.runPromise).then(console.log)
@@ -209,21 +204,15 @@ import { Context } from "effect"
 import type { User } from "./request.js"
 
 // A context tag which represents the current user
-export class CurrentUser extends Context.Tag("CurrentUser")<
-  CurrentUser,
-  User
->() {}
+export class CurrentUser extends Context.Tag("CurrentUser")<CurrentUser, User>() {}
 
 // The context tag for the authentication middleware
-export class AuthMiddleware extends RpcMiddleware.Tag<AuthMiddleware>()(
-  "AuthMiddleware",
-  {
-    // This middleware will provide the current user context
-    provides: CurrentUser,
-    // This middleware requires a client implementation too
-    requiredForClient: true
-  }
-) {}
+export class AuthMiddleware extends RpcMiddleware.Tag<AuthMiddleware>()("AuthMiddleware", {
+	// This middleware will provide the current user context
+	provides: CurrentUser,
+	// This middleware requires a client implementation too
+	requiredForClient: true
+}) {}
 ```
 
 ## Implementing middleware
@@ -242,28 +231,28 @@ import { AuthMiddleware } from "./middleware.js"
 import { User } from "./request.js"
 
 export class UserRpcs extends RpcGroup.make(
-  Rpc.make("UserById", {
-    success: User,
-    payload: {
-      id: Schema.String
-    }
-  })
-    // apply the middleware to a single RPC
-    .middleware(AuthMiddleware)
+	Rpc.make("UserById", {
+		success: User,
+		payload: {
+			id: Schema.String
+		}
+	})
+		// apply the middleware to a single RPC
+		.middleware(AuthMiddleware)
 )
-  // or apply the middleware to the entire group
-  .middleware(AuthMiddleware) {}
+	// or apply the middleware to the entire group
+	.middleware(AuthMiddleware) {}
 
 // Implement the middleware for a server
 export const AuthLive: Layer.Layer<AuthMiddleware> = Layer.succeed(
-  AuthMiddleware,
-  // A middleware that provides the current user.
-  //
-  // You can access the headers, payload, and the RPC definition when
-  // implementing the middleware.
-  AuthMiddleware.of(({ headers, payload, rpc }) =>
-    Effect.succeed(new User({ id: "123", name: "Logged in user" }))
-  )
+	AuthMiddleware,
+	// A middleware that provides the current user.
+	//
+	// You can access the headers, payload, and the RPC definition when
+	// implementing the middleware.
+	AuthMiddleware.of(({ headers, payload, rpc }) =>
+		Effect.succeed(new User({ id: "123", name: "Logged in user" }))
+	)
 )
 
 // apply the middleware to a rpc server
@@ -273,19 +262,18 @@ RpcServer.layer(UserRpcs).pipe(Layer.provide(AuthLive))
 //
 // The client middleware can access the request and the RPC definition, and
 // returns a modified request.
-export const AuthClientLive: Layer.Layer<
-  RpcMiddleware.ForClient<AuthMiddleware>
-> = RpcMiddleware.layerClient(AuthMiddleware, ({ request, rpc }) =>
-  Effect.succeed({
-    ...request,
-    headers: Headers.set(request.headers, "authorization", "Bearer token")
-  })
-)
+export const AuthClientLive: Layer.Layer<RpcMiddleware.ForClient<AuthMiddleware>> =
+	RpcMiddleware.layerClient(AuthMiddleware, ({ request, rpc }) =>
+		Effect.succeed({
+			...request,
+			headers: Headers.set(request.headers, "authorization", "Bearer token")
+		})
+	)
 
 // apply the middleware to a rpc client
 export class UsersClient extends Effect.Service<UsersClient>()("UsersClient", {
-  scoped: RpcClient.make(UserRpcs),
-  // add the middleware layer to the dependencies
-  dependencies: [AuthClientLive]
+	scoped: RpcClient.make(UserRpcs),
+	// add the middleware layer to the dependencies
+	dependencies: [AuthClientLive]
 }) {}
 ```

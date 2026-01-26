@@ -1,20 +1,16 @@
 {
-    "extends": "../../tsconfig.base.json",
-    "include": [
-        "src",
-    ],
-    "references": [
-        {
-            "path": "../sql-pglite/tsconfig.src.json"
-        }
-    ],
-    "compilerOptions": {
-        "composite": true,
-        "types": [
-            "node"
-        ],
-        "outDir": "dist",
-        "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
-        "rootDir": "src"
-    }
+	"extends": "../../tsconfig.base.json",
+	"include": ["src"],
+	"references": [
+		{
+			"path": "../sql-pglite/tsconfig.src.json"
+		}
+	],
+	"compilerOptions": {
+		"composite": true,
+		"types": ["node"],
+		"outDir": "dist",
+		"tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+		"rootDir": "src"
+	}
 }

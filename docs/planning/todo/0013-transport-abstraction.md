@@ -32,7 +32,7 @@ This makes it hard to:
 
 ### Goals
 
-- A consumer can provide *one* Effect `Layer` implementing a transport contract and “it just works”.
+- A consumer can provide _one_ Effect `Layer` implementing a transport contract and “it just works”.
 - Keep correctness DB-driven (sync tables remain the ingress queue).
 - Allow both push and pull transports.
 - Make the contract explicit about what the transport must provide (history rows + cursor semantics).
@@ -47,7 +47,7 @@ This makes it hard to:
 
 ### Key idea
 
-Transport should be responsible for *delivering* remote sync-log rows, not *writing* them into the local DB.
+Transport should be responsible for _delivering_ remote sync-log rows, not _writing_ them into the local DB.
 
 Core should own exactly one ingestion function that persists remote batches into:
 
@@ -68,50 +68,54 @@ import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/mod
 import type { Effect, Stream } from "effect"
 
 export interface RemoteBatch {
-  readonly actions: ReadonlyArray<ActionRecord>
-  readonly modifiedRows: ReadonlyArray<ActionModifiedRow>
-  /**
-   * Optional convenience: max server_ingest_id contained in `actions`.
-   * (Used for diagnostics; the applied cursor remains DB-derived.)
-   */
-  readonly maxServerIngestId?: number
-  /**
-   * Optional: set by push transports when they know they are “caught up”.
-   * Useful for examples/UX; not required for correctness.
-   */
-  readonly caughtUp?: boolean
+	readonly actions: ReadonlyArray<ActionRecord>
+	readonly modifiedRows: ReadonlyArray<ActionModifiedRow>
+	/**
+	 * Optional convenience: max server_ingest_id contained in `actions`.
+	 * (Used for diagnostics; the applied cursor remains DB-derived.)
+	 */
+	readonly maxServerIngestId?: number
+	/**
+	 * Optional: set by push transports when they know they are “caught up”.
+	 * Useful for examples/UX; not required for correctness.
+	 */
+	readonly caughtUp?: boolean
 }
 
 export interface SendLocalActionsRequest {
-  readonly clientId: string
-  readonly basisServerIngestId: number
-  readonly actions: ReadonlyArray<ActionRecord>
-  readonly amrs: ReadonlyArray<ActionModifiedRow>
+	readonly clientId: string
+	readonly basisServerIngestId: number
+	readonly actions: ReadonlyArray<ActionRecord>
+	readonly amrs: ReadonlyArray<ActionModifiedRow>
 }
 
 export interface SendLocalActionsResponse {
-  readonly ok: true
+	readonly ok: true
 }
 
-export type SyncTransportError = { readonly _tag: "TransportError"; readonly message: string; readonly cause?: unknown }
+export type SyncTransportError = {
+	readonly _tag: "TransportError"
+	readonly message: string
+	readonly cause?: unknown
+}
 
 export interface SyncTransport {
-  /**
-   * A stream of remote batches.
-   *
-   * - Polling implementations can use `Stream.repeatEffectWithSchedule(...)`.
-   * - Push implementations can use `Stream.asyncScoped(...)`.
-   * - Duplicates are allowed; ingestion is idempotent.
-   */
-  readonly remoteBatches: Stream.Stream<RemoteBatch, SyncTransportError>
+	/**
+	 * A stream of remote batches.
+	 *
+	 * - Polling implementations can use `Stream.repeatEffectWithSchedule(...)`.
+	 * - Push implementations can use `Stream.asyncScoped(...)`.
+	 * - Duplicates are allowed; ingestion is idempotent.
+	 */
+	readonly remoteBatches: Stream.Stream<RemoteBatch, SyncTransportError>
 
-  /**
-   * Upload local unsynced actions/AMRs.
-   * Must enforce server head-gating via `basisServerIngestId`.
-   */
-  readonly sendLocalActions: (
-    req: SendLocalActionsRequest
-  ) => Effect.Effect<SendLocalActionsResponse, SyncTransportError>
+	/**
+	 * Upload local unsynced actions/AMRs.
+	 * Must enforce server head-gating via `basisServerIngestId`.
+	 */
+	readonly sendLocalActions: (
+		req: SendLocalActionsRequest
+	) => Effect.Effect<SendLocalActionsResponse, SyncTransportError>
 }
 ```
 
@@ -131,7 +135,7 @@ Core-owned ingestion should:
 - be idempotent (safe to receive duplicates)
 - be “merge-safe” for rows that originated locally
   - if a local action already exists by id, ingest should not regress it
-  - if a remote row carries `server_ingest_id` / `synced=true`, ingest may need to *upgrade* the local row if it is still unsynced
+  - if a remote row carries `server_ingest_id` / `synced=true`, ingest may need to _upgrade_ the local row if it is still unsynced
 
 This becomes the single place to encode DB specifics (SQL dialect differences, upsert strategy, JSON encoding).
 
@@ -204,4 +208,3 @@ Cons:
   - RPC transport to implement `SyncTransport`
   - Electric transport to implement `SyncTransport` (or a composable partial)
 - Update examples to depend only on the transport interface (not on Electric/RPC internals).
-

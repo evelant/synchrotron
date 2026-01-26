@@ -1,29 +1,25 @@
 {
-    "extends": "../../tsconfig.base.json",
-    "include": [
-        "src",
-    ],
-    "references": [
-        {
-            "path": "../../packages/sql-pglite/tsconfig.src.json"
-        },
-        {
-            "path": "../../packages/sync-core/tsconfig.src.json"
-        },
-        {
-            "path": "../../packages/sync-client/tsconfig.src.json"
-        },
-        {
-            "path": "../../packages/sync-server/tsconfig.src.json"
-        }
-    ],
-    "compilerOptions": {
-        "composite": true,
-        "types": [
-            "node"
-        ],
-        "outDir": "dist/src",
-        "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
-        "rootDir": "src"
-    }
+	"extends": "../../tsconfig.base.json",
+	"include": ["src"],
+	"references": [
+		{
+			"path": "../../packages/sql-pglite/tsconfig.src.json"
+		},
+		{
+			"path": "../../packages/sync-core/tsconfig.src.json"
+		},
+		{
+			"path": "../../packages/sync-client/tsconfig.src.json"
+		},
+		{
+			"path": "../../packages/sync-server/tsconfig.src.json"
+		}
+	],
+	"compilerOptions": {
+		"composite": true,
+		"types": ["node"],
+		"outDir": "dist/src",
+		"tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+		"rootDir": "src"
+	}
 }

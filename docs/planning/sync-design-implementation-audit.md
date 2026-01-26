@@ -90,7 +90,7 @@ This is an important design decision because it affects:
 
 Resolved: remote clock receive/merge is applied during action application.
 
-- `SyncService.applyActionRecords(...)` calls `ClockService.observeRemoteClocks(...)` after applying a remote batch.
+- `SyncService.applyActionRecords(...)` calls `ClientClockState.observeRemoteClocks(...)` after applying a remote batch.
 - This ensures causal “happens-after” and guarantees outgoing SYNC clocks can be incremented after observing the remote history.
 - This covers both RPC-driven sync (`performSync`) and Electric-driven apply loops (which also call `applyActionRecords`).
 
@@ -189,8 +189,8 @@ These can overlap in a real app (and do in the example, which calls `performSync
 
 The README explicitly notes the web example “does not yet handle multiple tabs”. The current building blocks also make multi-tab risky by default:
 
-- `ClockService.getNodeId` uses browser storage, so multiple tabs will typically share the same `client_id`.
-- `ClockService.incrementClock` is not obviously serialized across concurrent writers; two tabs can race, producing duplicate `(clock_time_ms, clock_counter, client_id)` tuples (ordering then falls back to `id`, but causality semantics get weird).
+- `ClientIdentity` uses browser storage (KeyValueStore/localStorage), so multiple tabs will typically share the same `client_id`.
+- `ClientClockState.incrementClock` is not serialized across concurrent writers; two tabs can race, producing duplicate `(clock_time_ms, clock_counter, client_id)` tuples (ordering then falls back to `id`, but causality semantics get weird).
 - Some queries assume a single `client_sync_status` row (e.g. `ActionRecordRepo.findSyncedButUnapplied` uses `SELECT client_id FROM client_sync_status LIMIT 1`).
 
 PGlite itself has a documented “multi-tab worker” mode, but Synchrotron would still need a single-writer strategy for `(client_id, clock)` to make multi-tab safe.
@@ -228,7 +228,7 @@ Remaining high-leverage next steps:
 3. **Crash-consistency**: make reconcile atomic (single transaction) or define a restart-safe recovery protocol.
 4. **Patch apply coverage**: broaden server patch applier type support beyond the current demo-friendly set.
 
-7. **Additional edge-case tests (need a bit more design work)**:
+5. **Additional edge-case tests (need a bit more design work)**:
    - **SYNC duplicates / compaction:** two clients emit the _same_ SYNC delta for the same applied batch → assert idempotent apply (safe duplicates) and (optionally) compaction keyed by `(basis_hash, delta_hash)`.
      - **SYNC purity violation is loud:** craft a nondeterministic action that produces different results on two runs against the same snapshot → assert we surface a diagnostic (and optionally suppress emitting an additional overwriting SYNC delta for that apply pass).
    - **SYNC stabilization after rebase:** client B emits a SYNC delta, then client A later reconciles with local pending actions that interleave and produces a new delta that supersedes B’s SYNC; after B fetches again and replays the full history, it should reach a fixed point (no further SYNC).

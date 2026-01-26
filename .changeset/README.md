@@ -19,6 +19,7 @@ bun changeset
 ```
 
 This will prompt you to:
+
 1. Select the type of change (patch, minor, major)
 2. Write a description of the change
 

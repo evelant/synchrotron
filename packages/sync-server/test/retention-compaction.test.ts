@@ -8,13 +8,13 @@ import { makeServerSqlLayer } from "./e2e/harness"
 describe("server retention/compaction", () => {
 	it.scoped(
 		"deletes action log rows older than retention (by server_ingested_at)",
-			() =>
-				Effect.gen(function* () {
-					const dataDir = `memory://server-${crypto.randomUUID()}`
-					const layer = SyncServerService.Default.pipe(
-						Layer.provideMerge(makeServerSqlLayer(dataDir))
-					)
-					const context = yield* Layer.build(layer)
+		() =>
+			Effect.gen(function* () {
+				const dataDir = `memory://server-${crypto.randomUUID()}`
+				const layer = SyncServerService.Default.pipe(
+					Layer.provideMerge(makeServerSqlLayer(dataDir))
+				)
+				const context = yield* Layer.build(layer)
 
 				yield* initializeDatabaseSchema.pipe(Effect.provide(context))
 
@@ -85,7 +85,10 @@ describe("server retention/compaction", () => {
 				yield* insertAction(2, "clientA", 2)
 				yield* insertAction(3, "clientA", 3)
 
-				const actionIds = yield* sql<{ readonly id: string; readonly server_ingest_id: number | string }>`
+				const actionIds = yield* sql<{
+					readonly id: string
+					readonly server_ingest_id: number | string
+				}>`
 					SELECT id, server_ingest_id
 					FROM action_records
 					WHERE server_ingest_id IS NOT NULL
@@ -124,8 +127,8 @@ describe("server retention/compaction", () => {
 					SELECT COALESCE(MIN(server_ingest_id), 0) AS min_id
 					FROM action_records
 				`
-					expect(Number(minRows[0]?.min_id ?? 0)).toBe(3)
+				expect(Number(minRows[0]?.min_id ?? 0)).toBe(3)
 			}),
-			{ timeout: 30_000 }
-		)
-	})
+		{ timeout: 30_000 }
+	)
+})

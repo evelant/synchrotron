@@ -12,7 +12,9 @@ const pgClientConfig: Config.Config.Wrap<PgClient.PgClientConfig> = Config.all({
 	onnotice: Config.succeed((notice: any) => console.log(`PgClient notice:`, notice))
 })
 
-const PgClientAdminLive = PgClient.layerConfig(pgClientConfig).pipe(Layer.tapErrorCause(Effect.logError))
+const PgClientAdminLive = PgClient.layerConfig(pgClientConfig).pipe(
+	Layer.tapErrorCause(Effect.logError)
+)
 
 const retrySchedule = Schedule.exponential(Duration.millis(100)).pipe(
 	Schedule.jittered,

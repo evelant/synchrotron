@@ -40,7 +40,7 @@ and rewires all “replay order” logic to use it consistently across TypeScrip
 
 - **Heuristic / lossy**: the old `compute_sortable_clock(clock)` used a “max counter + key rank + key” approach. Different vectors could map to the same `sortable_clock`, and the induced order is not guaranteed to be a linear extension of causal order.
 - **Cross-layer consistency risk**: ordering exists in multiple places (TS sorting, SQL `ORDER BY`, SQL functions using `<`/`>` on `sortable_clock`). Any mismatch causes divergent replay order across client/server and makes rollback/common-ancestor selection fragile.
-- **Performance pressure**: we need an ordering key that is *indexable* for fast `ORDER BY` / pagination. Doing “real” comparisons over JSONB vectors inside queries is too slow and hard to index.
+- **Performance pressure**: we need an ordering key that is _indexable_ for fast `ORDER BY` / pagination. Doing “real” comparisons over JSONB vectors inside queries is too slow and hard to index.
 
 ### What we want instead
 
@@ -159,7 +159,7 @@ Plan:
 Files:
 
 - `packages/sync-core/src/HLC.ts`
-- `packages/sync-core/src/ClockService.ts`
+- `packages/sync-core/src/ClockOrder.ts` (pure comparator + helpers; `ClockService` was removed)
 
 Plan:
 

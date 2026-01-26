@@ -10,7 +10,7 @@ Actions are expected to be deterministic (repeatable on the same DB snapshot giv
 
 This TODO proposes an **opt-in dev/test-only purity check** that replays the same apply batch twice against the same snapshot and asserts the resulting captured patches are identical.
 
-This is *not required for library correctness* (the system can converge without it); it’s a developer ergonomics + diagnostics tool.
+This is _not required for library correctness_ (the system can converge without it); it’s a developer ergonomics + diagnostics tool.
 
 ## What we want (behavior)
 

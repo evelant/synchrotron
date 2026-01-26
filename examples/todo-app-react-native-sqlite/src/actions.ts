@@ -44,7 +44,8 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 						SELECT completed FROM todos WHERE id = ${args.id}
 					`
 					const todo = Array.head(result)
-					const currentCompleted = (value: unknown): boolean => value === true || value === 1 || value === "1"
+					const currentCompleted = (value: unknown): boolean =>
+						value === true || value === 1 || value === "1"
 
 					yield* Option.match(todo, {
 						onNone: () => Effect.logWarning(`Todo not found for toggle: ${args.id}`),
@@ -68,7 +69,9 @@ export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
 			}),
 			(args) =>
 				Effect.gen(function* () {
-					const result = yield* sql<{ readonly id: string }>`SELECT id FROM todos WHERE id = ${args.id}`
+					const result = yield* sql<{
+						readonly id: string
+					}>`SELECT id FROM todos WHERE id = ${args.id}`
 					const todo = Array.head(result)
 
 					yield* Option.match(todo, {

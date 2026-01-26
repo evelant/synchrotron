@@ -12,7 +12,19 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const runPgIsReady = (): boolean => {
 	const result = spawnSync(
 		"docker",
-		["compose", "-f", "./docker-compose.yml", "exec", "-T", "postgres", "pg_isready", "-U", "postgres", "-d", "electric"],
+		[
+			"compose",
+			"-f",
+			"./docker-compose.yml",
+			"exec",
+			"-T",
+			"postgres",
+			"pg_isready",
+			"-U",
+			"postgres",
+			"-d",
+			"electric"
+		],
 		{
 			cwd: projectRoot,
 			stdio: "ignore"

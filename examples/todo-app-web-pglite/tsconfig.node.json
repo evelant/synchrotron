@@ -1,11 +1,11 @@
 {
-  "compilerOptions": {
-    "composite": true,
-    "skipLibCheck": true,
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "allowSyntheticDefaultImports": true,
-    "types": ["bun"]
-  },
-  "include": ["server.ts", "sst.config.ts", "bun-env.d.ts"]
+	"compilerOptions": {
+		"composite": true,
+		"skipLibCheck": true,
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"allowSyntheticDefaultImports": true,
+		"types": ["bun"]
+	},
+	"include": ["server.ts", "sst.config.ts", "bun-env.d.ts"]
 }

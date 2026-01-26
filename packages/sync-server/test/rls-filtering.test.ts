@@ -411,7 +411,14 @@ describe("Server RLS filtering", () => {
 					.receiveActions(
 						"clientA",
 						0,
-						[makeTestAction({ id: actionAId, clientId: "clientA", clockTimeMs: 1000, clockCounter: 1 })],
+						[
+							makeTestAction({
+								id: actionAId,
+								clientId: "clientA",
+								clockTimeMs: 1000,
+								clockCounter: 1
+							})
+						],
 						[
 							{
 								id: crypto.randomUUID(),
@@ -437,7 +444,14 @@ describe("Server RLS filtering", () => {
 					.receiveActions(
 						"clientB",
 						0,
-						[makeTestAction({ id: actionBId, clientId: "clientB", clockTimeMs: 2000, clockCounter: 1 })],
+						[
+							makeTestAction({
+								id: actionBId,
+								clientId: "clientB",
+								clockTimeMs: 2000,
+								clockCounter: 1
+							})
+						],
 						[
 							{
 								id: crypto.randomUUID(),
@@ -471,7 +485,7 @@ describe("Server RLS filtering", () => {
 
 				expect(userBResult.actions.map((a) => a.id)).toEqual([actionBId])
 			}).pipe(Effect.provide(TestLayer)),
-			{ timeout: 30000 }
+		{ timeout: 30000 }
 	)
 
 	it.scoped(
@@ -500,7 +514,14 @@ describe("Server RLS filtering", () => {
 					.receiveActions(
 						"clientA",
 						0,
-						[makeTestAction({ id: actionAId, clientId: "clientA", clockTimeMs: 1000, clockCounter: 1 })],
+						[
+							makeTestAction({
+								id: actionAId,
+								clientId: "clientA",
+								clockTimeMs: 1000,
+								clockCounter: 1
+							})
+						],
 						[
 							{
 								id: crypto.randomUUID(),
@@ -535,7 +556,14 @@ describe("Server RLS filtering", () => {
 					.receiveActions(
 						"clientB",
 						latestVisible.server_ingest_id,
-						[makeTestAction({ id: actionBId, clientId: "clientB", clockTimeMs: 2000, clockCounter: 1 })],
+						[
+							makeTestAction({
+								id: actionBId,
+								clientId: "clientB",
+								clockTimeMs: 2000,
+								clockCounter: 1
+							})
+						],
 						[
 							{
 								id: crypto.randomUUID(),
@@ -575,11 +603,11 @@ describe("Server RLS filtering", () => {
 		{ timeout: 30000 }
 	)
 
-		it.scoped(
-			"rejects patch apply that violates RLS WITH CHECK (notes audience membership)",
-			() =>
-				Effect.gen(function* () {
-					yield* setupRlsDatabase
+	it.scoped(
+		"rejects patch apply that violates RLS WITH CHECK (notes audience membership)",
+		() =>
+			Effect.gen(function* () {
+				yield* setupRlsDatabase
 
 				const sql = yield* SqlClient.SqlClient
 				const server = yield* SyncServerService
@@ -591,7 +619,12 @@ describe("Server RLS filtering", () => {
 				yield* sql`INSERT INTO projects (id) VALUES (${projectId})`
 				// Note: userA is NOT a member of this project.
 
-				const action = makeTestAction({ id: actionId, clientId: "clientA", clockTimeMs: 1000, clockCounter: 1 })
+				const action = makeTestAction({
+					id: actionId,
+					clientId: "clientA",
+					clockTimeMs: 1000,
+					clockCounter: 1
+				})
 				const amr: ActionModifiedRow = {
 					id: crypto.randomUUID(),
 					table_name: "notes",
@@ -631,34 +664,34 @@ describe("Server RLS filtering", () => {
 				`.pipe(Effect.map((rows) => rows[0]?.count ?? 0))
 
 				expect(actionCount).toBe(0)
-				}).pipe(Effect.provide(TestLayer)),
-			{ timeout: 30000 }
-		)
+			}).pipe(Effect.provide(TestLayer)),
+		{ timeout: 30000 }
+	)
 
-		it.scoped(
-			"supports Supabase-style RLS using request.jwt.claim.sub during server materialization",
-			() =>
-				Effect.gen(function* () {
-					yield* setupRlsDatabaseSupabaseClaims
+	it.scoped(
+		"supports Supabase-style RLS using request.jwt.claim.sub during server materialization",
+		() =>
+			Effect.gen(function* () {
+				yield* setupRlsDatabaseSupabaseClaims
 
-					const sql = yield* SqlClient.SqlClient
-					const server = yield* SyncServerService
+				const sql = yield* SqlClient.SqlClient
+				const server = yield* SyncServerService
 
-					const projectB = `project-${crypto.randomUUID()}`
-					const memberBId = `${projectB}-userB`
-					yield* sql`INSERT INTO projects (id) VALUES (${projectB})`
-					yield* sql`
+				const projectB = `project-${crypto.randomUUID()}`
+				const memberBId = `${projectB}-userB`
+				yield* sql`INSERT INTO projects (id) VALUES (${projectB})`
+				yield* sql`
 						INSERT INTO project_members (id, project_id, user_id)
 						VALUES (${memberBId}, ${projectB}, 'userB')
 						ON CONFLICT DO NOTHING
 					`
 
-					// Insert a remote action by userB into a project userA is not a member of.
-					// The server must still be able to apply it during rollback+replay materialization.
-					const actionBId = crypto.randomUUID()
-					const noteBId = crypto.randomUUID()
-					const clockTimeMs = 1000
-					yield* sql`
+				// Insert a remote action by userB into a project userA is not a member of.
+				// The server must still be able to apply it during rollback+replay materialization.
+				const actionBId = crypto.randomUUID()
+				const noteBId = crypto.randomUUID()
+				const clockTimeMs = 1000
+				yield* sql`
 						INSERT INTO action_records (
 							server_ingest_id,
 							id,
@@ -677,19 +710,17 @@ describe("Server RLS filtering", () => {
 							'clientB',
 							'TestAction',
 							${JSON.stringify({ timestamp: clockTimeMs })}::jsonb,
-							${
-								JSON.stringify({
-									timestamp: clockTimeMs,
-									vector: { clientB: 1 }
-								})
-							}::jsonb,
+							${JSON.stringify({
+								timestamp: clockTimeMs,
+								vector: { clientB: 1 }
+							})}::jsonb,
 							1,
 							${clockTimeMs},
 							${new Date(clockTimeMs).toISOString()}
 						)
 					`
 
-					yield* sql`
+				yield* sql`
 						INSERT INTO action_modified_rows (
 							id,
 							table_name,
@@ -707,56 +738,54 @@ describe("Server RLS filtering", () => {
 							${actionBId},
 							${`project:${projectB}`},
 							'INSERT',
-							${
-								JSON.stringify({
-									id: noteBId,
-									title: "B",
-									content: "",
-									project_id: projectB
-								})
-							}::jsonb,
+							${JSON.stringify({
+								id: noteBId,
+								title: "B",
+								content: "",
+								project_id: projectB
+							})}::jsonb,
 							'{}'::jsonb,
 							0
 						)
 					`
 
-					const exit = yield* Effect.exit(
-						server
-							.receiveActions(
-								"clientA",
-								999999,
-								[
-									makeTestAction({
-										id: crypto.randomUUID(),
-										clientId: "clientA",
-										clockTimeMs: 2000,
-										clockCounter: 1
-									})
-								],
-								[]
-							)
-							.pipe(Effect.provideService(SyncUserId, "userA" as UserId))
-					)
+				const exit = yield* Effect.exit(
+					server
+						.receiveActions(
+							"clientA",
+							999999,
+							[
+								makeTestAction({
+									id: crypto.randomUUID(),
+									clientId: "clientA",
+									clockTimeMs: 2000,
+									clockCounter: 1
+								})
+							],
+							[]
+						)
+						.pipe(Effect.provideService(SyncUserId, "userA" as UserId))
+				)
 
-					expect(exit._tag).toBe("Success")
+				expect(exit._tag).toBe("Success")
 
-					// Assert as the superuser so we're not testing SELECT RLS here.
-					yield* sql`RESET ROLE`
-					const notes = yield* sql<{ readonly id: string; readonly title: string }>`
+				// Assert as the superuser so we're not testing SELECT RLS here.
+				yield* sql`RESET ROLE`
+				const notes = yield* sql<{ readonly id: string; readonly title: string }>`
 						SELECT id, title
 						FROM notes
 						ORDER BY id ASC
 					`
-					expect(notes).toEqual([{ id: noteBId, title: "B" }])
-				}).pipe(Effect.provide(TestLayer)),
-			{ timeout: 30000 }
-		)
+				expect(notes).toEqual([{ id: noteBId, title: "B" }])
+			}).pipe(Effect.provide(TestLayer)),
+		{ timeout: 30000 }
+	)
 
-		it.scoped(
-			"does not allow sync-log RLS bypass without the server DB role (internal_materializer guardrail)",
-			() =>
-				Effect.gen(function* () {
-					yield* setupRlsDatabase
+	it.scoped(
+		"does not allow sync-log RLS bypass without the server DB role (internal_materializer guardrail)",
+		() =>
+			Effect.gen(function* () {
+				yield* setupRlsDatabase
 
 				const sql = yield* SqlClient.SqlClient
 				const server = yield* SyncServerService
@@ -782,7 +811,14 @@ describe("Server RLS filtering", () => {
 					.receiveActions(
 						"clientA",
 						0,
-						[makeTestAction({ id: actionAId, clientId: "clientA", clockTimeMs: 1000, clockCounter: 1 })],
+						[
+							makeTestAction({
+								id: actionAId,
+								clientId: "clientA",
+								clockTimeMs: 1000,
+								clockCounter: 1
+							})
+						],
 						[
 							{
 								id: crypto.randomUUID(),
@@ -808,7 +844,14 @@ describe("Server RLS filtering", () => {
 					.receiveActions(
 						"clientB",
 						0,
-						[makeTestAction({ id: actionBId, clientId: "clientB", clockTimeMs: 2000, clockCounter: 1 })],
+						[
+							makeTestAction({
+								id: actionBId,
+								clientId: "clientB",
+								clockTimeMs: 2000,
+								clockCounter: 1
+							})
+						],
 						[
 							{
 								id: crypto.randomUUID(),
@@ -948,7 +991,8 @@ describe("Server RLS filtering", () => {
 				const headForClientB = yield* server
 					.getActionsSince("clientB", 0, true)
 					.pipe(Effect.provideService(SyncUserId, "userB" as UserId))
-				const basisForClientB = headForClientB.actions[headForClientB.actions.length - 1]?.server_ingest_id
+				const basisForClientB =
+					headForClientB.actions[headForClientB.actions.length - 1]?.server_ingest_id
 				expect(basisForClientB).not.toBeNull()
 				expect(basisForClientB).not.toBeUndefined()
 				if (basisForClientB === null || basisForClientB === undefined) return
@@ -1121,7 +1165,8 @@ describe("Server RLS filtering", () => {
 				const headForClientB = yield* server
 					.getActionsSince("clientB", 0, true)
 					.pipe(Effect.provideService(SyncUserId, "userB" as UserId))
-				const basisForClientB = headForClientB.actions[headForClientB.actions.length - 1]?.server_ingest_id
+				const basisForClientB =
+					headForClientB.actions[headForClientB.actions.length - 1]?.server_ingest_id
 				expect(basisForClientB).not.toBeNull()
 				expect(basisForClientB).not.toBeUndefined()
 				if (basisForClientB === null || basisForClientB === undefined) return

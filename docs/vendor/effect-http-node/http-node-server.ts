@@ -5,7 +5,8 @@ import { createServer } from "node:http"
 
 const ServerLive = NodeHttpServer.layer(() => createServer(), { port: 3000 })
 
-const HttpLive = HttpServer.serve(HttpServerResponse.text("Hello World"))
-  .pipe(Layer.provide(ServerLive))
+const HttpLive = HttpServer.serve(HttpServerResponse.text("Hello World")).pipe(
+	Layer.provide(ServerLive)
+)
 
 NodeRuntime.runMain(Layer.launch(HttpLive))

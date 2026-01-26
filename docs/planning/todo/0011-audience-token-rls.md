@@ -61,7 +61,7 @@ Apps define a fast membership mapping from authenticated user → visible audien
 
 - a table (preferred for large sets) or a view (fine for demos)
 
-This repo uses `synchrotron.user_audiences` as a *convention* so the example RLS policies are copy/paste-able. It is not something Synchrotron can generate for you — each consuming app must implement it (or inline equivalent membership checks in its RLS policies).
+This repo uses `synchrotron.user_audiences` as a _convention_ so the example RLS policies are copy/paste-able. It is not something Synchrotron can generate for you — each consuming app must implement it (or inline equivalent membership checks in its RLS policies).
 
 Example (project membership):
 
@@ -89,7 +89,7 @@ You can implement this however your app needs:
 
 ## What this looks like in a real app (multiple tables, different rules)
 
-The pattern is: pick an `audience_key` scheme, then make *every* synced row belong to exactly one audience, even if different tables use different sharing logic.
+The pattern is: pick an `audience_key` scheme, then make _every_ synced row belong to exactly one audience, even if different tables use different sharing logic.
 
 Example app:
 
@@ -144,7 +144,7 @@ from users u;
 
 ### Base table RLS
 
-Each table can share the same “audience membership” predicate even though the *source* of truth differs (project_members vs project_admins vs dm_participants):
+Each table can share the same “audience membership” predicate even though the _source_ of truth differs (project_members vs project_admins vs dm_participants):
 
 ```sql
 create policy tasks_read on tasks
@@ -268,7 +268,7 @@ Application guidance:
 - If some inputs must be private, store them in normal tables protected by app RLS and put only opaque references (ids) in `args`.
 - Prefer actions that touch rows within a single audience to keep this union small and predictable (optional: enforce by storing `action_records.audience_key` and validating all AMRs match).
 
-If we *don’t* enforce single-audience actions, define `action_records` visibility as:
+If we _don’t_ enforce single-audience actions, define `action_records` visibility as:
 
 ```sql
 create policy ar_read on synchrotron.action_records
@@ -331,13 +331,13 @@ That gives us a simple set of behaviors with minimal special-casing:
 
 Common sync situations:
 
-1) **Remote delete arrives, row exists locally** → delete removes it.
-2) **Remote delete arrives, row is already missing locally** (fresh device, partial history, already-deleted-by-earlier-action) → delete is a no-op; this is still correct.
-3) **Late-arriving older actions** (client/server learns about an older INSERT/UPDATE after applying a later DELETE):
+1. **Remote delete arrives, row exists locally** → delete removes it.
+2. **Remote delete arrives, row is already missing locally** (fresh device, partial history, already-deleted-by-earlier-action) → delete is a no-op; this is still correct.
+3. **Late-arriving older actions** (client/server learns about an older INSERT/UPDATE after applying a later DELETE):
    - reconcile does rollback to a common ancestor, which re-inserts the row from `reverse_patches`,
    - then replay in canonical order (INSERT/UPDATE before DELETE),
    - final state matches canonical history (row absent if the DELETE is still in-order).
-4) **Concurrent delete vs update**:
+4. **Concurrent delete vs update**:
    - canonical order decides whether the update “wins” (update before delete) or becomes a no-op (update after delete).
    - for best UX and determinism, actions that mutate existing rows should be written to handle “row missing” as a no-op (instead of throwing), because that’s the natural outcome when another client deleted first.
 

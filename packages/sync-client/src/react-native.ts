@@ -2,7 +2,7 @@ import {
 	ActionModifiedRowRepo,
 	ActionRecordRepo,
 	ActionRegistry,
-	ClockService,
+	ClientClockState,
 	SqliteClientDbAdapter,
 	SyncService
 } from "@synchrotron/sync-core"
@@ -10,6 +10,7 @@ import { SynchrotronClientConfigData, createSynchrotronConfig } from "@synchrotr
 import { Effect, Layer } from "effect"
 import { makeSqliteReactNativeClientLayer } from "./db/sqlite-react-native"
 import { logInitialSyncDbState } from "./logInitialDbState"
+import { ClientIdentityLive } from "./ClientIdentity"
 import { SyncRpcAuthTokenFromConfig } from "./SyncRpcAuthToken"
 import { SynchrotronKeyValueStoreLive } from "./synchrotronKeyValueStore"
 import { SyncNetworkServiceLive } from "./SyncNetworkService"
@@ -41,15 +42,16 @@ export const makeSynchrotronSqliteReactNativeClientLayer = (
 		Layer.provideMerge(SyncNetworkServiceLive),
 		Layer.provideMerge(SyncRpcAuthTokenFromConfig),
 		Layer.provideMerge(ActionRegistry.Default),
-			Layer.provideMerge(ClockService.Default),
-			Layer.provideMerge(ActionRecordRepo.Default),
-			Layer.provideMerge(ActionModifiedRowRepo.Default),
-			Layer.provideMerge(SynchrotronKeyValueStoreLive),
-			Layer.provideMerge(SqliteClientDbAdapter),
-			Layer.provideMerge(makeSqliteReactNativeClientLayer(sqliteConfig)),
-			Layer.provideMerge(configLayer),
-			Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
-		)
-	}
+		Layer.provideMerge(ClientClockState.Default),
+		Layer.provideMerge(ActionRecordRepo.Default),
+		Layer.provideMerge(ActionModifiedRowRepo.Default),
+		Layer.provideMerge(ClientIdentityLive),
+		Layer.provideMerge(SynchrotronKeyValueStoreLive),
+		Layer.provideMerge(SqliteClientDbAdapter),
+		Layer.provideMerge(makeSqliteReactNativeClientLayer(sqliteConfig)),
+		Layer.provideMerge(configLayer),
+		Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
+	)
+}
 
 export { makeSqliteReactNativeClientLayer } from "./db/sqlite-react-native"

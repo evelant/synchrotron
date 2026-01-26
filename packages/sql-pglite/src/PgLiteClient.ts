@@ -107,8 +107,9 @@ export const tag = <TExtensions extends Extensions>() =>
  * @category constructors
  * @since 1.0.0
  */
-export interface PgliteClientConfig<TExtensions extends Extensions = Extensions>
-	extends PGliteOptions<TExtensions> {
+export interface PgliteClientConfig<
+	TExtensions extends Extensions = Extensions
+> extends PGliteOptions<TExtensions> {
 	readonly transformResultNames?: ((str: string) => string) | undefined
 	readonly transformQueryNames?: ((str: string) => string) | undefined
 	readonly transformJson?: boolean | undefined
@@ -178,19 +179,20 @@ export const make = <TExtensions extends Extensions = Extensions>(
 			catch: (cause) => new SqlError({ cause, message: "PgliteClient: Failed to query" })
 		})
 
-			class ConnectionImpl implements Connection {
-				constructor(private readonly pg: PGlite) {}
+		class ConnectionImpl implements Connection {
+			constructor(private readonly pg: PGlite) {}
 
-				private run(query: Promise<any>) {
-					return Effect.tryPromise<ReadonlyArray<any>, SqlError>({
-						try: async () => {
-							const result = await query
-							const rows = result && typeof result === "object" && "rows" in result ? (result as any).rows : []
-							return Array.isArray(rows) ? rows : []
-						},
-						catch: (cause) => new SqlError({ cause, message: "Failed to execute statement" })
-					})
-				}
+			private run(query: Promise<any>) {
+				return Effect.tryPromise<ReadonlyArray<any>, SqlError>({
+					try: async () => {
+						const result = await query
+						const rows =
+							result && typeof result === "object" && "rows" in result ? (result as any).rows : []
+						return Array.isArray(rows) ? rows : []
+					},
+					catch: (cause) => new SqlError({ cause, message: "Failed to execute statement" })
+				})
+			}
 
 			private loggedStatement<A extends object>(
 				method: "query" | "exec",
@@ -213,10 +215,10 @@ export const make = <TExtensions extends Extensions = Extensions>(
 					Effect.tap((rows) =>
 						Effect.logTrace("pglite.statement.end", { ...base, rowCount: rows.length })
 					),
-					Effect.tapError((error) =>
-						Effect.logError("pglite.statement.error", { ...base, error })
+					Effect.tapError((error) => Effect.logError("pglite.statement.error", { ...base, error })),
+					Effect.tap(() =>
+						Effect.annotateCurrentSpan(OtelSemConv.ATTR_DB_QUERY_TEXT, statementPreview)
 					),
-					Effect.tap(() => Effect.annotateCurrentSpan(OtelSemConv.ATTR_DB_QUERY_TEXT, statementPreview)),
 					Effect.annotateLogs({ statementId, dbDialect: "pglite", dbMethod: method }),
 					Effect.withSpan("PgliteClient.statement", {
 						attributes: {
@@ -241,9 +243,7 @@ export const make = <TExtensions extends Extensions = Extensions>(
 
 				const effect = transformRows
 					? Effect.map(
-							this.run(
-								canUseExec ? this.pg.exec(sql) : this.pg.query(sql, params as any)
-							),
+							this.run(canUseExec ? this.pg.exec(sql) : this.pg.query(sql, params as any)),
 							transformRows
 						)
 					: unprepared
@@ -265,7 +265,12 @@ export const make = <TExtensions extends Extensions = Extensions>(
 				)
 			}
 			executeWithoutTransform(sql: string, params: ReadonlyArray<unknown>) {
-				return this.loggedStatement("query", sql, params, this.run(this.pg.query(sql, params as any)))
+				return this.loggedStatement(
+					"query",
+					sql,
+					params,
+					this.run(this.pg.query(sql, params as any))
+				)
 			}
 			executeValues(sql: string, params: ReadonlyArray<unknown>) {
 				return this.execute(sql, params, (r) => r.map((v) => Object.values(v) as any))

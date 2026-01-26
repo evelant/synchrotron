@@ -95,9 +95,7 @@ export const SynchrotronConfigLive = Layer.effect(
 				dataDir,
 				relaxedDurability
 			},
-			...(Option.isSome(syncRpcAuthToken)
-				? { syncRpcAuthToken: syncRpcAuthToken.value }
-				: {})
+			...(Option.isSome(syncRpcAuthToken) ? { syncRpcAuthToken: syncRpcAuthToken.value } : {})
 		}
 	})
 )

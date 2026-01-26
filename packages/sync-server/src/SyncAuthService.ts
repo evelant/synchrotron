@@ -33,7 +33,8 @@ const getUserIdFromJwtPayload = (
 	payload: Record<string, unknown> & { readonly sub?: unknown },
 	claim: string
 ): string | null => {
-	if (claim === "sub") return typeof payload.sub === "string" && payload.sub.length > 0 ? payload.sub : null
+	if (claim === "sub")
+		return typeof payload.sub === "string" && payload.sub.length > 0 ? payload.sub : null
 	const value = payload[claim]
 	return typeof value === "string" && value.length > 0 ? value : null
 }
@@ -157,9 +158,13 @@ export class SyncAuthService extends Effect.Service<SyncAuthService>()("SyncAuth
 		const gotrueJwtAudience = yield* Config.string("GOTRUE_JWT_AUD").pipe(Config.option)
 		const audienceOption = Option.orElse(jwtAudience, () => gotrueJwtAudience)
 		const issuerOption = yield* Config.string("SYNC_JWT_ISSUER").pipe(Config.option)
-		const userIdClaim = yield* Config.string("SYNC_JWT_USER_ID_CLAIM").pipe(Config.withDefault("sub"))
+		const userIdClaim = yield* Config.string("SYNC_JWT_USER_ID_CLAIM").pipe(
+			Config.withDefault("sub")
+		)
 		const algorithmsOption = yield* Config.string("SYNC_JWT_ALGORITHMS").pipe(Config.option)
-		const algorithms = Option.isSome(algorithmsOption) ? parseAlgorithms(algorithmsOption.value) : undefined
+		const algorithms = Option.isSome(algorithmsOption)
+			? parseAlgorithms(algorithmsOption.value)
+			: undefined
 
 		if (Option.isSome(jwksUrlOption)) {
 			const jwtConfig: JwtJwksConfig = {
@@ -208,5 +213,5 @@ export class SyncAuthService extends Effect.Service<SyncAuthService>()("SyncAuth
 					"Missing JWT configuration. Set SYNC_JWT_SECRET (HS256) or SYNC_JWT_JWKS_URL (JWKS/RS256)."
 			})
 		)
-		})
-	}) {}
+	})
+}) {}

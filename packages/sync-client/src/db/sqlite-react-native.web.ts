@@ -15,7 +15,10 @@ const waSqliteWasmUrl = (): string => {
 const setWaSqliteWasmUrl = () => {
 	if (typeof globalThis === "undefined") return
 	const g = globalThis as any
-	if (typeof g.__EFFECT_WA_SQLITE_WASM_URL__ === "string" && g.__EFFECT_WA_SQLITE_WASM_URL__.length > 0) {
+	if (
+		typeof g.__EFFECT_WA_SQLITE_WASM_URL__ === "string" &&
+		g.__EFFECT_WA_SQLITE_WASM_URL__.length > 0
+	) {
 		return
 	}
 
@@ -47,7 +50,9 @@ const makeOpfsWorker = (dbName: string) =>
 		Effect.gen(function* () {
 			yield* Effect.logInfo("db.sqlite.opfsWorker.acquire.start", { dbName })
 			yield* Effect.sync(() => assertOpfsWorkerSupport())
-			return new Worker(new URL("./sqlite-opfs.rn-web.worker", window.location.href), { name: dbName })
+			return new Worker(new URL("./sqlite-opfs.rn-web.worker", window.location.href), {
+				name: dbName
+			})
 		}),
 		(worker) =>
 			Effect.gen(function* () {

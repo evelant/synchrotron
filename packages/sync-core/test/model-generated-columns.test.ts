@@ -13,7 +13,10 @@ class Item extends Model.Class<Item>("items")({
 	audience_key: Model.FieldOnly("select")(Schema.optional(Schema.String))
 }) {}
 
-const makeSqliteLayer = Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), KeyValueStore.layerMemory)
+const makeSqliteLayer = Layer.mergeAll(
+	SqliteClient.layer({ filename: ":memory:" }),
+	KeyValueStore.layerMemory
+)
 
 const makePgliteLayer = Layer.mergeAll(
 	PgliteClient.layer({
@@ -62,10 +65,7 @@ const runGeneratedColumnUpdateTest = (dialect: "sqlite" | "pglite") =>
 		expect(updatedAgain.audience_key).toBe("project:project-a")
 
 		yield* sql`DROP TABLE IF EXISTS items`.raw
-	}).pipe(
-		Effect.withSpan("generatedColumn.update", { attributes: { dialect } }),
-		Effect.scoped
-	)
+	}).pipe(Effect.withSpan("generatedColumn.update", { attributes: { dialect } }), Effect.scoped)
 
 describe("Model generated columns", () => {
 	it.scoped(
@@ -80,4 +80,3 @@ describe("Model generated columns", () => {
 		{ timeout: 30000 }
 	)
 })
-

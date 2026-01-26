@@ -76,17 +76,17 @@ Note: some sandboxed environments block Docker access entirely. In that case, ru
 
 ## Adding a new E2E test
 
-1) Start the server with `makeInProcessSyncRpcServer` (from `packages/sync-server/test/e2e/harness.ts`), then set `syncRpcUrl` to `${baseUrl}/rpc`.
+1. Start the server with `makeInProcessSyncRpcServer` (from `packages/sync-server/test/e2e/harness.ts`), then set `syncRpcUrl` to `${baseUrl}/rpc`.
 
-2) Create one or more clients using `makeSynchrotronClientLayer(...)` and initialize:
+2. Create one or more clients using `makeSynchrotronClientLayer(...)` and initialize:
 
 - sync schema: `ClientDbAdapter.initializeSyncSchema`
 - app schema: `CREATE TABLE ...`
 - patch capture: `ClientDbAdapter.installPatchCapture([...])`
 
-3) Define actions using `ActionRegistry.defineAction(...)` (the action function should close over the client’s `sql` and `clockService` as needed).
+3. Define actions using `ActionRegistry.defineAction(...)` (the action function should close over the client’s `sql` and `clockService` as needed).
 
-4) Use `SyncService` (the service) to drive behavior:
+4. Use `SyncService` (the service) to drive behavior:
 
 - `const sync = yield* SyncService`
 - `yield* sync.executeAction(action)`

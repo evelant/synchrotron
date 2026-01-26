@@ -3,7 +3,8 @@ import { PgliteClient } from "@effect/sql-pglite"
 import { describe, it } from "@effect/vitest" // Import describe
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo" // Correct import path
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
-import { ClockService } from "@synchrotron/sync-core/ClockService"
+import { ClientClockState } from "@synchrotron/sync-core/ClientClockState"
+import { compareClock } from "@synchrotron/sync-core/ClockOrder"
 import { ActionRecord } from "@synchrotron/sync-core/models"
 import { ActionExecutionError, SyncService } from "@synchrotron/sync-core/SyncService" // Corrected import path
 import { Effect, Option, Schema } from "effect" // Import DateTime
@@ -97,7 +98,7 @@ describe("SyncService", () => {
 				const syncService = yield* SyncService
 				const sql = yield* SqlClient.SqlClient
 				const actionRegistry = yield* ActionRegistry
-				const clockService = yield* ClockService // Get ClockService
+				const clockState = yield* ClientClockState
 				const actionRecordRepo = yield* ActionRecordRepo // Get ActionRecordRepo
 
 				// Define and execute multiple test actions
@@ -154,14 +155,15 @@ describe("SyncService", () => {
 
 				// --- Verify last_synced_clock was updated after the first sync ---
 				// It should be updated to the clock of the latest action handled in the first sync.
-				const clockAfterFirstSync = yield* clockService.getLastSyncedClock
+				const clockAfterFirstSync = yield* clockState.getLastSyncedClock
+				const clientId = yield* clockState.getClientId
 				const latestOriginalActionClock = record2.clock // Clock of the latest action originally executed
 				// Check that the last_synced_clock is now at least as recent as the latest original action.
 				// It might be newer if reconciliation happened, but it must not be older.
 				expect(
-					clockService.compareClock(
-						{ clock: clockAfterFirstSync, clientId: "server" }, // Assuming test client ID is 'server' based on logs
-						{ clock: latestOriginalActionClock, clientId: "server" }
+					compareClock(
+						{ clock: clockAfterFirstSync, clientId },
+						{ clock: latestOriginalActionClock, clientId }
 					)
 				).toBeGreaterThanOrEqual(0)
 
@@ -191,7 +193,7 @@ describe("SyncService", () => {
 				expect(applied2Final).toBe(true)
 
 				// --- Verify last_synced_clock remains correctly updated ---
-				const finalLastSyncedClock = yield* clockService.getLastSyncedClock
+				const finalLastSyncedClock = yield* clockState.getLastSyncedClock
 				// It should still be the clock from after the first sync, as no newer actions were processed.
 				expect(finalLastSyncedClock).toEqual(clockAfterFirstSync)
 

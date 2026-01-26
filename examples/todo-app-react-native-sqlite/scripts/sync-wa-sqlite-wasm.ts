@@ -41,4 +41,3 @@ copyWasmToPublic().catch((error) => {
 	console.error("[sync-wa-sqlite-wasm] Failed to sync wa-sqlite wasm files:", error)
 	process.exitCode = 1
 })
-

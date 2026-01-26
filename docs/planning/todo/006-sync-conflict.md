@@ -6,7 +6,7 @@ Implemented (with follow-ups possible)
 
 ## Summary
 
-Synchrotron’s SYNC mechanism (“emit a patch-only delta when replay produces different effects”) is designed to handle *private-data divergence* under RLS and is mostly additive.
+Synchrotron’s SYNC mechanism (“emit a patch-only delta when replay produces different effects”) is designed to handle _private-data divergence_ under RLS and is mostly additive.
 
 There is a narrow but important corner case where SYNC deltas become **visible overwrites** on shared fields:
 
@@ -61,14 +61,14 @@ History:
 
 ### What happens (and why it still converges)
 
-1) Bob runs `A` and uploads it. Bob’s patches for `A` include `projects(1).status = "BOB"`.
+1. Bob runs `A` and uploads it. Bob’s patches for `A` include `projects(1).status = "BOB"`.
 
-2) Alice receives `A`, replays it, and (given her view) writes `projects(1).status = "ALICE"`.
+2. Alice receives `A`, replays it, and (given her view) writes `projects(1).status = "ALICE"`.
    - Alice emits a SYNC overwrite `S_ALICE` with patch `projects(1).status = "ALICE"`.
 
-3) Bob later emits a different SYNC overwrite `S_BOB` with patch `projects(1).status = "BOB"`.
+3. Bob later emits a different SYNC overwrite `S_BOB` with patch `projects(1).status = "BOB"`.
 
-4) Replicas converge once they have applied the same log: since SYNC actions are ordered by HLC, the final value is whichever SYNC is last in canonical order.
+4. Replicas converge once they have applied the same log: since SYNC actions are ordered by HLC, the final value is whichever SYNC is last in canonical order.
 
 ### Why this does not “ping-pong forever” in steady state
 

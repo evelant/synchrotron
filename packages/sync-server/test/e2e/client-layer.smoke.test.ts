@@ -15,10 +15,17 @@ describe("E2E client layer (smoke)", () => {
 					{
 						syncRpcUrl: "http://unused/rpc",
 						electricSyncUrl: "http://unused",
-						pglite: { dataDir: `memory://client-${crypto.randomUUID()}`, debug: 0, relaxedDurability: true }
+						pglite: {
+							dataDir: `memory://client-${crypto.randomUUID()}`,
+							debug: 0,
+							relaxedDurability: true
+						}
 					},
 					{ keyValueStoreLayer: KeyValueStore.layerMemory.pipe(Layer.fresh) }
-				).pipe(Layer.provideMerge(Layer.succeed(ClientIdOverride, "client-smoke")), Layer.provideMerge(Layer.scope))
+				).pipe(
+					Layer.provideMerge(Layer.succeed(ClientIdOverride, "client-smoke")),
+					Layer.provideMerge(Layer.scope)
+				)
 
 				const context = yield* Layer.build(layer)
 
@@ -31,4 +38,3 @@ describe("E2E client layer (smoke)", () => {
 		{ timeout: 30000 }
 	)
 })
-

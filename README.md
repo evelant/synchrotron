@@ -39,6 +39,11 @@ Synchrotron moves the merge boundary up a level:
   - **React Native + SQLite (+ Web)**: `examples/todo-app-react-native-sqlite` (native uses `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web uses `@effect/sql-sqlite-wasm` via a `.web.ts` module).
     - `pnpm dev:react-native`
 
+## Development
+
+- Format: `pnpm format`
+- Lint: `pnpm lint` (Prettier check + ESLint)
+
 ## Capabilities
 
 - **Full offline SQL**: Actions can read/write the local database without CRDT-style restrictions
@@ -135,10 +140,12 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
     - Design note: “purity” means repeatable on the same snapshot. If running an action twice against the same DB state produces different writes, that’s a determinism bug. Also treat “hidden/private state influencing writes to shared rows” as an application-level constraint: it can leak derived information, and competing SYNC overwrites on shared fields resolve via action order (last SYNC wins). See `DESIGN.md`.
 4.  **Mutations via Actions:** All modifications (INSERT, UPDATE, DELETE) to synchronized tables _must_ be performed exclusively through actions executed via `SyncService` (e.g. `const sync = yield* SyncService; yield* sync.executeAction(action)`). Patch-capture triggers will reject writes when no capture context is set (unless tracking is explicitly disabled for rollback / patch-apply).
 5.  **IDs are App-Provided (Required):** Inserts into synchronized tables must explicitly include `id`. Use `DeterministicId.forRow(tableName, row)` inside `SyncService`-executed actions to compute deterministic UUIDs scoped to the current action. Avoid relying on DB defaults/triggers for IDs; prefer removing `DEFAULT` clauses for `id` columns so missing IDs fail fast.
-6.  **Stable Client Identity:** Synchrotron persists a per-device `clientId` in Effect’s `KeyValueStore` under the key `sync_client_id`.
-    - Browser clients use `localStorage`.
-    - React Native (native) uses `react-native-mmkv` via `@synchrotron/sync-client/react-native` (install `react-native-mmkv` in your app).
-    - React Native (web) uses `localStorage`.
+6.  **Client identity + clock state:** Synchrotron splits identity from clock/cursor state:
+    - `ClientIdentity`: stable per-device `clientId`, persisted in Effect’s `KeyValueStore` under `sync_client_id`.
+      - Browser clients use `localStorage`.
+      - React Native (native) uses `react-native-mmkv` via `@synchrotron/sync-client/react-native` (install `react-native-mmkv` in your app).
+      - React Native (web) uses `localStorage`.
+    - `ClientClockState`: persists `current_clock`, `last_synced_clock`, `server_epoch`, and `last_seen_server_ingest_id` in the local DB (`client_sync_status`).
     - If the local database is cleared but the `clientId` is retained, the client bootstraps from a server snapshot of the canonical base-table state (no full action-log replay) and advances its remote fetch cursor to the snapshot head (see `docs/bootstrap.md`).
     - Recovery primitives:
       - `SyncService.hardResync()` discards local state and re-fetches a bootstrap snapshot.

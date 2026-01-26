@@ -34,7 +34,10 @@ export function useSyncedActions(onActionsApplied?: () => void) {
 			.catch((err) => {
 				const errorString = String(err)
 				// Ignore duplicate key errors as they're expected during sync conflicts
-				if (errorString.includes("duplicate key value") || errorString.includes("unique constraint")) {
+				if (
+					errorString.includes("duplicate key value") ||
+					errorString.includes("unique constraint")
+				) {
 					console.warn("Sync conflict detected - continuing with local state")
 				} else {
 					console.error("Failed to apply synced actions:", err)

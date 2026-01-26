@@ -82,15 +82,18 @@ const pickFreeTcpPort = async (hostname = "0.0.0.0") =>
 		})
 	})
 
-const makeAdminDatabaseUrl = (port: number) => `postgresql://postgres:password@127.0.0.1:${port}/electric`
+const makeAdminDatabaseUrl = (port: number) =>
+	`postgresql://postgres:password@127.0.0.1:${port}/electric`
 const makeDatabaseUrl = (port: number) =>
 	`postgresql://synchrotron_app:password@127.0.0.1:${port}/electric`
 
 const adminDatabaseUrlFromEnv =
 	process.env.E2E_ADMIN_DATABASE_URL ?? (noDocker ? process.env.ADMIN_DATABASE_URL : undefined)
-const databaseUrlFromEnv = process.env.E2E_DATABASE_URL ?? (noDocker ? process.env.DATABASE_URL : undefined)
+const databaseUrlFromEnv =
+	process.env.E2E_DATABASE_URL ?? (noDocker ? process.env.DATABASE_URL : undefined)
 
-const shouldManageDocker = !noDocker && adminDatabaseUrlFromEnv == null && databaseUrlFromEnv == null
+const shouldManageDocker =
+	!noDocker && adminDatabaseUrlFromEnv == null && databaseUrlFromEnv == null
 
 const dockerProjectName = process.env.E2E_DOCKER_PROJECT_NAME ?? DefaultDockerProjectName
 
@@ -136,7 +139,10 @@ const canConnectTcp = async (url: string) => {
 	return false
 }
 
-const waitForTcp = async (url: string, params?: { readonly timeoutMs?: number; readonly intervalMs?: number }) => {
+const waitForTcp = async (
+	url: string,
+	params?: { readonly timeoutMs?: number; readonly intervalMs?: number }
+) => {
 	const timeoutMs = params?.timeoutMs ?? 30_000
 	const intervalMs = params?.intervalMs ?? 250
 	const start = Date.now()
@@ -161,7 +167,11 @@ try {
 		console.log(`[test:e2e:postgres] postgres host port: ${dockerHostPort}`)
 
 		if (resetDocker) {
-			await run("pnpm", ["--filter", "@synchrotron-examples/backend", "docker:reset"], dockerEnv ?? {})
+			await run(
+				"pnpm",
+				["--filter", "@synchrotron-examples/backend", "docker:reset"],
+				dockerEnv ?? {}
+			)
 		}
 
 		const upExitCode = await run(
@@ -177,7 +187,9 @@ try {
 			adminDatabaseUrl = makeAdminDatabaseUrl(dockerHostPort)
 			databaseUrl = makeDatabaseUrl(dockerHostPort)
 			const retryEnv = { ...(dockerEnv ?? {}), POSTGRES_PORT: String(dockerHostPort) }
-			console.log(`[test:e2e:postgres] docker start failed; retrying with postgres host port: ${dockerHostPort}`)
+			console.log(
+				`[test:e2e:postgres] docker start failed; retrying with postgres host port: ${dockerHostPort}`
+			)
 			await run("pnpm", ["--filter", "@synchrotron-examples/backend", "docker:reset"], retryEnv)
 			const retryExitCode = await run(
 				"pnpm",
@@ -200,20 +212,25 @@ try {
 	console.log(`[test:e2e:postgres] running vitest suite…`)
 	testExitCode = await run(
 		"pnpm",
-		["-C", "packages/sync-server", "exec", "vitest", "run", "-c", "vitest.postgres.config.ts", ...forwardedVitestArgs],
+		[
+			"-C",
+			"packages/sync-server",
+			"exec",
+			"vitest",
+			"run",
+			"-c",
+			"vitest.postgres.config.ts",
+			...forwardedVitestArgs
+		],
 		{ E2E_ADMIN_DATABASE_URL: adminDatabaseUrl, E2E_DATABASE_URL: databaseUrl }
 	)
 } finally {
 	if (!keepDocker && shouldManageDocker && startedDocker) {
 		console.log(`[test:e2e:postgres] stopping docker…`)
-		await run(
-			"pnpm",
-			["--filter", "@synchrotron-examples/backend", dockerDownCommand],
-			{
-				POSTGRES_PORT: String(dockerHostPort),
-				PROJECT_NAME: dockerProjectName
-			}
-		)
+		await run("pnpm", ["--filter", "@synchrotron-examples/backend", dockerDownCommand], {
+			POSTGRES_PORT: String(dockerHostPort),
+			PROJECT_NAME: dockerProjectName
+		})
 	}
 }
 
