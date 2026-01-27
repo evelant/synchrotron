@@ -2,13 +2,13 @@
 
 ## Status
 
-Implemented (core); follow-ups planned
+Implemented (core; Electric mode avoids redundant RPC ingress)
 
 ## Summary
 
 Today, remote actions/patches can enter a client DB through **two independent ingress paths**:
 
-- **RPC fetch**: `SyncNetworkServiceLive.fetchRemoteActions` fetches from the sync server and inserts into `action_records` / `action_modified_rows` (`packages/sync-client/src/SyncNetworkService.ts:149`).
+- **RPC fetch**: `SyncNetworkServiceLive.fetchRemoteActions` fetches from the sync server and inserts into `action_records` / `action_modified_rows`.
 - **Electric stream**: `ElectricSyncService` subscribes to Electric shapes and inserts into the same tables (`packages/sync-client/src/electric/ElectricSyncService.ts:185`), then triggers `SyncService.performSync()` (`packages/sync-client/src/electric/ElectricSyncService.ts:254`).
 
 Remote **apply** and **cursor advancement** are now DB-driven:
@@ -211,7 +211,9 @@ Implemented:
 
 Follow-ups:
 
-1. Add a config switch to disable RPC fetch in Electric-enabled clients (avoid redundant fetch).
+1. (Done) Disable RPC ingress in Electric-enabled clients (avoid redundant fetch):
+   - `SyncNetworkServiceElectricLive` makes `fetchRemoteActions()` metadata-only (epoch + retention watermark).
+   - `makeSynchrotronElectricClientLayer` wires Electric ingress + RPC upload/metadata together.
 2. Clarify/strengthen the transport boundary (`SyncNetworkService` split or renamed; see below).
 
 ## Testing Plan

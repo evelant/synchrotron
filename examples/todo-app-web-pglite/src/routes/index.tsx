@@ -14,7 +14,10 @@ import {
 	Text,
 	TextField
 } from "@radix-ui/themes"
-import { ElectricSyncLive, makeSynchrotronClientLayer } from "@synchrotron/sync-client"
+import {
+	makeSynchrotronClientLayer,
+	makeSynchrotronElectricClientLayer
+} from "@synchrotron/sync-client"
 import {
 	ClientClockState,
 	ClientDbAdapter,
@@ -317,31 +320,43 @@ const makeClientLayer = (options: {
 	const syncRpcAuthToken =
 		options.clientKey === "clientA" ? defaults.syncRpcAuthTokenA : defaults.syncRpcAuthTokenB
 
-	const rootLayer =
+	const synchrotronLayer =
 		options.transportMode === "electric"
-			? Layer.mergeAll(TodoRepo.Default, ElectricSyncLive)
-			: TodoRepo.Default
+			? makeSynchrotronElectricClientLayer(
+					{
+						...(typeof syncRpcAuthToken === "string" ? { syncRpcAuthToken } : {}),
+						syncRpcUrl,
+						electricSyncUrl: defaults.electricUrl,
+						pglite: {
+							dataDir,
+							debug: 0,
+							relaxedDurability: true
+						}
+					},
+					{
+						keyValueStoreLayer: makeLocalStorageKeyValueStoreLayer(kvPrefix)
+					}
+				)
+			: makeSynchrotronClientLayer(
+					{
+						...(typeof syncRpcAuthToken === "string" ? { syncRpcAuthToken } : {}),
+						syncRpcUrl,
+						electricSyncUrl: defaults.electricUrl,
+						pglite: {
+							dataDir,
+							debug: 0,
+							relaxedDurability: true
+						}
+					},
+					{
+						keyValueStoreLayer: makeLocalStorageKeyValueStoreLayer(kvPrefix)
+					}
+				)
 
-	const clientLayer = rootLayer.pipe(
+	const clientLayer = TodoRepo.Default.pipe(
 		Layer.provideMerge(TodoActions.Default),
 		Layer.provideMerge(Layer.effectDiscard(setupClientDatabase)),
-		Layer.provideMerge(
-			makeSynchrotronClientLayer(
-				{
-					...(typeof syncRpcAuthToken === "string" ? { syncRpcAuthToken } : {}),
-					syncRpcUrl,
-					electricSyncUrl: defaults.electricUrl,
-					pglite: {
-						dataDir,
-						debug: 0,
-						relaxedDurability: true
-					}
-				},
-				{
-					keyValueStoreLayer: makeLocalStorageKeyValueStoreLayer(kvPrefix)
-				}
-			)
-		),
+		Layer.provideMerge(synchrotronLayer),
 		Layer.provideMerge(
 			Layer.effectDiscard(
 				Effect.logInfo("todoAppWeb.runtime.start", {

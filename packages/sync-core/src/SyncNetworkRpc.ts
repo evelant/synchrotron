@@ -11,8 +11,8 @@ import {
 const FetchResultSchema = Schema.Struct({
 	serverEpoch: Schema.String,
 	minRetainedServerIngestId: Schema.Number,
-	actions: Schema.Array(ActionRecord),
-	modifiedRows: Schema.Array(ActionModifiedRow)
+	actions: Schema.Array(ActionRecord.json),
+	modifiedRows: Schema.Array(ActionModifiedRow.json)
 })
 
 const SnapshotTableSchema = Schema.Struct({
@@ -75,8 +75,8 @@ export class SendLocalActions extends Schema.TaggedRequest<SendLocalActions>()("
 	payload: {
 		clientId: Schema.String,
 		basisServerIngestId: Schema.Number,
-		actions: Schema.Array(ActionRecord),
-		amrs: Schema.Array(ActionModifiedRow)
+		actions: Schema.Array(ActionRecord.json),
+		amrs: Schema.Array(ActionModifiedRow.json)
 	},
 	success: Schema.Boolean,
 	failure: SendLocalActionsFailureSchema

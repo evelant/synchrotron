@@ -358,6 +358,31 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 					)
 				}
 
+				const isJsonObject = (value: unknown): value is Record<string, unknown> =>
+					typeof value === "object" && value !== null && Array.isArray(value) === false
+
+				const invalidClockTypeCount = actions.filter((a) => isJsonObject(a.clock) === false).length
+				const invalidArgsTypeCount = actions.filter((a) => isJsonObject(a.args) === false).length
+				const invalidPatchTypeCount = amrs.filter(
+					(a) =>
+						isJsonObject(a.forward_patches) === false || isJsonObject(a.reverse_patches) === false
+				).length
+
+				if (invalidClockTypeCount > 0 || invalidArgsTypeCount > 0 || invalidPatchTypeCount > 0) {
+					yield* Effect.logWarning("server.receiveActions.invalidJsonTypes", {
+						clientId,
+						invalidClockTypeCount,
+						invalidArgsTypeCount,
+						invalidPatchTypeCount
+					})
+					return yield* Effect.fail(
+						new SendLocalActionsInvalid({
+							message:
+								"Invalid upload: JSON fields must be decoded objects (not strings). Ensure RPC schemas use `.json` and do not double-encode JSON."
+						})
+					)
+				}
+
 				type ReplayKey = {
 					readonly timeMs: number
 					readonly counter: number
@@ -374,22 +399,11 @@ export class SyncServerService extends Effect.Service<SyncServerService>()("Sync
 
 				// JSONB binding helper:
 				// - Prefer the dialect-specific `sql.json(...)` fragment when available (pg / pglite).
-				// - Never pass already-serialized JSON strings to `sql.json(...)` (double-encoding).
+				// - Fail fast on invalid payloads earlier (see `invalidJsonTypes` gate above).
 				const jsonbParam = (value: unknown): unknown => {
 					const json = (sql as unknown as { readonly json?: (value: unknown) => unknown }).json
-					if (typeof json === "function") {
-						if (typeof value === "string") {
-							// Defensive: tolerate legacy stringified JSON payloads.
-							try {
-								return json(JSON.parse(value))
-							} catch {
-								return value
-							}
-						}
-						return json(value)
-					}
-
-					return typeof value === "string" ? value : JSON.stringify(value)
+					if (typeof json === "function") return json(value)
+					return JSON.stringify(value)
 				}
 
 				const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {

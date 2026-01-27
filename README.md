@@ -93,6 +93,7 @@ Synchrotron moves the merge boundary up a level:
 The client DB is selected by which `@effect/sql` driver layer you provide:
 
 - **PGlite** (browser): `makeSynchrotronClientLayer(...)` from `@synchrotron/sync-client`
+- **PGlite + Electric ingress** (browser): `makeSynchrotronElectricClientLayer(...)` from `@synchrotron/sync-client`
 - **SQLite (WASM)**: `makeSynchrotronSqliteWasmClientLayer()` from `@synchrotron/sync-client`
 - **SQLite (React Native / React Native Web)**: `makeSynchrotronSqliteReactNativeClientLayer(sqliteConfig, config?)` from `@synchrotron/sync-client/react-native` (native: `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web: `@effect/sql-sqlite-wasm` using OPFS persistence via `OpfsWorker`)
 
@@ -105,6 +106,7 @@ Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlit
 `SyncService` depends on a `SyncNetworkService` implementation. The default client implementation is `SyncNetworkServiceLive` (HTTP RPC via `@effect/rpc`).
 
 - Configure the RPC endpoint with `makeSynchrotronClientLayer({ syncRpcUrl: "http://..." })` or `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
+- Electric-enabled clients should use `makeSynchrotronElectricClientLayer(...)` so remote ingress is owned by Electric (no redundant RPC action-log ingestion). RPC is still used for uploads + server metadata (epoch/retention).
 - Auth for RLS:
   - `Authorization: Bearer <jwt>` (server verifies and derives `user_id` from `sub`).
   - Client-side: set `SynchrotronClientConfig.syncRpcAuthToken` to send the bearer token (or provide a custom `SyncRpcAuthToken` layer to fetch/refresh tokens dynamically).

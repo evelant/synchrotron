@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented (clock/identity split; multi-tab deferred)
+Implemented (clock/identity split; explicit client modes; multi-tab deferred)
 
 This doc started as a review; the clock/identity boundary cleanup described below is now implemented.
 
@@ -15,6 +15,10 @@ This doc started as a review; the clock/identity boundary cleanup described belo
     - `ClientClockState` in `sync-core` (DB-backed `client_sync_status`).
   - **Server** meta/clock state:
     - `ServerMetaService` in `sync-server` (derives `server_epoch` from `sync_server_meta` and `serverClock` from `action_records`).
+- Made client “modes” explicit and removed accidental double-ingress:
+  - `makeSynchrotronClientLayer`: RPC-only.
+  - `makeSynchrotronElectricClientLayer`: Electric ingress + RPC upload/metadata (no redundant RPC action-log ingestion).
+  - `SyncNetworkServiceElectricLive`: `fetchRemoteActions()` becomes metadata-only (epoch + retention watermark).
 
 ## Goal
 
@@ -39,7 +43,7 @@ Improve maintainability and understandability by clarifying package boundaries, 
   - RPC schemas (`SyncNetworkRpc`)
 - `packages/sync-client`
   - Client DB connection layers (PGlite, SQLite wasm, SQLite RN)
-  - RPC transport implementation (`SyncNetworkServiceLive`)
+  - RPC transport implementation (`SyncNetworkServiceLive`, `SyncNetworkServiceElectricLive`)
   - Optional Electric ingestion (`ElectricSyncService`)
   - Platform KeyValueStore wiring (localStorage / mmkv)
 - `packages/sync-server`
@@ -227,9 +231,12 @@ Synchrotron also needs a coherent policy for:
 
 ## Suggested next steps (small → large)
 
-1. Write down the intended layering story for clients:
-   - “RPC-only”, “Electric ingress + RPC upload”, “offline-only” modes as explicit layer constructors.
-2. Pick a single ownership model for remote ingress, and enforce it at wiring time.
+1. (Done) Make client “modes” explicit:
+   - `makeSynchrotronClientLayer` (“RPC-only”)
+   - `makeSynchrotronElectricClientLayer` (“Electric ingress + RPC upload/metadata”)
+   - (Planned) “offline-only” layer constructor
+2. (Done) Enforce a single remote ingress owner:
+   - Electric mode uses `SyncNetworkServiceElectricLive` so RPC fetch is metadata-only (no redundant action-log ingestion).
 3. (Done) Extracted “server clock” into `ServerMetaService`.
 4. Break `SyncService` and `SyncServerService` into internal modules (mechanical refactor).
 5. Run formatting (Prettier) on the key runtime files once the mechanical splits land to reduce diff noise.

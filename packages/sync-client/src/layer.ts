@@ -17,7 +17,7 @@ import { PgliteClientLive } from "./db/connection"
 import { SqliteWasmClientMemoryLive } from "./db/sqlite-wasm"
 import { ClientIdentityLive } from "./ClientIdentity"
 import { ElectricSyncService } from "./electric/ElectricSyncService"
-import { SyncNetworkServiceLive } from "./SyncNetworkService"
+import { SyncNetworkServiceElectricLive, SyncNetworkServiceLive } from "./SyncNetworkService"
 import { SyncRpcAuthTokenFromConfig } from "./SyncRpcAuthToken"
 import { logInitialSyncDbState } from "./logInitialDbState"
 
@@ -60,11 +60,13 @@ export const makeSynchrotronClientLayer = (
 	config: Partial<SynchrotronClientConfigData> = {},
 	options?: {
 		readonly keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore>
+		readonly syncNetworkServiceLayer?: typeof SyncNetworkServiceLive
 	}
 ) => {
 	// Create the config layer with custom config merged with defaults
 	const configLayer = createSynchrotronConfig(config)
 	const keyValueStoreLayer = options?.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
+	const syncNetworkServiceLayer = options?.syncNetworkServiceLayer ?? SyncNetworkServiceLive
 
 	// Note: Electric is intentionally optional. Do not start Electric replication
 	// unless the consumer explicitly adds `ElectricSyncLive` (preferred) to their app layer.
@@ -72,7 +74,7 @@ export const makeSynchrotronClientLayer = (
 	return SyncService.Default.pipe(
 		// Highest-level services first, core dependencies last.
 		// `Layer.provideMerge` wraps previously-added layers, so later layers are available to earlier ones.
-		Layer.provideMerge(SyncNetworkServiceLive),
+		Layer.provideMerge(syncNetworkServiceLayer),
 		Layer.provideMerge(SyncRpcAuthTokenFromConfig),
 		Layer.provideMerge(ActionRegistry.Default),
 		Layer.provideMerge(ClientClockState.Default),
@@ -111,13 +113,15 @@ export const makeSynchrotronSqliteWasmClientLayer = (
 	config: Partial<SynchrotronClientConfigData> = {},
 	options?: {
 		readonly keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore>
+		readonly syncNetworkServiceLayer?: typeof SyncNetworkServiceLive
 	}
 ) => {
 	const configLayer = createSynchrotronConfig(config)
 	const keyValueStoreLayer = options?.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
+	const syncNetworkServiceLayer = options?.syncNetworkServiceLayer ?? SyncNetworkServiceLive
 
 	return SyncService.Default.pipe(
-		Layer.provideMerge(SyncNetworkServiceLive),
+		Layer.provideMerge(syncNetworkServiceLayer),
 		Layer.provideMerge(SyncRpcAuthTokenFromConfig),
 		Layer.provideMerge(ActionRegistry.Default),
 		Layer.provideMerge(ClientClockState.Default),
@@ -148,3 +152,28 @@ export const makeSynchrotronSqliteWasmClientLayer = (
  * Default Synchrotron client layer with standard configuration
  */
 export const SynchrotronClientLive = makeSynchrotronClientLayer()
+
+/**
+ * PGlite client with Electric ingress enabled.
+ *
+ * This wires:
+ * - Electric shape replication for remote ingress (`ElectricSyncLive`)
+ * - RPC for uploads + server metadata (`SyncNetworkServiceElectricLive`)
+ *
+ * The key property is that RPC fetch does **not** ingest remote actions when Electric is enabled,
+ * avoiding the “two ingress writers” pitfall. Remote apply remains DB-driven via `SyncService.performSync()`.
+ */
+export const makeSynchrotronElectricClientLayer = (
+	config: Partial<SynchrotronClientConfigData> = {},
+	options?: {
+		readonly keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore>
+	}
+) =>
+	ElectricSyncLive.pipe(
+		Layer.provideMerge(
+			makeSynchrotronClientLayer(config, {
+				...options,
+				syncNetworkServiceLayer: SyncNetworkServiceElectricLive
+			})
+		)
+	)
