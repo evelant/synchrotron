@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented (clock/identity split; explicit client modes; SyncService decomposition; multi-tab deferred)
+Implemented (clock/identity split; explicit client modes; SyncService + SyncServerService decomposition; multi-tab deferred)
 
 This doc started as a review; the clock/identity boundary cleanup described below is now implemented.
 
@@ -112,7 +112,7 @@ Error types are centralized in `packages/sync-core/src/SyncServiceErrors.ts`.
 
 File: `packages/sync-server/src/SyncServerService.ts`
 
-It currently owns:
+Previously, it owned:
 
 - fetch protocol semantics (`getActionsSince`)
 - ingest semantics (`receiveActions`)
@@ -122,6 +122,18 @@ It currently owns:
 
 Previously, it used the client-oriented `ClockService` to compute `serverClock` (KeyValueStore-backed `clientId`, `client_sync_status` management). This was a boundary smell: server clock should be derived from `action_records` (or stored in `sync_server_meta`), not a “client sync status” row created by the server runtime.
 This has since been addressed: the server derives `serverEpoch` / `serverClock` via `ServerMetaService` (no KeyValueStore, no `client_sync_status`).
+
+It has also been mechanically decomposed for maintainability:
+
+- `packages/sync-server/src/SyncServerService.ts` is now primarily wiring.
+- Internal modules live under `packages/sync-server/src/server/`:
+  - `SyncServerCompaction.ts` (retention/compaction helpers)
+  - `SyncServerFetch.ts` (getActionsSince)
+  - `SyncServerReceiveActions.ts` (receiveActions + server materialization loop)
+  - `SyncServerSnapshot.ts` (bootstrap snapshot)
+- Error/types are centralized and re-exported:
+  - `packages/sync-server/src/SyncServerServiceErrors.ts`
+  - `packages/sync-server/src/SyncServerServiceTypes.ts`
 
 ### 3) Core vs client boundary is blurred by configuration and platform services
 
@@ -252,5 +264,5 @@ Synchrotron also needs a coherent policy for:
 2. (Done) Enforce a single remote ingress owner:
    - Electric mode uses `SyncNetworkServiceElectricLive` so RPC fetch is metadata-only (no redundant action-log ingestion).
 3. (Done) Extracted “server clock” into `ServerMetaService`.
-4. (Done) Break `SyncService` into internal modules (mechanical refactor).
-5. (Done) Run formatting (Prettier) on the split `SyncService` modules to reduce diff noise.
+4. (Done) Break `SyncService` and `SyncServerService` into internal modules (mechanical refactor).
+5. (Done) Run formatting (Prettier) on the split modules to reduce diff noise.
