@@ -13,10 +13,6 @@ import { PostgresClientDbAdapter } from "@synchrotron/sync-core/PostgresClientDb
 import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
 
 import {
-	SynchrotronClientConfig,
-	type SynchrotronClientConfigData
-} from "@synchrotron/sync-core/config"
-import {
 	applySyncTriggers,
 	initializeClientDatabaseSchema,
 	initializeDatabaseSchema
@@ -83,15 +79,6 @@ export const initializeDbForTests = (schema: string) =>
 	}).pipe(Effect.annotateLogs("clientId", schema))
 
 export const makeDbInitLayer = (schema: string) => Layer.effectDiscard(initializeDbForTests(schema))
-export const testConfig: SynchrotronClientConfigData = {
-	electricSyncUrl: "http://localhost:5133",
-	syncRpcUrl: "http://localhost:3010/rpc",
-	pglite: {
-		debug: 0,
-		dataDir: "memory://",
-		relaxedDurability: true
-	}
-}
 
 /**
  * Create a layer that provides PgliteClient with Electric extensions based on config
@@ -120,8 +107,7 @@ export const makeTestLayers = (
 		KeyValueStore.layerMemory,
 		Layer.succeed(ClientIdOverride, clientId),
 		Logger.replace(Logger.defaultLogger, logger),
-		Logger.minimumLogLevel(LogLevel.Trace),
-		Layer.succeed(SynchrotronClientConfig, testConfig)
+		Logger.minimumLogLevel(LogLevel.Trace)
 	)
 
 	const baseWithDbInit = baseLayer.pipe(

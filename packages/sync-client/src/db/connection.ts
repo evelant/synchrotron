@@ -2,9 +2,9 @@ import { PgliteClient } from "@effect/sql-pglite"
 import { electricSync } from "@electric-sql/pglite-sync"
 import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp"
 import { live } from "@electric-sql/pglite/live"
-import type { SynchrotronClientConfigData } from "@synchrotron/sync-core/config"
-import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
 import { Effect, Layer } from "effect"
+import type { SynchrotronClientConfigData } from "../config"
+import { SynchrotronClientConfig } from "../config"
 
 export const PgLiteSyncTag = PgliteClient.tag<{
 	live: typeof live

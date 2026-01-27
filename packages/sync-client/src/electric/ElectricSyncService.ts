@@ -4,8 +4,8 @@ import type { Row } from "@electric-sql/client"
 import { isChangeMessage, isControlMessage } from "@electric-sql/client"
 import { TransactionalMultiShapeStream, type MultiShapeMessages } from "@electric-sql/experimental"
 import { SyncService } from "@synchrotron/sync-core"
-import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
 import { Effect, Ref, Schema, Stream } from "effect"
+import { SynchrotronClientConfig } from "../config"
 
 export class ElectricSyncError extends Schema.TaggedError<ElectricSyncError>()(
 	"ElectricSyncError",

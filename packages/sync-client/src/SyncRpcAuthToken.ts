@@ -1,5 +1,5 @@
-import { SynchrotronClientConfig } from "@synchrotron/sync-core/config"
 import { Context, Effect, Layer, Option, Redacted } from "effect"
+import { SynchrotronClientConfig } from "./config"
 
 export interface SyncRpcAuthTokenService {
 	readonly get: Effect.Effect<Option.Option<Redacted.Redacted>>

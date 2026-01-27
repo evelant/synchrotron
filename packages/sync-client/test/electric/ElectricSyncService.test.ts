@@ -13,9 +13,9 @@ import {
 	SyncNetworkService,
 	SyncService
 } from "@synchrotron/sync-core"
-import { createSynchrotronConfig } from "@synchrotron/sync-core/config"
 import { initializeClientDatabaseSchema } from "@synchrotron/sync-core/db"
 import { ClientIdentityLive } from "../../src/ClientIdentity"
+import { createSynchrotronConfig } from "../../src/config"
 import { ElectricSyncService } from "../../src/electric/ElectricSyncService"
 import { Effect, Layer, LogLevel, Logger, Ref } from "effect"
 import { beforeEach, describe, expect, it, vi } from "vitest"

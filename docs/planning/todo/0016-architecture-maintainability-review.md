@@ -19,6 +19,7 @@ This doc started as a review; the clock/identity boundary cleanup described belo
   - `makeSynchrotronClientLayer`: RPC-only.
   - `makeSynchrotronElectricClientLayer`: Electric ingress + RPC upload/metadata (no redundant RPC action-log ingestion).
   - `SyncNetworkServiceElectricLive`: `fetchRemoteActions()` becomes metadata-only (epoch + retention watermark).
+- Moved client-only config into `sync-client` (`packages/sync-client/src/config.ts`) so `sync-core` stays focused on algorithm + DB contract.
 
 ## Goal
 
@@ -118,7 +119,7 @@ Files:
 - `packages/sync-core/src/ClientClockState.ts`
 - `packages/sync-client/src/ClientIdentity.ts` (KeyValueStore-backed implementation)
 
-`SynchrotronClientConfig` lives in `sync-core` but is client-specific (PGlite config, Electric URL, RPC URL/token). Previously, `ClockService` also depended on `@effect/platform` KeyValueStore (device identity storage), which is inherently “client runtime” and awkward for server usage.
+`SynchrotronClientConfig` now lives in `sync-client` (it is client-specific: PGlite config, Electric URL, RPC URL/token). Previously it lived in `sync-core`, which blurred the package boundary and made “core” feel less pure.
 The `ClockService` part is now resolved via `ClientIdentity` + `ClientClockState` and server-side `ServerMetaService`.
 
 This makes it harder to reason about what “sync-core” is supposed to be: pure algorithm + DB adapter boundary vs app runtime for specific platforms.
@@ -162,8 +163,8 @@ Several files show inconsistent indentation/bracing, making it harder to quickly
 
 ### A) Clarify “what lives where” (package boundary cleanup)
 
-1. Move client-only config out of `sync-core`:
-   - `SynchrotronClientConfig` + env parsing belongs in `packages/sync-client` (or per-platform entrypoints).
+1. (Done) Move client-only config out of `sync-core`:
+   - `SynchrotronClientConfig` + helpers now live in `packages/sync-client/src/config.ts`.
    - Keep `sync-core` focused on algorithm + DB contract + shared schemas.
 2. Split clock/identity responsibilities:
    - Keep **pure** HLC logic (`HLC.ts`) in `sync-core` as plain functions (merge/order/etc). This is the truly shared part and does not need to be a service.

@@ -10,9 +10,9 @@ import {
 	SqliteClientDbAdapter,
 	SyncService
 } from "@synchrotron/sync-core"
-import type { SynchrotronClientConfigData } from "@synchrotron/sync-core/config"
-import { SynchrotronClientConfig, createSynchrotronConfig } from "@synchrotron/sync-core/config"
 import { Effect, Layer } from "effect"
+import type { SynchrotronClientConfigData } from "./config"
+import { SynchrotronClientConfig, createSynchrotronConfig } from "./config"
 import { PgliteClientLive } from "./db/connection"
 import { SqliteWasmClientMemoryLive } from "./db/sqlite-wasm"
 import { ClientIdentityLive } from "./ClientIdentity"

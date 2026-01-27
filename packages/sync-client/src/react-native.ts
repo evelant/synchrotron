@@ -6,9 +6,9 @@ import {
 	SqliteClientDbAdapter,
 	SyncService
 } from "@synchrotron/sync-core"
-import type { SynchrotronClientConfigData } from "@synchrotron/sync-core/config"
-import { createSynchrotronConfig } from "@synchrotron/sync-core/config"
 import { Effect, Layer } from "effect"
+import type { SynchrotronClientConfigData } from "./config"
+import { createSynchrotronConfig } from "./config"
 import { makeSqliteReactNativeClientLayer } from "./db/sqlite-react-native"
 import { logInitialSyncDbState } from "./logInitialDbState"
 import { ClientIdentityLive } from "./ClientIdentity"

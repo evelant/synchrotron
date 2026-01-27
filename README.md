@@ -109,7 +109,7 @@ Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlit
 - Electric-enabled clients should use `makeSynchrotronElectricClientLayer(...)` so remote ingress is owned by Electric (no redundant RPC action-log ingestion). RPC is still used for uploads + server metadata (epoch/retention).
 - Auth for RLS:
   - `Authorization: Bearer <jwt>` (server verifies and derives `user_id` from `sub`).
-  - Client-side: set `SynchrotronClientConfig.syncRpcAuthToken` to send the bearer token (or provide a custom `SyncRpcAuthToken` layer to fetch/refresh tokens dynamically).
+  - Client-side: set `SynchrotronClientConfig.syncRpcAuthToken` (from `@synchrotron/sync-client/config`) to send the bearer token (or provide a custom `SyncRpcAuthToken` layer to fetch/refresh tokens dynamically).
 
 ## Observability
 
