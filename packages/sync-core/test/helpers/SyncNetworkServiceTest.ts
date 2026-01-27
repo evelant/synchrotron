@@ -76,13 +76,6 @@ export const createTestSyncNetworkServiceLayer = (
 			const clockState = yield* ClientClockState
 			const serverSql = _serverSql ?? (yield* PgliteClient.PgliteClient)
 
-			const clientJson = (value: unknown) =>
-				typeof (sql as any).json === "function"
-					? (sql as any).json(value)
-					: typeof value === "string"
-						? value
-						: JSON.stringify(value)
-
 			// Initialize test state using the updated interface
 			const state: TestNetworkState = {
 				networkDelay: 0,
@@ -585,53 +578,6 @@ export const createTestSyncNetworkServiceLayer = (
 						const fetchedData = state.fetchResult
 							? yield* state.fetchResult
 							: yield* getServerData(effectiveSinceServerIngestId, includeSelf)
-
-						// Simulate ElectricSQL sync: Insert fetched actions AND modified rows directly into the client's DB
-						// Wrap inserts in an effect to catch SqlError
-						yield* Effect.gen(function* () {
-							if (fetchedData.actions.length > 0 || fetchedData.modifiedRows.length > 0) {
-								// Check both
-								yield* Effect.logDebug(
-									`Simulating electric sync: Inserting ${fetchedData.actions.length} actions and ${fetchedData.modifiedRows.length} rows into client ${clientId}`
-								)
-								// Insert Actions
-								for (const action of fetchedData.actions) {
-									// Use client's sql instance
-									yield* sql`INSERT INTO action_records ${sql.insert({
-										// Explicitly list fields instead of spreading
-										id: action.id,
-										server_ingest_id: action.server_ingest_id,
-										_tag: action._tag,
-										client_id: action.client_id,
-										transaction_id: action.transaction_id,
-										clock: clientJson(action.clock),
-										args: clientJson(action.args),
-										created_at: new Date(action.created_at).toISOString(),
-										synced: 1 // Mark as synced locally
-									})} ON CONFLICT (id) DO UPDATE SET synced = 1` // Update status on conflict
-								}
-
-								// Insert Modified Rows
-								for (const row of fetchedData.modifiedRows) {
-									// Use client's sql instance
-									yield* sql`INSERT INTO action_modified_rows ${sql.insert({
-										...row,
-										forward_patches: clientJson(row.forward_patches),
-										reverse_patches: clientJson(row.reverse_patches)
-									})} ON CONFLICT (id) DO NOTHING` // Ignore duplicates
-								}
-							}
-						}).pipe(
-							// Catch SqlError from inserts and map it to RemoteActionFetchError
-							Effect.catchTag("SqlError", (sqlError) =>
-								Effect.fail(
-									new RemoteActionFetchError({
-										message: `Simulated sync failed during DB insert: ${sqlError.message}`,
-										cause: sqlError
-									})
-								)
-							)
-						)
 
 						// Return the fetched data so SyncService knows what was received
 						return fetchedData

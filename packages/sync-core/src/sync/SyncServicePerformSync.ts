@@ -4,6 +4,7 @@ import type { ActionRecordRepo } from "../ActionRecordRepo"
 import type { ClientClockState } from "../ClientClockState"
 import { compareClock, sortClocks } from "../ClockOrder"
 import { ActionRecord } from "../models"
+import { ingestRemoteSyncLogBatch } from "../SyncLogIngest"
 import {
 	FetchRemoteActionsCompacted,
 	NetworkRequestError,
@@ -260,8 +261,13 @@ export const makePerformSync = (deps: {
 							}))
 						})
 
-						// 2. Remote ingress (transport-specific). Some implementations also persist the fetched
-						// rows into local `action_records` / `action_modified_rows` (RPC fetch+insert, Electric).
+						// 2. Remote ingress (transport-specific).
+						//
+						// Transports deliver remote sync-log rows; `sync-core` owns the ingestion step
+						// (idempotent persistence into `action_records` / `action_modified_rows`).
+						//
+						// Electric-enabled clients typically return no action rows here (metadata-only) because
+						// their authoritative ingress is the Electric stream.
 						const fetched = yield* syncNetworkService.fetchRemoteActions().pipe(
 							Effect.withSpan("SyncNetworkService.fetchRemoteActions", {
 								attributes: { clientId, syncSessionId }
@@ -291,6 +297,11 @@ export const makePerformSync = (deps: {
 								})
 							)
 						}
+
+						yield* ingestRemoteSyncLogBatch(sqlClient, {
+							actions: fetched.actions,
+							modifiedRows: fetched.modifiedRows
+						})
 						yield* Effect.logInfo("performSync.remoteIngress", {
 							fetchedActionCount: fetched.actions.length,
 							fetchedAmrCount: fetched.modifiedRows.length

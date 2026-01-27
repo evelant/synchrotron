@@ -3,7 +3,8 @@ import type { Row } from "@electric-sql/client"
 
 import { isChangeMessage, isControlMessage } from "@electric-sql/client"
 import { TransactionalMultiShapeStream, type MultiShapeMessages } from "@electric-sql/experimental"
-import { SyncService } from "@synchrotron/sync-core"
+import { SyncService, ingestRemoteSyncLogBatch } from "@synchrotron/sync-core"
+import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import { Effect, Ref, Schema, Stream } from "effect"
 import { SynchrotronClientConfig } from "../config"
 
@@ -145,9 +146,47 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 								})
 							}
 
-							const json = (value: unknown): string => {
-								if (typeof value === "string") return value
-								return JSON.stringify(value, (_, v) => (typeof v === "bigint" ? v.toString() : v))
+							const parseJsonColumn = (row: Row, key: string): unknown => {
+								const value = row[key]
+								if (typeof value === "string") {
+									try {
+										return JSON.parse(value)
+									} catch (e) {
+										throw new ElectricSyncError({
+											message: `Expected "${key}" to be valid JSON, got string: ${value}`,
+											cause: e
+										})
+									}
+								}
+								return value
+							}
+
+							const requireJsonObjectColumn = (row: Row, key: string): Record<string, unknown> => {
+								const value = parseJsonColumn(row, key)
+								if (value === null || value === undefined) {
+									throw new ElectricSyncError({
+										message: `Expected "${key}" to be a JSON object, got null/undefined`
+									})
+								}
+								if (typeof value !== "object" || Array.isArray(value)) {
+									throw new ElectricSyncError({
+										message: `Expected "${key}" to be a JSON object, got: ${typeof value}`,
+										cause: value
+									})
+								}
+								return value as Record<string, unknown>
+							}
+
+							const jsonObjectColumnOrEmpty = (row: Row, key: string): Record<string, unknown> => {
+								const value = parseJsonColumn(row, key)
+								if (value === null || value === undefined) return {}
+								if (typeof value !== "object" || Array.isArray(value)) {
+									throw new ElectricSyncError({
+										message: `Expected "${key}" to be a JSON object, got: ${typeof value}`,
+										cause: value
+									})
+								}
+								return value as Record<string, unknown>
 							}
 
 							const requireDbBoolean = (row: Row, key: string): 0 | 1 => {
@@ -188,6 +227,8 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 								action_modified_rows: Row
 							}>[] = []
 							const allShapesUpToDate = true
+							const actions: ActionRecord[] = []
+							const modifiedRows: ActionModifiedRow[] = []
 
 							// Process each message and insert into the appropriate table
 							for (const message of messages) {
@@ -195,8 +236,7 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 									actionRecordsMessages.push(message)
 
 									// Only insert if it's a change message (not a control message)
-									if (!isControlMessage(message)) {
-										// Insert with ON CONFLICT DO NOTHING
+									if (isChangeMessage(message) && !isControlMessage(message)) {
 										const row = message.value
 										const id = requireString(row, "id")
 										const tag = requireString(row, "_tag")
@@ -205,29 +245,32 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 										const serverIngestId = optionalNumberFromValue(row, "server_ingest_id")
 										const userId = optionalString(row, "user_id")
 										const createdAt = requireDateTimeString(row, "created_at")
+										const serverIngestedAt = requireDateTimeString(row, "server_ingested_at")
+										const clockTimeMs = requireNumberFromValue(row, "clock_time_ms")
+										const clockCounter = requireNumberFromValue(row, "clock_counter")
 										const synced = requireDbBoolean(row, "synced")
-										yield* sql`
-											INSERT INTO action_records ${sql.insert({
-												server_ingest_id: serverIngestId,
-												id,
-												_tag: tag,
-												user_id: userId,
-												client_id: clientId,
-												transaction_id: transactionId,
-												clock: json(row["clock"]),
-												args: json(row["args"]),
-												created_at: createdAt,
-												synced
-											})}
-											ON CONFLICT (id) DO NOTHING
-										`
+
+										actions.push({
+											id,
+											server_ingest_id: serverIngestId,
+											_tag: tag,
+											user_id: userId,
+											client_id: clientId,
+											transaction_id: transactionId,
+											clock: requireJsonObjectColumn(row, "clock") as ActionRecord["clock"],
+											clock_time_ms: clockTimeMs,
+											clock_counter: clockCounter,
+											args: requireJsonObjectColumn(row, "args") as ActionRecord["args"],
+											created_at: new Date(createdAt),
+											server_ingested_at: new Date(serverIngestedAt),
+											synced: synced === 1
+										})
 									}
 								} else if (isChangeMessage(message) && message.shape === "action_modified_rows") {
 									actionModifiedRowsMessages.push(message)
 
 									// Only insert if it's a change message (not a control message)
 									if (!isControlMessage(message)) {
-										// Insert with ON CONFLICT DO NOTHING
 										const row = message.value
 										const id = requireString(row, "id")
 										const tableName = requireString(row, "table_name")
@@ -235,24 +278,39 @@ export class ElectricSyncService extends Effect.Service<ElectricSyncService>()(
 										const actionRecordId = requireString(row, "action_record_id")
 										const audienceKey = requireString(row, "audience_key")
 										const operation = requireString(row, "operation")
+										if (
+											operation !== "INSERT" &&
+											operation !== "UPDATE" &&
+											operation !== "DELETE"
+										) {
+											throw new ElectricSyncError({
+												message: `Expected "operation" to be INSERT|UPDATE|DELETE, got: ${operation}`
+											})
+										}
 										const sequence = requireNumberFromValue(row, "sequence")
-										yield* sql`
-											INSERT INTO action_modified_rows ${sql.insert({
-												id,
-												table_name: tableName,
-												row_id: rowId,
-												action_record_id: actionRecordId,
-												audience_key: audienceKey,
-												operation,
-												forward_patches: json(row["forward_patches"]),
-												reverse_patches: json(row["reverse_patches"]),
-												sequence
-											})}
-											ON CONFLICT (id) DO NOTHING
-										`
+
+										modifiedRows.push({
+											id,
+											table_name: tableName,
+											row_id: rowId,
+											action_record_id: actionRecordId,
+											audience_key: audienceKey,
+											operation: operation as ActionModifiedRow["operation"],
+											forward_patches: jsonObjectColumnOrEmpty(
+												row,
+												"forward_patches"
+											) as ActionModifiedRow["forward_patches"],
+											reverse_patches: jsonObjectColumnOrEmpty(
+												row,
+												"reverse_patches"
+											) as ActionModifiedRow["reverse_patches"],
+											sequence
+										})
 									}
 								}
 							}
+
+							yield* ingestRemoteSyncLogBatch(sql, { actions, modifiedRows })
 
 							// Check if we have at least one message for each shape and all are up-to-date
 							const hasActionRecords = actionRecordsMessages.length > 0

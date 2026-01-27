@@ -150,8 +150,11 @@ describe("ElectricSyncService", () => {
 				client_id: "remote",
 				transaction_id: 1,
 				clock: { timestamp: 1000, vector: { remote: 1 } },
+				clock_time_ms: 1000,
+				clock_counter: 1,
 				args: { appliedActionIds: [], timestamp: 1000 },
 				created_at: now,
+				server_ingested_at: now,
 				synced: 1
 			}
 			const amrRow = {
@@ -258,8 +261,11 @@ describe("ElectricSyncService", () => {
 				client_id: "remote",
 				transaction_id: 1,
 				clock: { timestamp: 1000, vector: { remote: 1 } },
+				clock_time_ms: 1000,
+				clock_counter: 1,
 				args: { appliedActionIds: [], timestamp: 1000 },
 				created_at: now,
+				server_ingested_at: now,
 				synced: 1
 			}
 			const amrRow = {

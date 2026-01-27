@@ -67,8 +67,6 @@ const makeSyncNetworkServiceLayer = (fetchMode: RemoteFetchMode) =>
 			const client = yield* RpcClient.make(SyncNetworkRpcGroup)
 			const sql = yield* SqlClient.SqlClient
 
-			const json = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value))
-
 			const summarizeActions = (actions: ReadonlyArray<ActionRecord>) =>
 				actions.map((a) => ({
 					id: a.id,
@@ -260,52 +258,6 @@ const makeSyncNetworkServiceLayer = (fetchMode: RemoteFetchMode) =>
 									acc[a._tag] = (acc[a._tag] ?? 0) + 1
 									return acc
 								}, {})
-							})
-							yield* Effect.all(
-								remote.actions.map(
-									(a) =>
-										sql`
-											INSERT INTO action_records ${sql.insert({
-												server_ingest_id: a.server_ingest_id,
-												id: a.id,
-												user_id: a.user_id,
-												_tag: a._tag,
-												client_id: a.client_id,
-												transaction_id: a.transaction_id,
-												clock: json(a.clock),
-												args: json(a.args),
-												created_at: new Date(a.created_at).toISOString(),
-												synced: 1
-											})}
-											ON CONFLICT (id) DO NOTHING
-										`
-								)
-							)
-							yield* Effect.all(
-								remote.modifiedRows.map(
-									(a) =>
-										sql`
-											INSERT INTO action_modified_rows ${sql.insert({
-												id: a.id,
-												table_name: a.table_name,
-												row_id: a.row_id,
-												action_record_id: a.action_record_id,
-												audience_key: a.audience_key,
-												operation: a.operation,
-												forward_patches: json(a.forward_patches),
-												reverse_patches: json(a.reverse_patches),
-												sequence: a.sequence
-											})}
-											ON CONFLICT (id) DO NOTHING
-										`
-								)
-							)
-							yield* Effect.logDebug("sync.network.fetchRemoteActions.persisted", {
-								clientId,
-								actionCount: remote.actions.length,
-								amrCount: remote.modifiedRows.length,
-								actions: summarizeActions(remote.actions),
-								amrs: summarizeAmrs(remote.modifiedRows)
 							})
 							return remote
 						}).pipe(

@@ -2,7 +2,20 @@
 
 ## Status
 
-Proposed
+In progress (core-owned ingestion implemented)
+
+## Implementation notes (Jan 2026)
+
+We implemented the first “core-owned ingestion” slice:
+
+- `sync-core` owns a single ingestion helper (`ingestRemoteSyncLogBatch`) that persists remote batches into
+  `action_records` / `action_modified_rows` with idempotent + upgrade-safe semantics.
+- `SyncService.performSync()` ingests the `fetchRemoteActions()` payload before applying (epoch/retention checks run first).
+- The RPC client transport (`SyncNetworkServiceLive`) is now fetch-only (no DB writes).
+- Electric ingress uses the core ingestion helper (no duplicated table-write SQL).
+
+What’s still pending is promoting the doc’s stream-first `SyncTransport.remoteBatches` contract into a
+first-class service so push + pull transports can be swapped/composed without any bespoke wiring.
 
 ## Summary
 

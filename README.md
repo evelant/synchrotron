@@ -106,6 +106,7 @@ Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlit
 `SyncService` depends on a `SyncNetworkService` implementation. The default client implementation is `SyncNetworkServiceLive` (HTTP RPC via `@effect/rpc`).
 
 - Configure the RPC endpoint with `makeSynchrotronClientLayer({ syncRpcUrl: "http://..." })` or `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
+- In RPC polling mode, `fetchRemoteActions()` is fetch-only; `SyncService.performSync()` ingests the returned rows into the local sync tables (core-owned) before applying.
 - Electric-enabled clients should use `makeSynchrotronElectricClientLayer(...)` so remote ingress is owned by Electric (no redundant RPC action-log ingestion). RPC is still used for uploads + server metadata (epoch/retention).
 - Auth for RLS:
   - `Authorization: Bearer <jwt>` (server verifies and derives `user_id` from `sub`).

@@ -1,6 +1,7 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import { compareClock } from "@synchrotron/sync-core/ClockOrder"
+import { ingestRemoteSyncLogBatch } from "@synchrotron/sync-core/SyncLogIngest"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import { Effect } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
@@ -162,9 +163,13 @@ describe("Remote ingest semantics", () => {
 				const initialCursor = yield* receiver.clockState.getLastSeenServerIngestId
 				expect(initialCursor).toBe(0)
 
-				// Ingress remote actions into the receiver without applying them.
+				// Fetch remote actions and ingest them into the receiver without applying them.
 				const fetched = yield* receiver.syncNetworkService.fetchRemoteActions()
 				expect(fetched.actions.some((a) => a.id === actionRecord.id)).toBe(true)
+				yield* ingestRemoteSyncLogBatch(receiver.rawSql, {
+					actions: fetched.actions,
+					modifiedRows: fetched.modifiedRows
+				})
 
 				// Cursor is "applied", so merely ingesting remote rows must not advance it.
 				const cursorAfterFetch = yield* receiver.clockState.getLastSeenServerIngestId
