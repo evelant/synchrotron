@@ -2,6 +2,7 @@ import { PgliteClient } from "@effect/sql-pglite"
 import { SqlClient } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
 import { ClientClockState } from "@synchrotron/sync-core/ClientClockState"
+import { bindJsonParam } from "@synchrotron/sync-core/SqlJson"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
 import type { ActionModifiedRow } from "@synchrotron/sync-core/models" // Import ActionModifiedRow model
 import {
@@ -236,9 +237,6 @@ export const createTestSyncNetworkServiceLayer = (
 						return 0
 					}
 
-					const serverJson = (value: unknown) =>
-						typeof value === "string" ? value : serverSql.json(value)
-
 					const incomingActionIdSet = new Set(incomingActions.map((a) => a.id))
 
 					// Simplified correctness gate: only accept uploads when the client is at the current
@@ -287,8 +285,8 @@ export const createTestSyncNetworkServiceLayer = (
 								${actionRecord.id},
 								${actionRecord.client_id},
 								${actionRecord._tag},
-								${serverJson(actionRecord.args)},
-								${serverJson(actionRecord.clock)},
+								${bindJsonParam(serverSql, actionRecord.args)},
+								${bindJsonParam(serverSql, actionRecord.clock)},
 								1,
 								${actionRecord.transaction_id},
 								${new Date(actionRecord.created_at).toISOString()}
@@ -317,8 +315,8 @@ export const createTestSyncNetworkServiceLayer = (
 									${modifiedRow.action_record_id},
 									${modifiedRow.audience_key},
 									${modifiedRow.operation},
-									${serverJson(modifiedRow.forward_patches)},
-									${serverJson(modifiedRow.reverse_patches)},
+									${bindJsonParam(serverSql, modifiedRow.forward_patches)},
+									${bindJsonParam(serverSql, modifiedRow.reverse_patches)},
 									${modifiedRow.sequence}
 								)
 							ON CONFLICT (id) DO NOTHING

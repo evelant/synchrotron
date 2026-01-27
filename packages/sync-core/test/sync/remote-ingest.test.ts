@@ -1,6 +1,7 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import { compareClock } from "@synchrotron/sync-core/ClockOrder"
+import { bindJsonParam } from "@synchrotron/sync-core/SqlJson"
 import { ingestRemoteSyncLogBatch } from "@synchrotron/sync-core/SyncLogIngest"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import { Effect } from "effect"
@@ -42,12 +43,7 @@ describe("Remote ingest semantics", () => {
 				`
 
 				const receiverSql = receiver.rawSql
-				const clientJson = (value: unknown) =>
-					typeof (receiverSql as any).json === "function"
-						? (receiverSql as any).json(value)
-						: typeof value === "string"
-							? value
-							: JSON.stringify(value)
+				const jsonParam = (value: unknown) => bindJsonParam(receiverSql, value)
 
 				yield* receiverSql`
 					INSERT INTO action_records (
@@ -65,8 +61,8 @@ describe("Remote ingest semantics", () => {
 						${serverAction.id},
 						${serverAction.client_id},
 						${serverAction._tag},
-						${clientJson(serverAction.args)},
-						${clientJson(serverAction.clock)},
+						${jsonParam(serverAction.args)},
+						${jsonParam(serverAction.clock)},
 						1,
 						${serverAction.transaction_id},
 						${new Date(serverAction.created_at).toISOString()}
@@ -93,8 +89,8 @@ describe("Remote ingest semantics", () => {
 							${row.action_record_id},
 							${row.audience_key},
 							${row.operation},
-							${clientJson(row.forward_patches)},
-							${clientJson(row.reverse_patches)},
+							${jsonParam(row.forward_patches)},
+							${jsonParam(row.reverse_patches)},
 							${row.sequence}
 						)
 						ON CONFLICT (id) DO NOTHING
@@ -255,12 +251,7 @@ describe("Remote ingest semantics", () => {
 				`
 
 				const receiverSql = receiver.rawSql
-				const clientJson = (value: unknown) =>
-					typeof (receiverSql as any).json === "function"
-						? (receiverSql as any).json(value)
-						: typeof value === "string"
-							? value
-							: JSON.stringify(value)
+				const jsonParam = (value: unknown) => bindJsonParam(receiverSql, value)
 
 				yield* receiverSql`
 					INSERT INTO action_records (
@@ -278,8 +269,8 @@ describe("Remote ingest semantics", () => {
 						${serverAction.id},
 						${serverAction.client_id},
 						${serverAction._tag},
-						${clientJson(serverAction.args)},
-						${clientJson(serverAction.clock)},
+						${jsonParam(serverAction.args)},
+						${jsonParam(serverAction.clock)},
 						1,
 						${serverAction.transaction_id},
 						${new Date(serverAction.created_at).toISOString()}
@@ -306,8 +297,8 @@ describe("Remote ingest semantics", () => {
 							${row.action_record_id},
 							${row.audience_key},
 							${row.operation},
-							${clientJson(row.forward_patches)},
-							${clientJson(row.reverse_patches)},
+							${jsonParam(row.forward_patches)},
+							${jsonParam(row.reverse_patches)},
 							${row.sequence}
 						)
 						ON CONFLICT (id) DO NOTHING
@@ -401,12 +392,7 @@ describe("Remote ingest semantics", () => {
 
 				// Simulate partial Electric/custom ingress: action_record exists locally, but patches haven't arrived yet.
 				const receiverSql = receiver.rawSql
-				const clientJson = (value: unknown) =>
-					typeof (receiverSql as any).json === "function"
-						? (receiverSql as any).json(value)
-						: typeof value === "string"
-							? value
-							: JSON.stringify(value)
+				const jsonParam = (value: unknown) => bindJsonParam(receiverSql, value)
 
 				yield* receiverSql`
 					INSERT INTO action_records (
@@ -424,8 +410,8 @@ describe("Remote ingest semantics", () => {
 						${serverAction.id},
 						${serverAction.client_id},
 						${serverAction._tag},
-						${clientJson(serverAction.args)},
-						${clientJson(serverAction.clock)},
+						${jsonParam(serverAction.args)},
+						${jsonParam(serverAction.clock)},
 						1,
 						${serverAction.transaction_id},
 						${new Date(serverAction.created_at).toISOString()}
@@ -491,8 +477,8 @@ describe("Remote ingest semantics", () => {
 							${row.action_record_id},
 							${row.audience_key},
 							${row.operation},
-							${clientJson(row.forward_patches)},
-							${clientJson(row.reverse_patches)},
+							${jsonParam(row.forward_patches)},
+							${jsonParam(row.reverse_patches)},
 							${row.sequence}
 						)
 						ON CONFLICT (id) DO NOTHING

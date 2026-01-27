@@ -11,6 +11,7 @@ import type { ClientDbAdapterService } from "../ClientDbAdapter"
 import { sortClocks } from "../ClockOrder"
 import type { DeterministicId } from "../DeterministicId"
 import { applyForwardAmrs } from "../PatchApplier"
+import { bindJsonParam } from "../SqlJson"
 import { SyncError } from "../SyncServiceErrors"
 import { deepObjectEquals } from "../utils"
 
@@ -388,18 +389,7 @@ export const makeApplyActionRecords = (deps: {
 						yield* Effect.logDebug(
 							`Updating placeholder SYNC action ${syncRecord.id} clock due to divergence: ${JSON.stringify(newSyncClock)}`
 						)
-						const clockValue = sqlClient.onDialectOrElse({
-							pg: () => {
-								const json = (
-									sqlClient as unknown as { readonly json?: (value: unknown) => unknown }
-								).json
-								return typeof json === "function"
-									? json(newSyncClock)
-									: JSON.stringify(newSyncClock)
-							},
-							sqlite: () => JSON.stringify(newSyncClock),
-							orElse: () => JSON.stringify(newSyncClock)
-						})
+						const clockValue = bindJsonParam(sqlClient, newSyncClock)
 						yield* sqlClient`UPDATE action_records SET clock = ${clockValue} WHERE id = ${syncRecord.id}`
 						// The delta patches are already applied locally (they came from replay). Track this so rollbacks are correct.
 						yield* actionRecordRepo.markLocallyApplied(syncRecord.id)

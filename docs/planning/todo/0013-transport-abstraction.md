@@ -1,4 +1,4 @@
-# 0013 — Transport abstraction (pluggable remote ingress + local egress)
+# 0013 — Transport abstraction (pluggable remote ingress)
 
 ## Status
 
@@ -14,7 +14,7 @@ We implemented the first “core-owned ingestion” slice:
 - The RPC client transport (`SyncNetworkServiceLive`) is now fetch-only (no DB writes).
 - Electric ingress uses the core ingestion helper (no duplicated table-write SQL).
 
-What’s still pending is promoting the doc’s stream-first `SyncTransport.remoteBatches` contract into a
+What’s still pending is promoting the doc’s stream-first `SyncIngress.remoteBatches` contract into a
 first-class service so push + pull transports can be swapped/composed without any bespoke wiring.
 
 ## Summary
@@ -25,15 +25,15 @@ Synchrotron’s correctness model is DB-driven:
 - Materialization/apply runs off `findSyncedButUnapplied()` (not off transient network responses).
 - Upload is head-gated by `basisServerIngestId`.
 
-Electric was chosen for demo convenience (realtime replication out of Postgres), but it must remain optional. We should define a small **transport interface** so consumers can plug in alternative delivery mechanisms (polling, SSE/WebSocket, Supabase Realtime, bespoke replication) without rewriting sync logic.
+Electric was chosen for demo convenience (realtime replication out of Postgres), but it must remain optional. We should define a small **ingress interface** so consumers can plug in alternative delivery mechanisms (polling, SSE/WebSocket, Supabase Realtime, bespoke replication) without rewriting sync logic. Uploads remain RPC (`sendLocalActions`) and are not part of this abstraction.
 
 ## Problem
 
 Today, “transport” is not a clean boundary:
 
 - RPC polling lives in `SyncNetworkService` and is coupled to HTTP-RPC details.
-- RPC fetch implementations may also **write into the local DB** (insertion/upserts), which forces transport implementers to understand internal tables.
-- Electric ingress is a separate service that also writes to the same tables and triggers sync.
+- Remote ingestion used to be duplicated across transports (RPC + Electric) and required each transport to understand the internal sync tables + JSON binding quirks.
+- Electric ingress is a separate service that triggers sync when shapes are caught up, but its table-write path should be shared with other ingress mechanisms.
 
 This makes it hard to:
 
@@ -71,14 +71,15 @@ This avoids duplicating “how to write sync tables correctly” across transpor
 
 ### Interface sketch
 
-The core algorithm needs two capabilities:
+The core algorithm needs one pluggable capability:
 
 1. Remote ingress (receive remote history rows).
-2. Local egress (upload local rows to the server).
+
+Local egress (upload) is always RPC (`sendLocalActions`) and stays in `SyncNetworkService`.
 
 ```ts
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
-import type { Effect, Stream } from "effect"
+import type { Stream } from "effect"
 
 export interface RemoteBatch {
 	readonly actions: ReadonlyArray<ActionRecord>
@@ -95,24 +96,13 @@ export interface RemoteBatch {
 	readonly caughtUp?: boolean
 }
 
-export interface SendLocalActionsRequest {
-	readonly clientId: string
-	readonly basisServerIngestId: number
-	readonly actions: ReadonlyArray<ActionRecord>
-	readonly amrs: ReadonlyArray<ActionModifiedRow>
-}
-
-export interface SendLocalActionsResponse {
-	readonly ok: true
-}
-
 export type SyncTransportError = {
 	readonly _tag: "TransportError"
 	readonly message: string
 	readonly cause?: unknown
 }
 
-export interface SyncTransport {
+export interface SyncIngress {
 	/**
 	 * A stream of remote batches.
 	 *
@@ -121,22 +111,13 @@ export interface SyncTransport {
 	 * - Duplicates are allowed; ingestion is idempotent.
 	 */
 	readonly remoteBatches: Stream.Stream<RemoteBatch, SyncTransportError>
-
-	/**
-	 * Upload local unsynced actions/AMRs.
-	 * Must enforce server head-gating via `basisServerIngestId`.
-	 */
-	readonly sendLocalActions: (
-		req: SendLocalActionsRequest
-	) => Effect.Effect<SendLocalActionsResponse, SyncTransportError>
 }
 ```
 
 Notes:
 
 - `remoteBatches` is intentionally agnostic to “poll vs push”.
-- We keep `basisServerIngestId` as part of the contract (it is central to correctness in the current model).
-- Cursoring for `remoteBatches` can be internal to the transport (e.g. it can read `client_sync_status.last_seen_server_ingest_id` via a small helper), or we can later split the interface into:
+- Cursoring for `remoteBatches` can be internal to the ingress (e.g. it can read `client_sync_status.last_seen_server_ingest_id`), or we can later split the ingress into:
   - `fetchRemoteActions({ sinceServerIngestId, includeSelf })` (pure request/response)
   - plus a library-provided polling runner that converts it into `remoteBatches`
 
@@ -168,14 +149,14 @@ So the transport does not need to be “perfectly ordered” or “transactional
 
 - `remoteBatches`: `Stream.repeatEffectWithSchedule(fetchOnce, Schedule.fixed("..."))`
   - `fetchOnce` calls the RPC endpoint (cursor-based) and returns `{ actions, modifiedRows }`.
-- `sendLocalActions`: existing RPC `SendLocalActions` call.
+- Upload remains the existing RPC `SendLocalActions` call (not part of `SyncIngress`).
 
 ### Electric ingress + RPC upload (current demo model)
 
 - `remoteBatches`: wrap `TransactionalMultiShapeStream` and emit a `RemoteBatch` when both shapes have advanced (and optionally when `headers.last === true` to set `caughtUp`).
-- `sendLocalActions`: still RPC (Electric is ingress-only for sync metadata tables).
+- Upload remains RPC (Electric is ingress-only for sync metadata tables).
 
-This composition suggests we may want a small `SyncTransport` “combiner” later (e.g. `{ remoteBatches }` from Electric + `{ sendLocalActions }` from RPC).
+This composition suggests we may want a small “combiner” later (e.g. `SyncIngress` from Electric + RPC `SyncNetworkService` for upload/metadata).
 
 ## Alternatives considered
 

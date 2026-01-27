@@ -1,35 +1,11 @@
 import type { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 import type { ActionModifiedRow, ActionRecord } from "./models"
+import { bindJsonParam } from "./SqlJson"
 
 export interface RemoteSyncLogBatch {
 	readonly actions: ReadonlyArray<ActionRecord>
 	readonly modifiedRows: ReadonlyArray<ActionModifiedRow>
-}
-
-type SqlJsonCapable = {
-	readonly json: (value: unknown) => unknown
-}
-
-const hasSqlJson = (sql: SqlClient.SqlClient): sql is SqlClient.SqlClient & SqlJsonCapable => {
-	const candidate = sql as unknown as Partial<SqlJsonCapable>
-	return typeof candidate.json === "function"
-}
-
-const bigintJsonReplacer = (_key: string, value: unknown): unknown => {
-	if (typeof value !== "bigint") return value
-	const asNumber = Number(value)
-	return Number.isSafeInteger(asNumber) && BigInt(asNumber) === value ? asNumber : value.toString()
-}
-
-const bindJson = (sql: SqlClient.SqlClient, value: unknown) => {
-	if (hasSqlJson(sql)) {
-		// Avoid `JSON.stringify` throwing on BigInt, and avoid drivers encoding BigInt implicitly.
-		const normalized = JSON.parse(JSON.stringify(value, bigintJsonReplacer)) as unknown
-		return sql.json(normalized)
-	}
-	// SQLite stores JSON as TEXT.
-	return JSON.stringify(value, bigintJsonReplacer)
 }
 
 /**
@@ -52,8 +28,8 @@ export const ingestRemoteSyncLogBatch = (sql: SqlClient.SqlClient, batch: Remote
 					_tag: action._tag,
 					client_id: action.client_id,
 					transaction_id: action.transaction_id,
-					clock: bindJson(sql, action.clock),
-					args: bindJson(sql, action.args),
+					clock: bindJsonParam(sql, action.clock),
+					args: bindJsonParam(sql, action.args),
 					created_at: new Date(action.created_at).toISOString(),
 					server_ingested_at: new Date(action.server_ingested_at).toISOString(),
 					synced: 1
@@ -76,8 +52,8 @@ export const ingestRemoteSyncLogBatch = (sql: SqlClient.SqlClient, batch: Remote
 					action_record_id: row.action_record_id,
 					audience_key: row.audience_key,
 					operation: row.operation,
-					forward_patches: bindJson(sql, row.forward_patches),
-					reverse_patches: bindJson(sql, row.reverse_patches),
+					forward_patches: bindJsonParam(sql, row.forward_patches),
+					reverse_patches: bindJsonParam(sql, row.reverse_patches),
 					sequence: row.sequence
 				})}
 				ON CONFLICT (id) DO NOTHING

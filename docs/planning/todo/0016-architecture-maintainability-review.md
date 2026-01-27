@@ -20,6 +20,10 @@ This doc started as a review; the clock/identity boundary cleanup described belo
   - `makeSynchrotronElectricClientLayer`: Electric ingress + RPC upload/metadata (no redundant RPC action-log ingestion).
   - `SyncNetworkServiceElectricLive`: `fetchRemoteActions()` becomes metadata-only (epoch + retention watermark).
 - Moved client-only config into `sync-client` (`packages/sync-client/src/config.ts`) so `sync-core` stays focused on algorithm + DB contract.
+- Centralized core-owned remote ingestion:
+  - `sync-core` owns a single ingestion helper (`ingestRemoteSyncLogBatch`) for persisting remote batches into `action_records` / `action_modified_rows`.
+  - RPC polling is fetch-only; `SyncService.performSync()` ingests the returned rows before applying.
+  - Electric ingress also uses the same ingestion helper (no duplicated table-write SQL).
 
 ## Goal
 
@@ -154,17 +158,21 @@ This makes it harder to reason about what “sync-core” is supposed to be: pur
 Files:
 
 - `packages/sync-core/src/SyncNetworkService.ts` (service definition + placeholder behavior)
-- `packages/sync-client/src/SyncNetworkService.ts` (RPC client + _DB insertion_ of remote actions/AMRs)
-- `packages/sync-client/src/electric/ElectricSyncService.ts` (stream ingest + DB insertion + triggers `performSync()`)
+- `packages/sync-core/src/SyncLogIngest.ts` (core-owned ingestion helper for sync tables)
+- `packages/sync-client/src/SyncNetworkService.ts` (RPC client: fetch remote batches + upload; fetch is DB-write-free)
+- `packages/sync-client/src/electric/ElectricSyncService.ts` (Electric shape delivery + triggers `performSync()`; uses core ingestion helper)
 
-Today, `SyncService.performSync()` is “DB-driven” for apply (it reads `action_records` / `action_modified_rows`), but it still calls `SyncNetworkService.fetchRemoteActions()` unconditionally.
+Today, `SyncService.performSync()` is “DB-driven” for apply (it reads `action_records` / `action_modified_rows`). It still calls `SyncNetworkService.fetchRemoteActions()` unconditionally because it also provides server metadata (epoch + retention watermark); in RPC polling mode it also returns remote rows.
 
-This becomes tricky when Electric ingestion is enabled:
+Key improvement: ingestion is now centralized.
 
-- Electric already ingests into the same tables and triggers `performSync()`.
-- RPC fetch also ingests into the same tables.
+Transports no longer implement sync-table insertion/upsert logic (and therefore don’t need to know DB-specific JSON binding rules). Both RPC polling and Electric ingress go through the same ingestion helper (`ingestRemoteSyncLogBatch`).
 
-This can create duplicate-ingress pressure and unclear ownership of “who advanced which cursor” (already called out in `docs/planning/sync-design-implementation-audit.md`, section J).
+Remaining coupling / future refinement:
+
+- `SyncNetworkService` still bundles “remote fetch + server meta + upload” into one service.
+- Electric triggers sync on push signals, but `performSync()` still does a fetch (metadata-only in Electric mode).
+- We may eventually split “server meta fetch” from “remote ingress delivery” (ingress stream / wakeups), while keeping upload RPC-only.
 
 ### 5) Layer composition style is hard to scan and inconsistent
 
@@ -198,22 +206,19 @@ Several files show inconsistent indentation/bracing, making it harder to quickly
      - Server: `ServerMetaService` derives `serverEpoch` from `sync_server_meta` and derives `serverClock` from `action_records` — no KeyValueStore, no `client_sync_status`.
    - Effect makes it easy to substitute implementations, but a single “unified” `ClockService` interface only helps if the interface is meaningful in both runtimes. If half the methods would be server no-ops (or would force the server to maintain client-like state), prefer separate interfaces instead of pretending there’s one service.
 
-### B) Make the transport/ingress/apply boundary explicit
+### B) Make the ingress/apply boundary explicit
 
-Option 1 (preferred): split into two services:
+Upload transport is not intended to be pluggable: uploads stay RPC (`sendLocalActions`).
 
-- `SyncIngressService`: “get remote data into local tables” (RPC fetch _or_ Electric stream); no upload.
-- `SyncUploadService`: “send local actions + AMRs”; no fetch.
+Option 1 (preferred): define a narrow _ingress-only_ contract (e.g. `SyncIngress` with a `Stream<RemoteBatch>`), then keep ingestion + apply DB-driven in `sync-core`.
 
-Then `SyncService.performSync()` can:
+Option 2: keep `SyncNetworkService.fetchRemoteActions()` as “server meta + optional remote batch delivery”, with:
 
-- (optional) call ingress (depending on wiring),
-- apply everything that is `synced=1 AND not locally applied`,
-- upload pending local actions (if enabled).
+- Electric mode: metadata-only (epoch + retention watermark)
+- RPC-only mode: returns remote batches
+- `sync-core` owning ingestion (`ingestRemoteSyncLogBatch`) so transports never implement sync-table writes
 
-Option 2: keep `SyncNetworkService`, but formalize `fetchRemoteActions()` as _optional/no-op_ in Electric mode (and document that the authoritative apply queue is DB-backed).
-
-Either way, make it impossible to accidentally enable two competing ingress mechanisms without an explicit opt-in layer.
+Either way, avoid having transport implementations perform table-write logic; keep DB/JSON quirks in core.
 
 ### C) Decompose the big services into focused modules
 
@@ -263,6 +268,9 @@ Synchrotron also needs a coherent policy for:
    - (Planned) “offline-only” layer constructor
 2. (Done) Enforce a single remote ingress owner:
    - Electric mode uses `SyncNetworkServiceElectricLive` so RPC fetch is metadata-only (no redundant action-log ingestion).
-3. (Done) Extracted “server clock” into `ServerMetaService`.
-4. (Done) Break `SyncService` and `SyncServerService` into internal modules (mechanical refactor).
-5. (Done) Run formatting (Prettier) on the split modules to reduce diff noise.
+3. (Done) Centralize remote sync-log ingestion in `sync-core` (`ingestRemoteSyncLogBatch`):
+   - RPC polling is fetch-only; `SyncService.performSync()` ingests the fetched batch.
+   - Electric ingress uses the same ingestion helper (no duplicated SQL).
+4. (Done) Extracted “server clock” into `ServerMetaService`.
+5. (Done) Break `SyncService` and `SyncServerService` into internal modules (mechanical refactor).
+6. (Done) Run formatting (Prettier) on the split modules to reduce diff noise.

@@ -9,6 +9,7 @@ import type { ClientClockState } from "../ClientClockState"
 import type { ClientDbAdapterService } from "../ClientDbAdapter"
 import type { DeterministicId } from "../DeterministicId"
 import { applyForwardAmrs } from "../PatchApplier"
+import { bindJsonParam } from "../SqlJson"
 import { SyncError } from "../SyncServiceErrors"
 import type { SyncNetworkService } from "../SyncNetworkService"
 import type { BootstrapSnapshot } from "./SyncServiceBootstrap"
@@ -196,8 +197,8 @@ export const makeRecovery = (deps: {
 											action_record_id: amr.action_record_id,
 											audience_key: amr.audience_key,
 											operation: amr.operation,
-											forward_patches: JSON.stringify(amr.forward_patches),
-											reverse_patches: JSON.stringify(amr.reverse_patches),
+											forward_patches: bindJsonParam(sqlClient, amr.forward_patches),
+											reverse_patches: bindJsonParam(sqlClient, amr.reverse_patches),
 											sequence: amr.sequence
 										})}
 										ON CONFLICT (id) DO NOTHING

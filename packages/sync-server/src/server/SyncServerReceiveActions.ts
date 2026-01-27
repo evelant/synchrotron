@@ -1,5 +1,6 @@
 import type { SqlClient } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
+import { bindJsonParam } from "@synchrotron/sync-core/SqlJson"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import {
 	SendLocalActionsBehindHead,
@@ -127,15 +128,6 @@ export const makeReceiveActions = (deps: { readonly sql: SqlClient.SqlClient }) 
 				return Number(value)
 			}
 
-			// JSONB binding helper:
-			// - Prefer the dialect-specific `sql.json(...)` fragment when available (pg / pglite).
-			// - Fail fast on invalid payloads earlier (see `invalidJsonTypes` gate above).
-			const jsonbParam = (value: unknown): unknown => {
-				const json = (sql as unknown as { readonly json?: (value: unknown) => unknown }).json
-				if (typeof json === "function") return json(value)
-				return JSON.stringify(value)
-			}
-
 			const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
 				if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
 				if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
@@ -212,8 +204,8 @@ export const makeReceiveActions = (deps: { readonly sql: SqlClient.SqlClient }) 
 						${userId},
 						${actionRecord.client_id},
 						${actionRecord._tag},
-						${jsonbParam(actionRecord.args)},
-						${jsonbParam(actionRecord.clock)},
+						${bindJsonParam(sql, actionRecord.args)},
+						${bindJsonParam(sql, actionRecord.clock)},
 						1,
 						${actionRecord.transaction_id},
 						${new Date(actionRecord.created_at).toISOString()}
@@ -241,8 +233,8 @@ export const makeReceiveActions = (deps: { readonly sql: SqlClient.SqlClient }) 
 						${modifiedRow.action_record_id},
 						${modifiedRow.audience_key},
 						${modifiedRow.operation},
-						${jsonbParam(modifiedRow.forward_patches)},
-						${jsonbParam(modifiedRow.reverse_patches)},
+						${bindJsonParam(sql, modifiedRow.forward_patches)},
+						${bindJsonParam(sql, modifiedRow.reverse_patches)},
 						${modifiedRow.sequence}
 					)
 					ON CONFLICT (id) DO NOTHING

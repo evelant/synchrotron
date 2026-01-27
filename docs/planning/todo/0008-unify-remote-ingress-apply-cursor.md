@@ -8,8 +8,8 @@ Implemented (core; Electric mode avoids redundant RPC ingress)
 
 Today, remote actions/patches can enter a client DB through **two independent ingress paths**:
 
-- **RPC fetch**: `SyncNetworkServiceLive.fetchRemoteActions` fetches from the sync server and inserts into `action_records` / `action_modified_rows`.
-- **Electric stream**: `ElectricSyncService` subscribes to Electric shapes and inserts into the same tables (`packages/sync-client/src/electric/ElectricSyncService.ts:185`), then triggers `SyncService.performSync()` (`packages/sync-client/src/electric/ElectricSyncService.ts:254`).
+- **RPC fetch**: `SyncNetworkServiceLive.fetchRemoteActions` fetches from the sync server; `SyncService.performSync()` ingests the returned rows into `action_records` / `action_modified_rows` via the shared core ingestion helper.
+- **Electric stream**: `ElectricSyncService` subscribes to Electric shapes, ingests rows via the same core helper, then triggers `SyncService.performSync()` once shapes are up-to-date.
 
 Remote **apply** and **cursor advancement** are now DB-driven:
 
@@ -26,14 +26,14 @@ The client’s local DB (`action_records` + `local_applied_action_ids`) is the s
 
 ## Problem Statement
 
-### 1) Two ingress writers → double fetch / double insert pressure
+### 1) Two ingress sources → redundant delivery pressure
 
-With Electric enabled, the client can ingest the same remote rows twice:
+With Electric enabled, the client can _receive_ the same remote rows via multiple mechanisms if miswired:
 
-- Electric inserts them from the shape stream
-- RPC fetch inserts them again on every `performSync` call
+- Electric delivers them from the shape stream
+- RPC polling could also deliver them (unless configured as metadata-only)
 
-Inserts are idempotent via `ON CONFLICT DO NOTHING`, so this is “safe”, but it:
+Ingestion is idempotent (safe), but redundant delivery:
 
 - increases load and latency
 - increases complexity (harder to reason about the canonical ingress source)
@@ -79,8 +79,9 @@ This ensures remote rows that arrived via Electric/custom transports are applied
 Electric was chosen for demo convenience (real-time replication out of Postgres), but it should remain an **optional transport**. The core sync algorithm should not require Electric-specific components; it should only require that:
 
 1. Remote `action_records` / `action_modified_rows` reliably reach the client DB.
-2. The client can upload local unsynced actions/AMRs to the server.
-3. The sync loop can be triggered (periodically, on demand, or by a push signal).
+2. The sync loop can be triggered (periodically, on demand, or by a push signal).
+
+Uploads are always RPC (`sendLocalActions`) and are not intended to be transport-pluggable.
 
 ### What “transport” should mean in Synchrotron
 
@@ -124,7 +125,7 @@ Expose a clean, library-consumer choice such as:
 
 - **RPC-only** (no Electric): pull by `server_ingest_id` cursor + upload by RPC
 - **Electric ingress + RPC upload**: Electric keeps the local action log up to date; RPC only uploads local unsynced actions
-- **Custom transport**: consumer provides a Layer implementing the ingress/egress services
+- **Custom ingress**: consumer provides a Layer implementing the ingress service (upload stays RPC)
 
 This doc does not implement that API yet; it only captures the architectural intent so we don’t bake Electric assumptions into `SyncService`.
 
@@ -134,7 +135,7 @@ This doc does not implement that API yet; it only captures the architectural int
 
 Make the local DB the single “remote queue”:
 
-1. “Ingress step” ensures remote `action_records`/`action_modified_rows` are present locally (via RPC fetch insert, Electric stream insert, or both).
+1. “Ingress step” ensures remote `action_records`/`action_modified_rows` are present locally (via RPC fetch delivery + core ingestion, Electric stream delivery + core ingestion, or both).
 2. `SyncService.performSync` determines remote work by querying:
    - `ActionRecordRepo.findSyncedButUnapplied()`
 3. Apply/reconcile based on the DB-derived remote set.
@@ -148,9 +149,10 @@ This is the minimal change that makes Electric-only ingress viable.
 
 Change the contract of `SyncNetworkService.fetchRemoteActions()` to return `{ actions, modifiedRows }` only, and move all DB insertion to a single place in `SyncService`.
 
-Electric ingestion would need to be refactored to not insert into tables directly (instead emit messages to `SyncService`), or to insert into a separate staging area.
+This is now implemented as a shared core ingestion helper:
 
-This is architecturally clean but a larger refactor than we need right now.
+- RPC polling is fetch-only; `SyncService.performSync()` ingests the returned rows into the local sync tables.
+- Electric ingestion also uses the same core ingestion helper (no duplicated table-write SQL).
 
 ### Option C: Choose one ingress mechanism (disable the other)
 
@@ -206,7 +208,7 @@ Note: PGlite provides an official `electric.syncShapesToTables(...)` API for syn
 
 Implemented:
 
-1. `SyncService.performSync` calls `fetchRemoteActions()` as an ingress step (transport-specific), then queries `ActionRecordRepo.findSyncedButUnapplied()` as the authoritative remote work queue.
+1. `SyncService.performSync` calls `fetchRemoteActions()` (transport-specific), ingests the returned rows via the core ingestion helper, then queries `ActionRecordRepo.findSyncedButUnapplied()` as the authoritative remote work queue.
 2. Cursor advancement is DB-derived and tied to applied completion (single applied cursor).
 
 Follow-ups:

@@ -2,6 +2,7 @@ import { SqlClient, type SqlError } from "@effect/sql"
 import type { Fragment } from "@effect/sql/Statement"
 import { Effect } from "effect"
 import type { ActionModifiedRow } from "./models"
+import { bindJsonParam } from "./SqlJson"
 
 type PatchSqlValue = unknown | Fragment
 
@@ -126,16 +127,7 @@ const toPatchSqlValue = (sql: SqlClient.SqlClient, value: unknown): PatchSqlValu
 	}
 
 	// Objects (JSON) are stored/transported as plain JS values in patches.
-	return sql.onDialectOrElse({
-		pg: () => {
-			const json = (sql as unknown as { readonly json?: (v: unknown) => Fragment }).json
-			if (!json) return JSON.stringify(value)
-			return json(value)
-		},
-		// SQLite will store objects as JSON text for now.
-		sqlite: () => JSON.stringify(value),
-		orElse: () => JSON.stringify(value)
-	})
+	return bindJsonParam(sql, value)
 }
 
 const toPatchSqlRecord = (sql: SqlClient.SqlClient, patches: Record<string, unknown>) => {
