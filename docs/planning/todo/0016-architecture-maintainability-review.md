@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented (clock/identity split; explicit client modes; multi-tab deferred)
+Implemented (clock/identity split; explicit client modes; SyncService decomposition; multi-tab deferred)
 
 This doc started as a review; the clock/identity boundary cleanup described below is now implemented.
 
@@ -93,7 +93,20 @@ It currently owns:
 - reconciliation (rollback + replay) + SYNC delta emission
 - recovery policies (hard resync, rebase, quarantine)
 
-This works, but it’s hard to read, test, and evolve because responsibilities are interleaved inside one large service constructor.
+This works, but it was hard to read, test, and evolve because responsibilities were interleaved inside one large service constructor.
+
+This has since been addressed: `SyncService.ts` is now primarily wiring, and the logic lives in internal modules under `packages/sync-core/src/sync/`:
+
+- `SyncServiceBootstrap.ts` (bootstrap snapshot apply helpers)
+- `SyncServiceExecuteAction.ts` (local action execution)
+- `SyncServiceRollback.ts` (rollback + common-ancestor discovery)
+- `SyncServiceApply.ts` (apply pipeline + SYNC delta handling)
+- `SyncServiceUpload.ts` (upload pipeline)
+- `SyncServiceQuarantine.ts` (quarantine + discard flow)
+- `SyncServiceRecovery.ts` (hard resync + rebase)
+- `SyncServicePerformSync.ts` (performSync orchestration)
+
+Error types are centralized in `packages/sync-core/src/SyncServiceErrors.ts`.
 
 ### 2) `SyncServerService` is also a monolith (and mixes client concerns)
 
@@ -239,5 +252,5 @@ Synchrotron also needs a coherent policy for:
 2. (Done) Enforce a single remote ingress owner:
    - Electric mode uses `SyncNetworkServiceElectricLive` so RPC fetch is metadata-only (no redundant action-log ingestion).
 3. (Done) Extracted “server clock” into `ServerMetaService`.
-4. Break `SyncService` and `SyncServerService` into internal modules (mechanical refactor).
-5. Run formatting (Prettier) on the key runtime files once the mechanical splits land to reduce diff noise.
+4. (Done) Break `SyncService` into internal modules (mechanical refactor).
+5. (Done) Run formatting (Prettier) on the split `SyncService` modules to reduce diff noise.
