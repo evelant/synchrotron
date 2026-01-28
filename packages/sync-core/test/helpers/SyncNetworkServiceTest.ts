@@ -1,8 +1,16 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { SqlClient } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
+import {
+	actionLogOrderKeyFromRow,
+	compareActionLogOrderKey,
+	findPredecessorActionId,
+	normalizeSqlNumber,
+	resolveOldestExistingActionId
+} from "@synchrotron/sync-core/ActionLogOrder"
 import { ClientClockState } from "@synchrotron/sync-core/ClientClockState"
 import { bindJsonParam } from "@synchrotron/sync-core/SqlJson"
+import { RollbackActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
 import type { ActionModifiedRow } from "@synchrotron/sync-core/models" // Import ActionModifiedRow model
 import {
@@ -215,28 +223,6 @@ export const createTestSyncNetworkServiceLayer = (
 				Effect.gen(function* () {
 					if (incomingActions.length === 0) return
 
-					type ReplayKey = {
-						readonly timeMs: number
-						readonly counter: number
-						readonly clientId: string
-						readonly id: string
-					}
-
-					const toNumber = (value: unknown): number => {
-						if (typeof value === "number") return value
-						if (typeof value === "bigint") return Number(value)
-						if (typeof value === "string") return Number(value)
-						return Number(value)
-					}
-
-					const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
-						if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
-						if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
-						if (a.clientId !== b.clientId) return a.clientId < b.clientId ? -1 : 1
-						if (a.id !== b.id) return a.id < b.id ? -1 : 1
-						return 0
-					}
-
 					const incomingActionIdSet = new Set(incomingActions.map((a) => a.id))
 
 					// Simplified correctness gate: only accept uploads when the client is at the current
@@ -261,7 +247,7 @@ export const createTestSyncNetworkServiceLayer = (
 								basisServerIngestId,
 								firstUnseenActionId: first?.id ?? undefined,
 								firstUnseenServerIngestId: first
-									? toNumber(first.server_ingest_id)
+									? normalizeSqlNumber(first.server_ingest_id)
 									: basisServerIngestId
 							})
 						)
@@ -324,7 +310,7 @@ export const createTestSyncNetworkServiceLayer = (
 					}
 
 					// Rollback markers are patch-less replay hints: roll back to the oldest target (or genesis).
-					const incomingRollbacks = incomingActions.filter((a) => a._tag === "RollbackAction")
+					const incomingRollbacks = incomingActions.filter((a) => a._tag === RollbackActionTag)
 					let forcedRollbackTarget: string | null | undefined = undefined
 					if (incomingRollbacks.length > 0) {
 						const targets = incomingRollbacks.map(
@@ -338,38 +324,16 @@ export const createTestSyncNetworkServiceLayer = (
 								(t): t is string => typeof t === "string" && t.length > 0
 							)
 							if (targetIds.length > 0) {
-								const targetRows = yield* serverSql<{
-									readonly id: string
-									readonly clock_time_ms: number | string
-									readonly clock_counter: number | string
-									readonly client_id: string
-								}>`
-									SELECT id, clock_time_ms, clock_counter, client_id
-									FROM action_records
-									WHERE id IN ${serverSql.in(targetIds)}
-								`
-								if (targetRows.length !== targetIds.length) {
+								const { oldestId, missingIds } = yield* resolveOldestExistingActionId({
+									sql: serverSql,
+									ids: targetIds
+								})
+								if (missingIds.length > 0) {
 									return yield* Effect.die(
-										`Rollback target action(s) not found on server: ${targetIds.join(", ")}`
+										`Rollback target action(s) not found on server: ${missingIds.join(", ")}`
 									)
 								}
-								const oldest = [...targetRows].sort((a, b) =>
-									compareReplayKey(
-										{
-											timeMs: toNumber(a.clock_time_ms),
-											counter: toNumber(a.clock_counter),
-											clientId: a.client_id,
-											id: a.id
-										},
-										{
-											timeMs: toNumber(b.clock_time_ms),
-											counter: toNumber(b.clock_counter),
-											clientId: b.client_id,
-											id: b.id
-										}
-									)
-								)[0]
-								forcedRollbackTarget = oldest?.id
+								forcedRollbackTarget = oldestId ?? undefined
 							}
 						}
 					}
@@ -403,17 +367,8 @@ export const createTestSyncNetworkServiceLayer = (
 							AND ar._tag != 'RollbackAction'
 							GROUP BY ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
 							ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
-							LIMIT 1
-						`.pipe(Effect.map((rows) => rows[0] ?? null))
-
-					const findPredecessorId = (key: ReplayKey) =>
-						serverSql<{ readonly id: string }>`
-							SELECT id
-							FROM action_records
-							WHERE (clock_time_ms, clock_counter, client_id, id) < (${key.timeMs}, ${key.counter}, ${key.clientId}, ${key.id})
-							ORDER BY clock_time_ms DESC, clock_counter DESC, client_id DESC, id DESC
-							LIMIT 1
-						`.pipe(Effect.map((rows) => rows[0]?.id ?? null))
+								LIMIT 1
+							`.pipe(Effect.map((rows) => rows[0] ?? null))
 
 					const applyAllUnapplied = () =>
 						Effect.acquireUseRelease(
@@ -475,25 +430,15 @@ export const createTestSyncNetworkServiceLayer = (
 									return
 								}
 
-								const earliestKey: ReplayKey = {
-									timeMs: toNumber(earliest.clock_time_ms),
-									counter: toNumber(earliest.clock_counter),
-									clientId: earliest.client_id,
-									id: earliest.id
-								}
-								const latestKey: ReplayKey = {
-									timeMs: toNumber(latestApplied.clock_time_ms),
-									counter: toNumber(latestApplied.clock_counter),
-									clientId: latestApplied.client_id,
-									id: latestApplied.id
-								}
+								const earliestKey = actionLogOrderKeyFromRow(earliest)
+								const latestKey = actionLogOrderKeyFromRow(latestApplied)
 
-								if (compareReplayKey(earliestKey, latestKey) > 0) {
+								if (compareActionLogOrderKey(earliestKey, latestKey) > 0) {
 									yield* applyAllUnapplied()
 									return
 								}
 
-								const predecessorId = yield* findPredecessorId(earliestKey)
+								const predecessorId = yield* findPredecessorActionId(serverSql, earliestKey)
 								yield* serverSql`SELECT rollback_to_action(${predecessorId})`
 							}
 						})

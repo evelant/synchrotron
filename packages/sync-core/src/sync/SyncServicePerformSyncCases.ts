@@ -17,8 +17,15 @@
 import type { SqlClient } from "@effect/sql"
 import { Effect, Option } from "effect"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
+import {
+	actionLogOrderKeyFromRow,
+	compareActionLogOrderKey,
+	findPredecessorActionId,
+	resolveOldestExistingActionId
+} from "../ActionLogOrder"
 import type { ClientClockState } from "../ClientClockState"
 import { compareClock, sortClocks } from "../ClockOrder"
+import { RollbackActionTag } from "../SyncActionTags"
 import { ActionRecord } from "../models"
 import { SyncError } from "../SyncServiceErrors"
 
@@ -76,7 +83,7 @@ export const makePerformSyncCases = (deps: {
 			const rollbackActionRecord = yield* actionRecordRepo.insert(
 				ActionRecord.insert.make({
 					id: crypto.randomUUID(),
-					_tag: "RollbackAction",
+					_tag: RollbackActionTag,
 					client_id: clientId,
 					clock: rollbackClock,
 					args: {
@@ -131,8 +138,8 @@ export const makePerformSyncCases = (deps: {
 	 */
 	const planRemoteOnly = (remoteActions: readonly ActionRecord[]) =>
 		Effect.gen(function* () {
-			const rollbackActions = remoteActions.filter((a) => a._tag === "RollbackAction")
-			const unappliedNonRollback = remoteActions.filter((a) => a._tag !== "RollbackAction")
+			const rollbackActions = remoteActions.filter((a) => a._tag === RollbackActionTag)
+			const unappliedNonRollback = remoteActions.filter((a) => a._tag !== RollbackActionTag)
 
 			let forcedRollbackTarget: string | null | undefined = undefined
 			if (rollbackActions.length > 0) {
@@ -145,31 +152,18 @@ export const makePerformSyncCases = (deps: {
 						(t): t is string => typeof t === "string" && t.length > 0
 					)
 					if (targetIds.length > 0) {
-						const targetRows = yield* sqlClient<{
-							readonly id: string
-							readonly clock: ActionRecord["clock"]
-							readonly client_id: string
-						}>`
-							SELECT id, clock, client_id
-							FROM action_records
-							WHERE id IN ${sqlClient.in(targetIds)}
-						`
-						if (targetRows.length !== targetIds.length) {
+						const { oldestId, missingIds } = yield* resolveOldestExistingActionId({
+							sql: sqlClient,
+							ids: targetIds
+						})
+						if (missingIds.length > 0) {
 							return yield* Effect.fail(
 								new SyncError({
-									message: `Rollback target action(s) not found locally: ${targetIds.join(", ")}`
+									message: `Rollback target action(s) not found locally: ${missingIds.join(", ")}`
 								})
 							)
 						}
-						const oldest = [...targetRows]
-							.map((a) => ({ ...a, clientId: a.client_id }))
-							.sort((a, b) =>
-								compareClock(
-									{ clock: a.clock, clientId: a.clientId, id: a.id },
-									{ clock: b.clock, clientId: b.clientId, id: b.id }
-								)
-							)[0]
-						forcedRollbackTarget = oldest?.id
+						forcedRollbackTarget = oldestId ?? undefined
 					}
 				}
 			}
@@ -187,54 +181,34 @@ export const makePerformSyncCases = (deps: {
 				LIMIT 1
 			`.pipe(Effect.map((rows) => rows[0] ?? null))
 
-			const earliestRemote = unappliedNonRollback.length
-				? sortClocks(
-						unappliedNonRollback.map((a) => ({
-							action: a,
-							clock: a.clock,
-							clientId: a.client_id,
-							id: a.id
-						}))
-					)[0]?.action
-				: undefined
+			const earliestRemote = unappliedNonRollback.reduce<ActionRecord | undefined>(
+				(earliest, next) => {
+					if (!earliest) return next
+					return compareActionLogOrderKey(
+						actionLogOrderKeyFromRow(next),
+						actionLogOrderKeyFromRow(earliest)
+					) < 0
+						? next
+						: earliest
+				},
+				undefined
+			)
 
 			const needsRollbackForLateArrival =
 				latestApplied && earliestRemote
-					? compareClock(
-							{
-								clock: earliestRemote.clock,
-								clientId: earliestRemote.client_id,
-								id: earliestRemote.id
-							},
-							{
-								clock: {
-									timestamp: Number(latestApplied.clock_time_ms),
-									vector: {
-										[latestApplied.client_id]: Number(latestApplied.clock_counter)
-									}
-								},
-								clientId: latestApplied.client_id,
-								id: latestApplied.id
-							}
+					? compareActionLogOrderKey(
+							actionLogOrderKeyFromRow(earliestRemote),
+							actionLogOrderKeyFromRow(latestApplied)
 						) <= 0
 					: false
 
 			let rollbackTarget: string | null | undefined = forcedRollbackTarget
 			let lateArrival = false
 			if (rollbackTarget === undefined && needsRollbackForLateArrival && earliestRemote) {
-				const predecessor = yield* sqlClient<{ readonly id: string }>`
-					SELECT id
-					FROM action_records
-					WHERE (clock_time_ms, clock_counter, client_id, id) < (
-						${earliestRemote.clock_time_ms},
-						${earliestRemote.clock_counter},
-						${earliestRemote.client_id},
-						${earliestRemote.id}
-					)
-					ORDER BY clock_time_ms DESC, clock_counter DESC, client_id DESC, id DESC
-					LIMIT 1
-				`
-				rollbackTarget = predecessor[0]?.id ?? null
+				rollbackTarget = yield* findPredecessorActionId(
+					sqlClient,
+					actionLogOrderKeyFromRow(earliestRemote)
+				)
 				lateArrival = true
 			}
 
@@ -264,7 +238,7 @@ export const makePerformSyncCases = (deps: {
 				}
 
 				const actionsToReplay = yield* actionRecordRepo.findUnappliedLocally()
-				const replayWithoutRollbacks = actionsToReplay.filter((a) => a._tag !== "RollbackAction")
+				const replayWithoutRollbacks = actionsToReplay.filter((a) => a._tag !== RollbackActionTag)
 				if (replayWithoutRollbacks.length > 0) {
 					yield* applyActionRecords(replayWithoutRollbacks)
 				}
@@ -335,7 +309,7 @@ export const makePerformSyncCases = (deps: {
 			}
 
 			if (
-				!remoteActions.find((a) => a._tag === "RollbackAction") &&
+				!remoteActions.find((a) => a._tag === RollbackActionTag) &&
 				compareClock(
 					{
 						clock: latestPendingAction.clock,

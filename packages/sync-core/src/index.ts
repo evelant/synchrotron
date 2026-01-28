@@ -1,6 +1,7 @@
 export * from "./models"
 export * from "./HLC"
 export * from "./ClockOrder"
+export * from "./ActionLogOrder"
 export * from "./ClientIdentity"
 export * from "./ClientClockState"
 export * from "./ActionRegistry"
