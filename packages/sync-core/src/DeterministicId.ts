@@ -100,5 +100,6 @@ export class DeterministicId extends Effect.Service<DeterministicId>()("Determin
 			getCurrentActionId,
 			forRow
 		} as const
-	})
+	}),
+	accessors: true
 }) {}

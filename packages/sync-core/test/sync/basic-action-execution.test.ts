@@ -6,6 +6,7 @@ import { Effect, Schema } from "effect"
 import { expect } from "vitest"
 import { TestHelpers } from "../helpers/TestHelpers"
 import { NoteModel, makeTestLayers } from "../helpers/TestLayers"
+import { UnknownException } from "effect/Cause"
 
 /**
  * Tests for basic action execution functionality
@@ -117,7 +118,7 @@ describe("Basic Action Execution", () => {
 							)
 
 							// Then fail
-							return yield* Effect.fail(new Error("Intentional failure"))
+							return yield* Effect.fail(new UnknownException("Intentional failure"))
 						})
 				)
 

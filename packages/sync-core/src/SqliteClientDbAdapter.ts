@@ -13,27 +13,18 @@
  */
 import { SqlClient, type SqlError } from "@effect/sql"
 import * as SqlStatement from "@effect/sql/Statement"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer } from "effect"
 import createSyncTablesSqliteSQL from "./db/sql/schema/create_sync_tables_sqlite"
-import { ClientDbAdapter } from "./ClientDbAdapter"
-
-export class SqliteClientDbAdapterError extends Schema.TaggedError<SqliteClientDbAdapterError>()(
-	"SqliteClientDbAdapterError",
-	{
-		message: Schema.String,
-		tableName: Schema.optional(Schema.String),
-		columnName: Schema.optional(Schema.String),
-		cause: Schema.optional(Schema.Unknown)
-	}
-) {}
+import { ClientDbAdapter, ClientDbAdapterError } from "./ClientDbAdapter"
 
 const ensureSqliteDialect = (sql: SqlClient.SqlClient) =>
 	sql.onDialectOrElse({
 		sqlite: () => Effect.void,
 		orElse: () =>
 			Effect.fail(
-				new SqliteClientDbAdapterError({
-					message: `SqliteClientDbAdapter requires a SQLite SqlClient (got non-sqlite dialect)`
+				new ClientDbAdapterError({
+					message: `SqliteClientDbAdapter requires a SQLite SqlClient (got non-sqlite dialect)`,
+					expectedDialect: "sqlite"
 				})
 			)
 	})
@@ -224,9 +215,10 @@ const SqliteClientDbAdapterLive = Layer.effect(
 				const visibleColumns = columns.filter((c) => (c.hidden ?? 0) !== 1)
 				if (columns.length === 0) {
 					return yield* Effect.fail(
-						new SqliteClientDbAdapterError({
+						new ClientDbAdapterError({
 							message: `Cannot install patch triggers: table not found: ${tableName}`,
-							tableName
+							tableName,
+							expectedDialect: dbDialect
 						})
 					)
 				}
@@ -240,10 +232,11 @@ const SqliteClientDbAdapterLive = Layer.effect(
 				const hasId = columnNames.some((c) => c.toLowerCase() === "id")
 				if (!hasId) {
 					return yield* Effect.fail(
-						new SqliteClientDbAdapterError({
+						new ClientDbAdapterError({
 							message: `Cannot install patch triggers: table "${tableName}" must have an "id" column`,
 							tableName,
-							columnName: "id"
+							columnName: "id",
+							expectedDialect: dbDialect
 						})
 					)
 				}
@@ -251,10 +244,11 @@ const SqliteClientDbAdapterLive = Layer.effect(
 				const hasAudienceKey = columnNames.some((c) => c.toLowerCase() === "audience_key")
 				if (!hasAudienceKey) {
 					return yield* Effect.fail(
-						new SqliteClientDbAdapterError({
+						new ClientDbAdapterError({
 							message: `Cannot install patch triggers: table "${tableName}" must have an "audience_key" column (see docs/shared-rows.md)`,
 							tableName,
-							columnName: "audience_key"
+							columnName: "audience_key",
+							expectedDialect: dbDialect
 						})
 					)
 				}
@@ -452,7 +446,7 @@ END;
 
 		const installPatchCapture = (
 			tableNames: ReadonlyArray<string>
-		): Effect.Effect<void, SqlError.SqlError | SqliteClientDbAdapterError> =>
+		): Effect.Effect<void, SqlError.SqlError | ClientDbAdapterError> =>
 			Effect.logDebug("clientDbAdapter.installPatchCapture.start", {
 				dbDialect,
 				tableCount: tableNames.length,

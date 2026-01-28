@@ -37,6 +37,7 @@
 		"test:watch": "vitest -c vitest.config.ts",
 		"test:coverage": "vitest run --coverage -c vitest.config.ts",
 		"changeset": "changeset",
+		"prepare": "effect-language-service patch",
 		"version": "changeset version",
 		"release": "changeset publish"
 	},

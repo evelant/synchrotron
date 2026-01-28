@@ -10,6 +10,9 @@
  * - `SyncServicePerformSyncRemoteIngress` (fetch + ingest + apply-readiness checks)
  * - `SyncServicePerformSyncCases` (decision tree for sync strategies)
  * - `SyncServicePerformSyncAppliedCursor` (applied remote cursor computation)
+ * - `SyncServicePerformSyncBootstrap` (optional bootstrap-from-snapshot for empty clients)
+ * - `SyncServicePerformSyncQuarantine` (quarantine counters / upload gating)
+ * - `SyncServicePerformSyncRecoveryPolicy` (policy for invalid/quarantine/discontinuity recovery)
  */
 import type { SqlClient } from "@effect/sql"
 import { Effect, Schedule } from "effect"
@@ -30,7 +33,14 @@ import {
 import { SyncError } from "../SyncServiceErrors"
 import type { BootstrapSnapshot } from "./SyncServiceBootstrap"
 import { makeAppliedRemoteCursor } from "./SyncServicePerformSyncAppliedCursor"
+import { bootstrapFromSnapshotIfNeeded } from "./SyncServicePerformSyncBootstrap"
 import { makePerformSyncCases } from "./SyncServicePerformSyncCases"
+import { getQuarantinedActionCount } from "./SyncServicePerformSyncQuarantine"
+import {
+	makePerformSyncRecoveryPolicy,
+	type PerformSyncError,
+	type PerformSyncResult
+} from "./SyncServicePerformSyncRecoveryPolicy"
 import { fetchIngestAndListRemoteActions } from "./SyncServicePerformSyncRemoteIngress"
 
 export const makePerformSync = (deps: {
@@ -97,33 +107,26 @@ export const makePerformSync = (deps: {
 	 */
 	const performSync = () => performSyncWithPolicy(true, true)
 
-	type PerformSyncResult = readonly ActionRecord[]
-	type PerformSyncError =
-		| SendLocalActionsBehindHead
-		| SendLocalActionsInternal
-		| NetworkRequestError
-		| FetchRemoteActionsCompacted
-		| RemoteActionFetchError
-		| SyncHistoryEpochMismatch
-		| SyncError
-
 	const performSyncWithPolicy = (
 		allowInvalidRebase: boolean,
 		allowDiscontinuityRecovery: boolean
-	): Effect.Effect<PerformSyncResult, PerformSyncError, never> =>
-		newTraceId
+	): Effect.Effect<PerformSyncResult, PerformSyncError, never> => {
+		const recoveryPolicy = makePerformSyncRecoveryPolicy({
+			sqlClient,
+			actionRecordRepo,
+			clientId,
+			hardResync,
+			rebase,
+			quarantineUnsyncedActions,
+			retryPerformSync: performSyncWithPolicy
+		})
+
+		return newTraceId
 			.pipe(
 				Effect.flatMap((syncSessionId) =>
 					Effect.gen(function* () {
 						yield* Effect.logInfo("performSync.start", { syncSessionId })
-						const quarantineRows = yield* sqlClient<{ readonly count: number | string }>`
-							SELECT count(*) as count FROM local_quarantined_actions
-						`
-						const quarantinedCountRaw = quarantineRows[0]?.count ?? 0
-						const quarantinedCount =
-							typeof quarantinedCountRaw === "number"
-								? quarantinedCountRaw
-								: Number(quarantinedCountRaw ?? 0)
+						const quarantinedCount = yield* getQuarantinedActionCount(sqlClient)
 						const uploadsDisabled = quarantinedCount > 0
 						if (uploadsDisabled) {
 							yield* Effect.logWarning("performSync.uploadsDisabled.quarantined", {
@@ -138,51 +141,13 @@ export const makePerformSync = (deps: {
 							lastSeenServerIngestId: lastSeenServerIngestIdBeforeBootstrap
 						})
 
-						const bootstrapFromSnapshotIfNeeded = () =>
-							Effect.gen(function* () {
-								if (lastSeenServerIngestIdBeforeBootstrap > 0) return false
-
-								const [localState] = yield* sqlClient<{
-									readonly has_any_action_records: boolean | 0 | 1
-								}>`
-									SELECT EXISTS (SELECT 1 FROM action_records LIMIT 1) as has_any_action_records
-								`
-								const hasAnyActionRecords =
-									typeof localState?.has_any_action_records === "boolean"
-										? localState.has_any_action_records
-										: localState?.has_any_action_records === 1
-								if (hasAnyActionRecords) return false
-
-								yield* Effect.logInfo("performSync.bootstrap.start", { clientId })
-								const snapshot = yield* syncNetworkService.fetchBootstrapSnapshot()
-								yield* Effect.logInfo("performSync.bootstrap.received", {
-									clientId,
-									serverIngestId: snapshot.serverIngestId,
-									tableCount: snapshot.tables.length,
-									rowCounts: snapshot.tables.map((t) => ({
-										tableName: t.tableName,
-										rowCount: t.rows.length
-									}))
-								})
-
-								yield* applyBootstrapSnapshot(snapshot)
-
-								yield* Effect.logInfo("performSync.bootstrap.done", {
-									clientId,
-									serverIngestId: snapshot.serverIngestId
-								})
-
-								return true
-							}).pipe(
-								Effect.catchAll((error) =>
-									Effect.logWarning("performSync.bootstrap.failed", {
-										clientId,
-										message: error instanceof Error ? error.message : String(error)
-									}).pipe(Effect.as(false))
-								)
-							)
-
-						yield* bootstrapFromSnapshotIfNeeded()
+						yield* bootstrapFromSnapshotIfNeeded({
+							sqlClient,
+							syncNetworkService,
+							clientId,
+							lastSeenServerIngestIdBeforeBootstrap,
+							applyBootstrapSnapshot
+						})
 						const lastSeenServerIngestId = yield* clockState.getLastSeenServerIngestId
 						yield* Effect.logDebug("performSync.cursor.afterBootstrap", {
 							lastSeenServerIngestId
@@ -281,179 +246,27 @@ export const makePerformSync = (deps: {
 				)
 			)
 			.pipe(
-				Effect.catchTag(
-					"SendLocalActionsDenied",
-					(error): Effect.Effect<PerformSyncResult, PerformSyncError, never> =>
-						quarantineUnsyncedActions(error).pipe(Effect.as([] as const))
-				),
+				Effect.catchTag("SendLocalActionsDenied", recoveryPolicy.handleDenied),
 				Effect.catchTag(
 					"SendLocalActionsInvalid",
-					(error): Effect.Effect<PerformSyncResult, PerformSyncError, never> => {
-						if (!allowInvalidRebase) {
-							return quarantineUnsyncedActions(error).pipe(Effect.as([] as const))
-						}
-
-						return Effect.logWarning("performSync.invalid.rebaseOnce", {
-							clientId,
-							message: error.message,
-							code: error.code ?? null
-						}).pipe(
-							Effect.zipRight(
-								rebase().pipe(
-									Effect.catchAll((rebaseError) =>
-										Effect.logError("performSync.invalid.rebaseFailed", {
-											clientId,
-											message:
-												rebaseError instanceof Error ? rebaseError.message : String(rebaseError)
-										}).pipe(Effect.asVoid)
-									)
-								)
-							),
-							Effect.zipRight(performSyncWithPolicy(false, allowDiscontinuityRecovery))
-						)
-					}
+					recoveryPolicy.handleInvalid(allowInvalidRebase, allowDiscontinuityRecovery)
 				),
 				Effect.catchTag(
 					"SyncHistoryEpochMismatch",
-					(error): Effect.Effect<PerformSyncResult, PerformSyncError, never> =>
-						Effect.gen(function* () {
-							const quarantineRows = yield* sqlClient<{ readonly count: number | string }>`
-								SELECT count(*) as count FROM local_quarantined_actions
-							`
-							const quarantinedCountRaw = quarantineRows[0]?.count ?? 0
-							const quarantinedCount =
-								typeof quarantinedCountRaw === "number"
-									? quarantinedCountRaw
-									: Number(quarantinedCountRaw ?? 0)
-							if (quarantinedCount > 0) {
-								return yield* Effect.fail(
-									new SyncError({
-										message:
-											"Sync history changed while local actions are quarantined; app must resolve (discard or hard resync)",
-										cause: error
-									})
-								)
-							}
-
-							if (!allowDiscontinuityRecovery) {
-								return yield* Effect.fail(
-									new SyncError({
-										message:
-											"Sync history epoch mismatch persists after recovery attempt; app must hard resync",
-										cause: error
-									})
-								)
-							}
-
-							const pending = yield* actionRecordRepo.allUnsyncedActive()
-							if (pending.length === 0) {
-								yield* Effect.logWarning("performSync.epochMismatch.hardResync", {
-									clientId,
-									localEpoch: error.localEpoch,
-									serverEpoch: error.serverEpoch
-								})
-								yield* hardResync()
-							} else {
-								yield* Effect.logWarning("performSync.epochMismatch.rebase", {
-									clientId,
-									pendingCount: pending.length,
-									localEpoch: error.localEpoch,
-									serverEpoch: error.serverEpoch
-								})
-								yield* rebase()
-							}
-
-							return yield* performSyncWithPolicy(allowInvalidRebase, false)
-						}).pipe(
-							Effect.catchAll((unknownError) =>
-								unknownError instanceof SendLocalActionsBehindHead ||
-								unknownError instanceof SendLocalActionsInternal ||
-								unknownError instanceof NetworkRequestError ||
-								unknownError instanceof RemoteActionFetchError ||
-								unknownError instanceof FetchRemoteActionsCompacted ||
-								unknownError instanceof SyncHistoryEpochMismatch ||
-								unknownError instanceof SyncError
-									? Effect.fail(unknownError)
-									: Effect.fail(
-											new SyncError({
-												message: "Failed while handling sync epoch mismatch",
-												cause: unknownError
-											})
-										)
-							)
-						)
+					recoveryPolicy.handleSyncHistoryEpochMismatch(
+						allowInvalidRebase,
+						allowDiscontinuityRecovery
+					)
 				),
 				Effect.catchTag(
 					"FetchRemoteActionsCompacted",
-					(error): Effect.Effect<PerformSyncResult, PerformSyncError, never> =>
-						Effect.gen(function* () {
-							const quarantineRows = yield* sqlClient<{ readonly count: number | string }>`
-								SELECT count(*) as count FROM local_quarantined_actions
-							`
-							const quarantinedCountRaw = quarantineRows[0]?.count ?? 0
-							const quarantinedCount =
-								typeof quarantinedCountRaw === "number"
-									? quarantinedCountRaw
-									: Number(quarantinedCountRaw ?? 0)
-							if (quarantinedCount > 0) {
-								return yield* Effect.fail(
-									new SyncError({
-										message:
-											"Server history was compacted while local actions are quarantined; app must resolve (discard or hard resync)",
-										cause: error
-									})
-								)
-							}
-
-							if (!allowDiscontinuityRecovery) {
-								return yield* Effect.fail(
-									new SyncError({
-										message:
-											"Server history compaction requires resync; recovery attempt did not resolve it",
-										cause: error
-									})
-								)
-							}
-
-							const pending = yield* actionRecordRepo.allUnsyncedActive()
-							if (pending.length === 0) {
-								yield* Effect.logWarning("performSync.historyCompacted.hardResync", {
-									clientId,
-									sinceServerIngestId: error.sinceServerIngestId,
-									minRetainedServerIngestId: error.minRetainedServerIngestId
-								})
-								yield* hardResync()
-							} else {
-								yield* Effect.logWarning("performSync.historyCompacted.rebase", {
-									clientId,
-									pendingCount: pending.length,
-									sinceServerIngestId: error.sinceServerIngestId,
-									minRetainedServerIngestId: error.minRetainedServerIngestId
-								})
-								yield* rebase()
-							}
-
-							return yield* performSyncWithPolicy(allowInvalidRebase, false)
-						}).pipe(
-							Effect.catchAll((unknownError) =>
-								unknownError instanceof SendLocalActionsBehindHead ||
-								unknownError instanceof SendLocalActionsInternal ||
-								unknownError instanceof NetworkRequestError ||
-								unknownError instanceof RemoteActionFetchError ||
-								unknownError instanceof FetchRemoteActionsCompacted ||
-								unknownError instanceof SyncHistoryEpochMismatch ||
-								unknownError instanceof SyncError
-									? Effect.fail(unknownError)
-									: Effect.fail(
-											new SyncError({
-												message: "Failed while handling server history compaction",
-												cause: unknownError
-											})
-										)
-							)
-						)
+					recoveryPolicy.handleFetchRemoteActionsCompacted(
+						allowInvalidRebase,
+						allowDiscontinuityRecovery
+					)
 				)
 			)
+	}
 
 	return { performSync } as const
 }

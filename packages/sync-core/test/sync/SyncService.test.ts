@@ -11,6 +11,7 @@ import { ActionExecutionError, SyncService } from "@synchrotron/sync-core/SyncSe
 import { Effect, Option, Schema } from "effect" // Import DateTime
 import { expect } from "vitest"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers" // Removed TestServices import
+import { UnknownException } from "effect/Cause"
 
 // Use describe instead of it.layer
 describe("SyncService", () => {
@@ -72,7 +73,7 @@ describe("SyncService", () => {
 				const failingAction = actionRegistry.defineAction(
 					"test-failing-action",
 					Schema.Struct({ timestamp: Schema.Number }),
-					() => Effect.fail(new Error("Test error"))
+					() => Effect.fail(new UnknownException("Test error"))
 				)
 
 				// Create action instance

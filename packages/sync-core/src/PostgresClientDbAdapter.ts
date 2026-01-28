@@ -13,16 +13,17 @@
 import { SqlClient } from "@effect/sql"
 import { Effect, Layer } from "effect"
 import { applySyncTriggers, initializeClientDatabaseSchema } from "./db"
-import { ClientDbAdapter } from "./ClientDbAdapter"
+import { ClientDbAdapter, ClientDbAdapterError } from "./ClientDbAdapter"
 
 const ensurePostgresDialect = (sql: SqlClient.SqlClient) =>
 	sql.onDialectOrElse({
 		pg: () => Effect.void,
 		orElse: () =>
 			Effect.fail(
-				new Error(
-					`PostgresClientDbAdapter requires a Postgres/PGlite SqlClient (got non-pg dialect)`
-				)
+				new ClientDbAdapterError({
+					message: `PostgresClientDbAdapter requires a Postgres/PGlite SqlClient (got non-pg dialect)`,
+					expectedDialect: "postgres"
+				})
 			)
 	})
 
