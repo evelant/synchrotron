@@ -13,16 +13,28 @@
  */
 import { SqlClient, type SqlError } from "@effect/sql"
 import * as SqlStatement from "@effect/sql/Statement"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import createSyncTablesSqliteSQL from "./db/sql/schema/create_sync_tables_sqlite"
 import { ClientDbAdapter } from "./ClientDbAdapter"
+
+export class SqliteClientDbAdapterError extends Schema.TaggedError<SqliteClientDbAdapterError>()(
+	"SqliteClientDbAdapterError",
+	{
+		message: Schema.String,
+		tableName: Schema.optional(Schema.String),
+		columnName: Schema.optional(Schema.String),
+		cause: Schema.optional(Schema.Unknown)
+	}
+) {}
 
 const ensureSqliteDialect = (sql: SqlClient.SqlClient) =>
 	sql.onDialectOrElse({
 		sqlite: () => Effect.void,
 		orElse: () =>
 			Effect.fail(
-				new Error(`SqliteClientDbAdapter requires a SQLite SqlClient (got non-sqlite dialect)`)
+				new SqliteClientDbAdapterError({
+					message: `SqliteClientDbAdapter requires a SQLite SqlClient (got non-sqlite dialect)`
+				})
 			)
 	})
 
@@ -57,7 +69,7 @@ const SqliteClientDbAdapterLive = Layer.effect(
 		yield* ensureSqliteDialect(sql)
 		const dbDialect = "sqlite" as const
 
-		const initializeSyncSchema: Effect.Effect<void, SqlError.SqlError | Error> = Effect.logDebug(
+		const initializeSyncSchema: Effect.Effect<void, SqlError.SqlError> = Effect.logDebug(
 			"clientDbAdapter.initializeSyncSchema.start",
 			{ dbDialect }
 		).pipe(
@@ -212,7 +224,10 @@ const SqliteClientDbAdapterLive = Layer.effect(
 				const visibleColumns = columns.filter((c) => (c.hidden ?? 0) !== 1)
 				if (columns.length === 0) {
 					return yield* Effect.fail(
-						new Error(`Cannot install patch triggers: table not found: ${tableName}`)
+						new SqliteClientDbAdapterError({
+							message: `Cannot install patch triggers: table not found: ${tableName}`,
+							tableName
+						})
 					)
 				}
 
@@ -225,18 +240,22 @@ const SqliteClientDbAdapterLive = Layer.effect(
 				const hasId = columnNames.some((c) => c.toLowerCase() === "id")
 				if (!hasId) {
 					return yield* Effect.fail(
-						new Error(
-							`Cannot install patch triggers: table "${tableName}" must have an "id" column`
-						)
+						new SqliteClientDbAdapterError({
+							message: `Cannot install patch triggers: table "${tableName}" must have an "id" column`,
+							tableName,
+							columnName: "id"
+						})
 					)
 				}
 
 				const hasAudienceKey = columnNames.some((c) => c.toLowerCase() === "audience_key")
 				if (!hasAudienceKey) {
 					return yield* Effect.fail(
-						new Error(
-							`Cannot install patch triggers: table "${tableName}" must have an "audience_key" column (see docs/shared-rows.md)`
-						)
+						new SqliteClientDbAdapterError({
+							message: `Cannot install patch triggers: table "${tableName}" must have an "audience_key" column (see docs/shared-rows.md)`,
+							tableName,
+							columnName: "audience_key"
+						})
 					)
 				}
 
@@ -433,7 +452,7 @@ END;
 
 		const installPatchCapture = (
 			tableNames: ReadonlyArray<string>
-		): Effect.Effect<void, SqlError.SqlError | Error> =>
+		): Effect.Effect<void, SqlError.SqlError | SqliteClientDbAdapterError> =>
 			Effect.logDebug("clientDbAdapter.installPatchCapture.start", {
 				dbDialect,
 				tableCount: tableNames.length,
@@ -453,7 +472,7 @@ END;
 
 		const setCaptureContext = (
 			actionRecordId: string | null
-		): Effect.Effect<void, SqlError.SqlError | Error> =>
+		): Effect.Effect<void, SqlError.SqlError> =>
 			Effect.logTrace("clientDbAdapter.setCaptureContext", {
 				dbDialect,
 				actionRecordId: actionRecordId ?? null
@@ -470,9 +489,7 @@ END;
 				})
 			)
 
-		const setPatchTrackingEnabled = (
-			enabled: boolean
-		): Effect.Effect<void, SqlError.SqlError | Error> =>
+		const setPatchTrackingEnabled = (enabled: boolean): Effect.Effect<void, SqlError.SqlError> =>
 			Effect.logTrace("clientDbAdapter.setPatchTrackingEnabled", { dbDialect, enabled }).pipe(
 				Effect.zipRight(
 					sql`

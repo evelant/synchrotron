@@ -108,9 +108,29 @@ export const makePerformSyncCases = (deps: {
 			return [] as const
 		})
 
-	const handleRemoteOnly = (remoteActions: readonly ActionRecord[]) =>
+	type RemoteOnlyPlan = Readonly<{
+		readonly rollbackActions: readonly ActionRecord[]
+		readonly unappliedNonRollback: readonly ActionRecord[]
+		/**
+		 * When defined, we must rollback+replay to restore a canonical local materialization before proceeding.
+		 * - `null`: rollback to genesis
+		 * - `string`: rollback to that action ID
+		 * - `undefined`: no rollback required; we can fast-forward apply
+		 */
+		readonly rollbackTarget: string | null | undefined
+		/**
+		 * True when rollback is required due to a late-arriving remote action that sorts before the
+		 * client's current applied head (as opposed to an explicit remote RollbackAction).
+		 */
+		readonly lateArrival: boolean
+	}>
+
+	/**
+	 * Compute the "remote-only" sync plan (rollback target selection) separately from execution so
+	 * the decision logic stays readable.
+	 */
+	const planRemoteOnly = (remoteActions: readonly ActionRecord[]) =>
 		Effect.gen(function* () {
-			yield* Effect.logInfo("performSync.case1.applyRemote", { remoteCount: remoteActions.length })
 			const rollbackActions = remoteActions.filter((a) => a._tag === "RollbackAction")
 			const unappliedNonRollback = remoteActions.filter((a) => a._tag !== "RollbackAction")
 
@@ -200,6 +220,7 @@ export const makePerformSyncCases = (deps: {
 					: false
 
 			let rollbackTarget: string | null | undefined = forcedRollbackTarget
+			let lateArrival = false
 			if (rollbackTarget === undefined && needsRollbackForLateArrival && earliestRemote) {
 				const predecessor = yield* sqlClient<{ readonly id: string }>`
 					SELECT id
@@ -214,14 +235,27 @@ export const makePerformSyncCases = (deps: {
 					LIMIT 1
 				`
 				rollbackTarget = predecessor[0]?.id ?? null
+				lateArrival = true
 			}
+
+			return {
+				rollbackActions,
+				unappliedNonRollback,
+				rollbackTarget,
+				lateArrival
+			} satisfies RemoteOnlyPlan
+		})
+
+	const executeRemoteOnlyPlan = (remoteActions: readonly ActionRecord[], plan: RemoteOnlyPlan) =>
+		Effect.gen(function* () {
+			const { rollbackActions, unappliedNonRollback, rollbackTarget, lateArrival } = plan
 
 			if (rollbackTarget !== undefined) {
 				yield* Effect.logInfo("performSync.case1.rematerialize", {
 					remoteCount: remoteActions.length,
 					rollbackTarget: rollbackTarget ?? null,
 					hasRollbackAction: rollbackActions.length > 0,
-					lateArrival: forcedRollbackTarget === undefined && needsRollbackForLateArrival
+					lateArrival
 				})
 
 				yield* rollbackToAction(rollbackTarget).pipe(sqlClient.withTransaction)
@@ -251,6 +285,13 @@ export const makePerformSyncCases = (deps: {
 				yield* sendLocalActions()
 			}
 			return remoteActions
+		})
+
+	const handleRemoteOnly = (remoteActions: readonly ActionRecord[]) =>
+		Effect.gen(function* () {
+			yield* Effect.logInfo("performSync.case1.applyRemote", { remoteCount: remoteActions.length })
+			const plan = yield* planRemoteOnly(remoteActions)
+			return yield* executeRemoteOnlyPlan(remoteActions, plan)
 		})
 
 	const handlePendingOnly = (pendingActions: readonly ActionRecord[]) =>
