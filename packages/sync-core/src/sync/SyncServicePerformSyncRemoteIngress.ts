@@ -1,3 +1,13 @@
+/**
+ * Remote ingress + apply-readiness checks for `performSync`.
+ *
+ * Responsibilities:
+ * - call the transport to fetch remote rows (or metadata-only, depending on mode)
+ * - validate server epoch and retained history window
+ * - ingest fetched rows into local sync tables (core-owned, idempotent)
+ * - list synced-but-unapplied remote actions from the DB (apply is DB-driven)
+ * - ensure required patches exist before declaring "RemoteReady" (avoid spurious CORRECTION deltas)
+ */
 import type { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 import type { ActionRecordRepo } from "../ActionRecordRepo"

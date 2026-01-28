@@ -1,3 +1,14 @@
+/**
+ * Computes divergence and outgoing CORRECTION delta information for a replay.
+ *
+ * Inputs:
+ * - `generatedPatches`: patches captured from replaying actions locally
+ * - `originalPatches`: patches originally received for the base remote actions
+ * - `knownPatches`: patches already known/received (base + received CORRECTIONs)
+ *
+ * Output is pure/in-memory and is used by `SyncServiceApply` for logging and deciding whether
+ * to keep/delete the placeholder outgoing CORRECTION action.
+ */
 import type { ActionModifiedRow } from "../models"
 import { compareActionModifiedRows } from "../ActionModifiedRowRepo"
 import { deepObjectEquals } from "../utils"
@@ -31,6 +42,10 @@ export type CorrectionDeltaDetails = {
 	isOverwrite: boolean
 }
 
+/**
+ * Reduce a list of ActionModifiedRows into the final row-level effects (last-wins per column).
+ * Used so we can compare convergence in terms of materialized end state, not AMR sequence identity.
+ */
 const toFinalRowEffects = (rows: readonly ActionModifiedRow[]) => {
 	const effectsByKey = new Map<string, FinalRowEffect>()
 	for (const row of rows) {
@@ -53,6 +68,10 @@ const toFinalRowEffects = (rows: readonly ActionModifiedRow[]) => {
 	return effectsByKey
 }
 
+/**
+ * Returns true if every column/value produced by the replay is already implied by known patches.
+ * DELETE is treated as terminal for a row (only DELETE covers DELETE).
+ */
 const isRowEffectCoveredByKnown = (
 	replay: FinalRowEffect,
 	known: FinalRowEffect | undefined
@@ -71,6 +90,11 @@ const isRowEffectCoveredByKnown = (
 	return true
 }
 
+/**
+ * Compute both:
+ * - strict divergence (generated vs original) via `compareActionModifiedRows`
+ * - remaining delta after accounting for known patches (generated minus known)
+ */
 export const computeCorrectionDelta = (args: {
 	readonly generatedPatches: readonly ActionModifiedRow[]
 	readonly originalPatches: readonly ActionModifiedRow[]

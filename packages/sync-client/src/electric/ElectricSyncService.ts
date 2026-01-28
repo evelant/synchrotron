@@ -1,3 +1,15 @@
+/**
+ * Electric ingress service.
+ *
+ * Subscribes to Electric Shape streams for the sync tables (`action_records`, `action_modified_rows`)
+ * and ingests delivered rows into the local DB using the core-owned ingestion helper
+ * (`ingestRemoteSyncLogBatch`).
+ *
+ * This service is intentionally ingress-only:
+ * - it does not execute action logic itself
+ * - it relies on `SyncService.performSync()` to apply/reconcile once remote rows are ingested
+ * - RPC fetch is still used for metadata (epoch/retention) in Electric mode
+ */
 import { SqlClient } from "@effect/sql"
 import type { Row } from "@electric-sql/client"
 

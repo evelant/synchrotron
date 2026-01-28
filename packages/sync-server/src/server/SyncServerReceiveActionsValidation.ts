@@ -1,3 +1,11 @@
+/**
+ * Upload validation for `SyncServerReceiveActions`.
+ *
+ * This runs before any ingest/materialization work and rejects malformed uploads early:
+ * - all uploaded actions must match the declared `clientId`
+ * - all AMRs must reference actions in the same batch
+ * - JSON-typed fields must already be decoded objects (not strings); this prevents double-encoding bugs
+ */
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import { SendLocalActionsInvalid } from "@synchrotron/sync-core/SyncNetworkService"
 import { Effect } from "effect"

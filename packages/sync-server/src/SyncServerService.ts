@@ -1,3 +1,14 @@
+/**
+ * SyncServerService: server-side sync API.
+ *
+ * This service is consumed by the RPC layer (`rpcRouter.ts`) and provides:
+ * - `receiveActions`: ingest uploaded actions + AMRs, then materialize server state
+ * - `getActionsSince`: fetch RLS-filtered action-log deltas + patches for a client cursor
+ * - `getBootstrapSnapshot`: snapshot configured tables for bootstrap/recovery
+ * - `compactActionLogOnce`: optional retention/compaction for server action log history
+ *
+ * The implementation is composed from focused modules under `src/server/*`.
+ */
 import { SqlClient } from "@effect/sql"
 import { Config, Duration, Effect, Option } from "effect"
 import { ServerMetaService } from "./ServerMetaService"

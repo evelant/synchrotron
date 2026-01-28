@@ -1,3 +1,17 @@
+/**
+ * SyncService "apply" stage.
+ *
+ * Applies remote actions (DB-driven) and detects divergence by:
+ * 1) creating a placeholder outgoing CORRECTION record to capture replay patches
+ * 2) applying incoming remote actions in HLC order (including applying received CORRECTION patches)
+ * 3) comparing replay-generated patches vs original remote patches and vs "known" patches (base + received CORRECTIONs)
+ * 4) either deleting the placeholder (no delta) or pruning + keeping it (delta remains)
+ *
+ * This file is intentionally an orchestrator; heavy subroutines live in:
+ * - `SyncServiceApplyRemoteAction` (apply-one-remote-action)
+ * - `SyncServiceApplyDelta` (pure divergence/delta computation)
+ * - `SyncServiceApplyCorrectionPlaceholder` (placeholder lifecycle + pruning/clock update)
+ */
 import type { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 import type { ActionRecord } from "../models"

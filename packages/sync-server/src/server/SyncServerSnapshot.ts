@@ -1,3 +1,12 @@
+/**
+ * Bootstrap snapshot generation for sync clients.
+ *
+ * Produces a point-in-time snapshot of configured application tables, plus sync metadata:
+ * - `serverEpoch` and `minRetainedServerIngestId` (for client correctness gates)
+ * - `serverIngestId` and derived `serverClock` (frontier markers)
+ *
+ * Snapshot reads are performed under the authenticated user’s RLS context.
+ */
 import type { SqlClient } from "@effect/sql"
 import { Effect, Option } from "effect"
 import type { ServerMetaService } from "../ServerMetaService"

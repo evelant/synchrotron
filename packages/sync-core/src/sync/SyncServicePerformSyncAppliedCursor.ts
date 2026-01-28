@@ -17,6 +17,10 @@ export const makeAppliedRemoteCursor = (deps: {
 }) => {
 	const { sqlClient, clockState, clientId } = deps
 
+	/**
+	 * Computes the maximum `server_ingest_id` for remote (other-client) actions that are already
+	 * incorporated into local materialized state (i.e. present in `local_applied_action_ids`).
+	 */
 	const getMaxAppliedRemoteServerIngestId = () =>
 		sqlClient<{ readonly max_server_ingest_id: number | string | null }>`
 			SELECT COALESCE(MAX(ar.server_ingest_id), 0) AS max_server_ingest_id
@@ -33,6 +37,10 @@ export const makeAppliedRemoteCursor = (deps: {
 			})
 		)
 
+	/**
+	 * Advances the client cursor (`last_seen_server_ingest_id`) to the applied-remote watermark.
+	 * This is safe for upload gating because it never moves past ingested-but-unapplied actions.
+	 */
 	const advanceAppliedRemoteServerIngestCursor = () =>
 		getMaxAppliedRemoteServerIngestId().pipe(
 			Effect.flatMap((maxApplied) => clockState.advanceLastSeenServerIngestId(maxApplied))

@@ -1,3 +1,13 @@
+/**
+ * Sync RPC router + handlers.
+ *
+ * This module adapts the `SyncServerService` API to Effect RPC (`SyncNetworkRpcGroup`) and is responsible for:
+ * - authenticating requests (via `SyncAuthService`)
+ * - providing the authenticated user ID into the Effect environment (`SyncUserId`)
+ * - ensuring the server runs under the correct RLS context (handlers set Postgres `set_config(...)`)
+ *
+ * The transport-level auth hook used by clients is defined in `sync-core` (`SyncRpcAuthMiddleware`).
+ */
 import type { Headers as PlatformHeaders } from "@effect/platform/Headers"
 import { HLC } from "@synchrotron/sync-core/HLC"
 import type { HLC as HLCType } from "@synchrotron/sync-core/HLC"

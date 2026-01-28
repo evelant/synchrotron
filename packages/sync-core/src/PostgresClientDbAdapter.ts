@@ -1,3 +1,15 @@
+/**
+ * Postgres/PGlite client DB adapter.
+ *
+ * Provides the sync runtime’s DB-specific hooks for Postgres-compatible dialects:
+ * - initialize the sync schema (tables + SQL functions)
+ * - install patch-capture triggers for app tables
+ * - set capture context via `set_config('sync.capture_action_record_id', ...)`
+ * - enable/disable patch tracking via `set_config('sync.disable_trigger', ...)`
+ *
+ * Note: In browser clients (PGlite) and server-like clients (Postgres), the sync runtime uses
+ * the same Postgres-compatible trigger/function shape; the adapter abstracts those details.
+ */
 import { SqlClient } from "@effect/sql"
 import { Effect, Layer } from "effect"
 import { applySyncTriggers, initializeClientDatabaseSchema } from "./db"

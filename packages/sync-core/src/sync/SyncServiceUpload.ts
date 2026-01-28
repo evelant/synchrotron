@@ -1,11 +1,23 @@
+/**
+ * SyncService "upload" stage (RPC-only by design).
+ *
+ * Orchestrates a single upload attempt by:
+ * - gating on quarantine state
+ * - loading the current batch of unsynced actions (+ AMRs)
+ * - logging a structured summary (including CORRECTION preview)
+ * - sending via SyncNetworkService and marking actions as synced
+ *
+ * Larger subroutines are split into small helpers:
+ * - `SyncServiceUploadQuarantine` (quarantine gate)
+ * - `SyncServiceUploadBatch` (load actions + AMRs)
+ * - `SyncServiceUploadDescribe` (pure metadata for logging)
+ * - `SyncServiceUploadSend` (span + error logging wrapper)
+ */
 import type { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
-import type { ActionModifiedRow } from "../models"
-import type { ActionRecord } from "../models"
 import type { ActionModifiedRowRepo } from "../ActionModifiedRowRepo"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
 import type { ClientClockState } from "../ClientClockState"
-import { CorrectionActionTag } from "../SyncActionTags"
 import {
 	NetworkRequestError,
 	SendLocalActionsBehindHead,
@@ -15,6 +27,10 @@ import {
 	type SyncNetworkService
 } from "../SyncNetworkService"
 import { SyncError } from "../SyncServiceErrors"
+import { makeUploadBatchLoader } from "./SyncServiceUploadBatch"
+import { describeUploadBatch } from "./SyncServiceUploadDescribe"
+import { makeUploadQuarantineGate } from "./SyncServiceUploadQuarantine"
+import { sendUploadBatch } from "./SyncServiceUploadSend"
 
 export const makeUpload = (deps: {
 	readonly sqlClient: SqlClient.SqlClient
@@ -37,6 +53,9 @@ export const makeUpload = (deps: {
 		valuePreview
 	} = deps
 
+	const { getQuarantinedCount } = makeUploadQuarantineGate({ sqlClient })
+	const { loadUploadBatch } = makeUploadBatchLoader({ actionRecordRepo, actionModifiedRowRepo })
+
 	/**
 	 * Attempt to send all unsynced actions to the server.
 	 */
@@ -44,14 +63,7 @@ export const makeUpload = (deps: {
 		newTraceId.pipe(
 			Effect.flatMap((sendBatchId) =>
 				Effect.gen(function* () {
-					const quarantineRows = yield* sqlClient<{ readonly count: number | string }>`
-						SELECT count(*) as count FROM local_quarantined_actions
-					`
-					const quarantinedCountRaw = quarantineRows[0]?.count ?? 0
-					const quarantinedCount =
-						typeof quarantinedCountRaw === "number"
-							? quarantinedCountRaw
-							: Number(quarantinedCountRaw ?? 0)
+					const quarantinedCount = yield* getQuarantinedCount()
 					if (quarantinedCount > 0) {
 						yield* Effect.logWarning("sendLocalActions.skipped.quarantined", {
 							sendBatchId,
@@ -60,29 +72,21 @@ export const makeUpload = (deps: {
 						return []
 					}
 
-					const actionsToSendRaw = yield* actionRecordRepo.allUnsyncedActive()
-					const actionIdsToSend = actionsToSendRaw.map((a) => a.id)
-					const amrs =
-						actionIdsToSend.length === 0
-							? ([] as const)
-							: yield* actionModifiedRowRepo.findByActionRecordIds(actionIdsToSend)
-					if (actionsToSendRaw.length === 0) {
+					const { actionsToSend, amrs } = yield* loadUploadBatch()
+					if (actionsToSend.length === 0) {
 						yield* Effect.logDebug("sendLocalActions.noop", { sendBatchId })
 						return []
 					}
 
-					const actionsToSend = actionsToSendRaw
 					const basisServerIngestId = yield* clockState.getLastSeenServerIngestId
 
-					const actionTags = actionsToSend.reduce<Record<string, number>>((acc, action) => {
-						acc[action._tag] = (acc[action._tag] ?? 0) + 1
-						return acc
-					}, {})
-					const amrCountsByActionRecordId: Record<string, number> = {}
-					for (const amr of amrs) {
-						amrCountsByActionRecordId[amr.action_record_id] =
-							(amrCountsByActionRecordId[amr.action_record_id] ?? 0) + 1
-					}
+					const {
+						actionTags,
+						amrCountsByActionRecordId,
+						correctionActionIds,
+						correctionAmrPreview,
+						hasCorrectionDelta
+					} = describeUploadBatch({ actionsToSend, amrs, valuePreview })
 
 					yield* Effect.logInfo("sendLocalActions.sending", {
 						sendBatchId,
@@ -90,7 +94,7 @@ export const makeUpload = (deps: {
 						actionCount: actionsToSend.length,
 						amrCount: amrs.length,
 						actionTags,
-						hasCorrectionDelta: actionsToSend.some((a) => a._tag === CorrectionActionTag),
+						hasCorrectionDelta,
 						actions: actionsToSend.map((a) => ({
 							id: a.id,
 							_tag: a._tag,
@@ -100,22 +104,7 @@ export const makeUpload = (deps: {
 						amrCountsByActionRecordId
 					})
 
-					const correctionActionIds = actionsToSend
-						.filter((a) => a._tag === CorrectionActionTag)
-						.map((a) => a.id)
 					if (correctionActionIds.length > 0) {
-						const correctionActionIdSet = new Set(correctionActionIds)
-						const correctionAmrPreview = amrs
-							.filter((amr) => correctionActionIdSet.has(amr.action_record_id))
-							.slice(0, 10)
-							.map((amr) => ({
-								id: amr.id,
-								table_name: amr.table_name,
-								row_id: amr.row_id,
-								operation: amr.operation,
-								forward_patches: valuePreview(amr.forward_patches),
-								reverse_patches: valuePreview(amr.reverse_patches)
-							}))
 						yield* Effect.logDebug("sendLocalActions.correctionDelta.preview", {
 							sendBatchId,
 							correctionActionIds,
@@ -123,36 +112,15 @@ export const makeUpload = (deps: {
 						})
 					}
 
-					yield* syncNetworkService
-						.sendLocalActions(
-							actionsToSend as ReadonlyArray<ActionRecord>,
-							amrs as ReadonlyArray<ActionModifiedRow>,
-							basisServerIngestId
-						)
-						.pipe(
-							Effect.withSpan("SyncNetworkService.sendLocalActions", {
-								attributes: {
-									clientId,
-									sendBatchId,
-									actionCount: actionsToSend.length,
-									amrCount: amrs.length
-								}
-							}),
-							Effect.tapError((error) => {
-								const errorTag =
-									typeof error === "object" && error !== null
-										? ((error as { readonly _tag?: unknown })._tag ?? null)
-										: null
-								return Effect.logError("sendLocalActions.sendFailed", {
-									sendBatchId,
-									actionCount: actionsToSend.length,
-									amrCount: amrs.length,
-									actionTags,
-									errorTag: typeof errorTag === "string" ? errorTag : null,
-									errorMessage: error instanceof Error ? error.message : String(error)
-								})
-							})
-						)
+					yield* sendUploadBatch({
+						syncNetworkService,
+						clientId,
+						sendBatchId,
+						basisServerIngestId,
+						actionsToSend,
+						amrs,
+						actionTags
+					})
 
 					for (const action of actionsToSend) {
 						yield* actionRecordRepo.markAsSynced(action.id)

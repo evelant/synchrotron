@@ -1,19 +1,29 @@
-import { SqlClient } from "@effect/sql"
+/**
+ * SyncService recovery operations.
+ *
+ * - `hardResync`: wipe local sync tables + apply a fresh server snapshot.
+ * - `rebase`: snapshot-reset while preserving pending local (unsynced) actions by replaying them on top.
+ *
+ * This file is intentionally an orchestrator; large blocks are split into helpers:
+ * - `SyncServiceRecoverySnapshot` (fetch snapshot + normalize errors)
+ * - `SyncServiceRecoveryClearSyncTables` (wipe sync tables with patch tracking disabled)
+ * - `SyncServiceRecoveryRebasePending` (load pending actions + bucket CORRECTION AMRs)
+ * - `SyncServiceRecoveryRebaseReplay` (reinsert + replay pending actions deterministically)
+ */
+import type { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
-import type { ActionModifiedRow } from "../models"
-import { ActionRecord } from "../models"
 import type { ActionModifiedRowRepo } from "../ActionModifiedRowRepo"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
 import type { ActionRegistry } from "../ActionRegistry"
 import type { ClientClockState } from "../ClientClockState"
 import type { ClientDbAdapterService } from "../ClientDbAdapter"
 import type { DeterministicId } from "../DeterministicId"
-import { applyForwardAmrs } from "../PatchApplier"
-import { bindJsonParam } from "../SqlJson"
-import { CorrectionActionTag, RollbackActionTag } from "../SyncActionTags"
-import { SyncError } from "../SyncServiceErrors"
 import type { SyncNetworkService } from "../SyncNetworkService"
 import type { BootstrapSnapshot } from "./SyncServiceBootstrap"
+import { clearSyncTablesInTx } from "./SyncServiceRecoveryClearSyncTables"
+import { loadRebasePendingActions } from "./SyncServiceRecoveryRebasePending"
+import { makeRebaseReplayer } from "./SyncServiceRecoveryRebaseReplay"
+import { fetchBootstrapSnapshotOrFail } from "./SyncServiceRecoverySnapshot"
 
 export const makeRecovery = (deps: {
 	readonly sqlClient: SqlClient.SqlClient
@@ -48,36 +58,26 @@ export const makeRecovery = (deps: {
 		applyBootstrapSnapshotInTx
 	} = deps
 
+	const rebaseReplayer = makeRebaseReplayer({
+		sqlClient,
+		clientDbAdapter,
+		clockState,
+		actionRecordRepo,
+		actionRegistry,
+		deterministicId,
+		clientId
+	})
+
 	const hardResync = () =>
 		newTraceId.pipe(
 			Effect.flatMap((resyncId) =>
 				Effect.gen(function* () {
 					yield* Effect.logInfo("hardResync.start", { resyncId, clientId })
 
-					const snapshot = yield* syncNetworkService.fetchBootstrapSnapshot().pipe(
-						Effect.mapError(
-							(error) =>
-								new SyncError({
-									message: error instanceof Error ? error.message : String(error),
-									cause: error
-								})
-						)
-					)
+					const snapshot = yield* fetchBootstrapSnapshotOrFail(syncNetworkService)
 
-					yield* clientDbAdapter
-						.withCaptureContext(
-							null,
-							clientDbAdapter.withPatchTrackingDisabled(
-								Effect.gen(function* () {
-									yield* Effect.logInfo("hardResync.clearSyncTables", { resyncId, clientId })
-									yield* sqlClient`DELETE FROM action_modified_rows`.pipe(Effect.asVoid)
-									yield* sqlClient`DELETE FROM action_records`.pipe(Effect.asVoid)
-									yield* sqlClient`DELETE FROM local_applied_action_ids`.pipe(Effect.asVoid)
-									yield* sqlClient`DELETE FROM local_quarantined_actions`.pipe(Effect.asVoid)
-								})
-							)
-						)
-						.pipe(sqlClient.withTransaction)
+					yield* Effect.logInfo("hardResync.clearSyncTables", { resyncId, clientId })
+					yield* clearSyncTablesInTx({ sqlClient, clientDbAdapter }).pipe(sqlClient.withTransaction)
 
 					yield* Effect.logInfo("hardResync.applySnapshot", {
 						resyncId,
@@ -105,15 +105,7 @@ export const makeRecovery = (deps: {
 				Effect.gen(function* () {
 					yield* Effect.logInfo("rebase.start", { rebaseId, clientId })
 
-					const snapshot = yield* syncNetworkService.fetchBootstrapSnapshot().pipe(
-						Effect.mapError(
-							(error) =>
-								new SyncError({
-									message: error instanceof Error ? error.message : String(error),
-									cause: error
-								})
-						)
-					)
+					const snapshot = yield* fetchBootstrapSnapshotOrFail(syncNetworkService)
 
 					yield* Effect.logInfo("rebase.snapshot.received", {
 						rebaseId,
@@ -123,29 +115,12 @@ export const makeRecovery = (deps: {
 					})
 
 					yield* Effect.gen(function* () {
-						const pendingActions = yield* actionRecordRepo.allUnsyncedActive()
-
-						const pendingCorrectionActionIds = pendingActions
-							.filter((a) => a._tag === CorrectionActionTag)
-							.map((a) => a.id)
-
-						const pendingCorrectionAmrs =
-							pendingCorrectionActionIds.length === 0
-								? ([] as const)
-								: yield* actionModifiedRowRepo.findByActionRecordIds(pendingCorrectionActionIds)
-
-						const pendingCorrectionAmrsByActionId = new Map<string, readonly ActionModifiedRow[]>()
-						{
-							const buckets = new Map<string, ActionModifiedRow[]>()
-							for (const amr of pendingCorrectionAmrs) {
-								const existing = buckets.get(amr.action_record_id) ?? []
-								existing.push(amr)
-								buckets.set(amr.action_record_id, existing)
-							}
-							for (const [actionId, rows] of buckets) {
-								pendingCorrectionAmrsByActionId.set(actionId, rows)
-							}
-						}
+						const {
+							pendingActions,
+							pendingCorrectionActionIds,
+							pendingCorrectionAmrs,
+							pendingCorrectionAmrsByActionId
+						} = yield* loadRebasePendingActions({ actionRecordRepo, actionModifiedRowRepo })
 
 						yield* Effect.logInfo("rebase.pending", {
 							rebaseId,
@@ -155,93 +130,14 @@ export const makeRecovery = (deps: {
 							pendingCorrectionAmrCount: pendingCorrectionAmrs.length
 						})
 
-						yield* clientDbAdapter.withCaptureContext(
-							null,
-							clientDbAdapter.withPatchTrackingDisabled(
-								Effect.gen(function* () {
-									yield* sqlClient`DELETE FROM action_modified_rows`.pipe(Effect.asVoid)
-									yield* sqlClient`DELETE FROM action_records`.pipe(Effect.asVoid)
-									yield* sqlClient`DELETE FROM local_applied_action_ids`.pipe(Effect.asVoid)
-									yield* sqlClient`DELETE FROM local_quarantined_actions`.pipe(Effect.asVoid)
-								})
-							)
-						)
+						yield* clearSyncTablesInTx({ sqlClient, clientDbAdapter })
 
 						yield* applyBootstrapSnapshotInTx(snapshot)
 
-						for (const pending of pendingActions) {
-							const nextClock = yield* clockState.incrementClock
-
-							yield* actionRecordRepo.insert(
-								ActionRecord.insert.make({
-									id: pending.id,
-									client_id: clientId,
-									clock: nextClock,
-									_tag: pending._tag,
-									args: pending.args,
-									created_at: pending.created_at,
-									synced: false,
-									transaction_id: pending.transaction_id,
-									user_id: pending.user_id ?? null
-								})
-							)
-
-							if (pending._tag === CorrectionActionTag) {
-								const correctionAmrs = pendingCorrectionAmrsByActionId.get(pending.id) ?? []
-
-								for (const amr of correctionAmrs) {
-									yield* sqlClient`
-										INSERT INTO action_modified_rows ${sqlClient.insert({
-											id: amr.id,
-											table_name: amr.table_name,
-											row_id: amr.row_id,
-											action_record_id: amr.action_record_id,
-											audience_key: amr.audience_key,
-											operation: amr.operation,
-											forward_patches: bindJsonParam(sqlClient, amr.forward_patches),
-											reverse_patches: bindJsonParam(sqlClient, amr.reverse_patches),
-											sequence: amr.sequence
-										})}
-										ON CONFLICT (id) DO NOTHING
-									`.pipe(Effect.asVoid)
-								}
-
-								if (correctionAmrs.length > 0) {
-									yield* clientDbAdapter.withCaptureContext(
-										null,
-										clientDbAdapter.withPatchTrackingDisabled(
-											applyForwardAmrs(correctionAmrs).pipe(
-												Effect.provideService(SqlClient.SqlClient, sqlClient)
-											)
-										)
-									)
-								}
-
-								yield* actionRecordRepo.markLocallyApplied(pending.id)
-								continue
-							}
-
-							if (pending._tag === RollbackActionTag) {
-								yield* actionRecordRepo.markLocallyApplied(pending.id)
-								continue
-							}
-
-							const actionCreator = actionRegistry.getActionCreator(pending._tag)
-							if (!actionCreator) {
-								return yield* Effect.fail(
-									new SyncError({
-										message: `Missing action creator: ${pending._tag}`
-									})
-								)
-							}
-
-							yield* clientDbAdapter.withCaptureContext(
-								pending.id,
-								deterministicId.withActionContext(pending.id, actionCreator(pending.args).execute())
-							)
-
-							yield* actionRecordRepo.markLocallyApplied(pending.id)
-						}
+						yield* rebaseReplayer.replayPendingActions(
+							pendingActions,
+							pendingCorrectionAmrsByActionId
+						)
 					}).pipe(sqlClient.withTransaction)
 
 					yield* Effect.logInfo("rebase.done", {

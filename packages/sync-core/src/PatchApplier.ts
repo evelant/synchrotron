@@ -1,3 +1,15 @@
+/**
+ * PatchApplier: apply ActionModifiedRow patches directly to app tables.
+ *
+ * This is primarily used when applying received CORRECTION actions (patch-only sync):
+ * instead of executing action logic, we materialize the forward patches into the DB.
+ *
+ * Key responsibilities:
+ * - dialect-aware SQL generation (Postgres vs SQLite)
+ * - correct JSON binding (via `bindJsonParam`) so JSON columns stay JSON objects (not strings)
+ * - careful handling of `audience_key` (sometimes generated/hidden); we avoid writing it when it
+ *   is computed by the database
+ */
 import { SqlClient, type SqlError } from "@effect/sql"
 import type { Fragment } from "@effect/sql/Statement"
 import { Effect } from "effect"

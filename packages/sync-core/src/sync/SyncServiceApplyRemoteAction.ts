@@ -1,3 +1,12 @@
+/**
+ * Applies a single remote ActionRecord during the apply stage.
+ *
+ * Responsibilities:
+ * - Treat RollbackAction as a marker only (actual rollback/replay happens in the sync strategy).
+ * - For incoming CORRECTION actions, apply their stored patches with patch tracking disabled.
+ * - For normal actions, execute via ActionRegistry under DeterministicId action context.
+ * - Mark the action as locally applied so rollback/replay and cursor advancement are correct.
+ */
 import { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 import type { ActionModifiedRowRepo } from "../ActionModifiedRowRepo"

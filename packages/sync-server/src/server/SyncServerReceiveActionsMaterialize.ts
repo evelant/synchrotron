@@ -1,3 +1,14 @@
+/**
+ * Server-side materialization logic used by `SyncServerReceiveActions`.
+ *
+ * The server maintains a materialized view of the action log by:
+ * - applying forward AMRs for unapplied actions
+ * - rewinding via `rollback_to_action(...)` and replaying forward when late-arriving actions belong
+ *   before the current applied frontier (HLC order)
+ *
+ * This module also derives a "forced rollback target" from uploaded RollbackAction markers, so
+ * explicit client-requested rewinds are honored deterministically.
+ */
 import type { SqlClient } from "@effect/sql"
 import { RollbackActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
@@ -11,6 +22,7 @@ type ReplayKey = {
 	readonly id: string
 }
 
+/** Normalize SQL driver numeric shapes (number | string | bigint) into a JS number. */
 const toNumber = (value: unknown): number => {
 	if (typeof value === "number") return value
 	if (typeof value === "bigint") return Number(value)
@@ -18,6 +30,7 @@ const toNumber = (value: unknown): number => {
 	return Number(value)
 }
 
+/** Total order for (clock_time_ms, clock_counter, client_id, id) comparisons on the server. */
 const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
 	if (a.timeMs !== b.timeMs) return a.timeMs < b.timeMs ? -1 : 1
 	if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1
@@ -26,6 +39,14 @@ const compareReplayKey = (a: ReplayKey, b: ReplayKey): number => {
 	return 0
 }
 
+/**
+ * If an upload includes RollbackAction markers, derive the "oldest" rollback target action ID.
+ *
+ * Returns:
+ * - `undefined` when no rollbacks are present
+ * - `null` to indicate rollback-to-genesis
+ * - a concrete action ID to rollback to
+ */
 export const deriveForcedRollbackTargetFromUpload = (deps: {
 	readonly sql: SqlClient.SqlClient
 	readonly actions: readonly ActionRecord[]
@@ -80,6 +101,11 @@ export const deriveForcedRollbackTargetFromUpload = (deps: {
 		return oldest?.id
 	})
 
+/**
+ * Materializes any unapplied actions on the server, including handling late-arriving actions
+ * via rollback+replay. `forcedRollbackTarget` (from uploaded RollbackActions) can force an
+ * initial rewind before applying forward.
+ */
 export const materializeServerActionLog = (deps: {
 	readonly sql: SqlClient.SqlClient
 	readonly forcedRollbackTarget: string | null | undefined

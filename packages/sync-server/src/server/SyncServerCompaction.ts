@@ -1,3 +1,12 @@
+/**
+ * Action-log retention + compaction helpers.
+ *
+ * Compaction is global (not user-scoped), so it must operate on the full sync log and bypass RLS.
+ * It provides:
+ * - `compactActionLogOnce`: delete old action_records beyond a retention window
+ * - `startActionLogCompactor`: run compaction periodically in a daemon fiber
+ * - `minRetainedServerIngestId`: compute the earliest retained ingest id (used as a client gate)
+ */
 import type { SqlClient } from "@effect/sql"
 import { Cause, Duration, Effect, Schedule } from "effect"
 import { ServerInternalError } from "../SyncServerServiceErrors"

@@ -1,3 +1,14 @@
+/**
+ * Server fetch endpoints for sync clients.
+ *
+ * Returns action-log deltas (ActionRecords + ActionModifiedRows) since a given `server_ingest_id`,
+ * along with metadata needed for correctness:
+ * - `serverEpoch` (detect hard history discontinuities)
+ * - `minRetainedServerIngestId` (retention/compaction gate)
+ *
+ * Reads are RLS-filtered for the authenticated user, and the user context is applied via
+ * Postgres `set_config(...)` so policies can reference it.
+ */
 import { SqlSchema } from "@effect/sql"
 import type { SqlClient } from "@effect/sql"
 import { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"

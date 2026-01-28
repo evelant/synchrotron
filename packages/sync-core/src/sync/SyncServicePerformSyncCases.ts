@@ -1,3 +1,19 @@
+/**
+ * Decision tree for `performSync`.
+ *
+ * Given:
+ * - local pending unsynced actions
+ * - remote actions that have been ingested but not yet applied locally
+ *
+ * Choose the appropriate strategy:
+ * - noop
+ * - apply remote only (fast-forward or rematerialize via rollback+replay on late arrivals)
+ * - upload pending only
+ * - both present: either apply-then-upload (if clocks allow) or reconcile (rollback+replay) then upload
+ *
+ * This module is intentionally pure orchestration; it delegates actual apply/upload/rollback operations
+ * to the injected functions so the case logic stays readable and testable.
+ */
 import type { SqlClient } from "@effect/sql"
 import { Effect, Option } from "effect"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
@@ -46,7 +62,7 @@ export const makePerformSyncCases = (deps: {
 				`All local actions provided to reconcile: [${allLocalActions.map((a) => `${a.id} (${a._tag})`).join(", ")}]`
 			)
 
-			// Roll back to common ancestor, passing all local actions for context
+			// Roll back to common ancestor, then record a RollbackAction marker for sync history.
 			const commonAncestorOpt = yield* rollbackToCommonAncestor().pipe(
 				Effect.map(Option.fromNullable)
 			)

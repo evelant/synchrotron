@@ -1,3 +1,15 @@
+/**
+ * SyncNetworkService client implementations (RPC transport).
+ *
+ * This module implements the `SyncNetworkService` interface from `sync-core` using Effect RPC.
+ *
+ * Important contract: transports do NOT own ingestion.
+ * - RPC fetch returns action-log rows (or metadata-only in Electric mode).
+ * - `sync-core` owns ingesting those rows into `action_records` / `action_modified_rows`
+ *   (see `ingestRemoteSyncLogBatch`) and all DB-driven apply/reconcile logic.
+ *
+ * Upload (`sendLocalActions`) is always RPC — we intentionally do not abstract the upload transport.
+ */
 import { FetchHttpClient } from "@effect/platform"
 import * as Headers from "@effect/platform/Headers"
 import type { RpcClientError } from "@effect/rpc"

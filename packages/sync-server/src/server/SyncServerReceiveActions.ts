@@ -25,8 +25,13 @@ export const makeReceiveActions = (deps: { readonly sql: SqlClient.SqlClient }) 
 	const { sql } = deps
 
 	/**
-	 * Receives actions from a client, performs conflict checks, handles rollbacks,
-	 * inserts data, and applies patches to the server state.
+	 * Upload ingest entrypoint.
+	 *
+	 * High-level flow:
+	 * - validate the batch shape + JSON types (`SyncServerReceiveActionsValidation`)
+	 * - enforce a coarse "head gate" using `basisServerIngestId`
+	 * - insert sync-log rows idempotently (`action_records` + `action_modified_rows`)
+	 * - materialize server state (rollback+replay if needed) (`SyncServerReceiveActionsMaterialize`)
 	 */
 	const receiveActions = (
 		clientId: string,

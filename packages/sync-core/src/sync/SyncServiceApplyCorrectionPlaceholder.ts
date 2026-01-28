@@ -1,3 +1,15 @@
+/**
+ * Manages the placeholder outgoing CORRECTION ActionRecord used during apply/replay.
+ *
+ * The placeholder exists so we can capture replay-generated patches under a known action ID,
+ * then decide whether we need to emit an outgoing CORRECTION delta:
+ * - if no delta remains (after accounting for already-known patches), delete the placeholder + AMRs
+ * - if delta remains, prune already-covered rows, bump the placeholder clock, and mark it locally applied
+ *
+ * Callers are expected to:
+ * - run within a transaction (the caller owns transaction boundaries)
+ * - reset the patch capture context afterwards (caller ensures/cleans up)
+ */
 import type { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 import type { ActionModifiedRowRepo } from "../ActionModifiedRowRepo"
@@ -27,6 +39,10 @@ export const makeCorrectionPlaceholderManager = (deps: {
 		clientId
 	} = deps
 
+	/**
+	 * Create a placeholder CORRECTION record for this apply batch and set the DB patch capture context
+	 * so replay-generated patches are attributed to it.
+	 */
 	const createCorrectionPlaceholder = (appliedActionIds: readonly string[]) =>
 		Effect.gen(function* () {
 			// Use an application-level transaction identifier for the batch.
@@ -54,6 +70,9 @@ export const makeCorrectionPlaceholderManager = (deps: {
 			return correctionRecord
 		})
 
+	/**
+	 * Delete the placeholder (no delta) or keep it (delta remains), including pruning covered rows.
+	 */
 	const finalizeCorrectionPlaceholder = (args: {
 		readonly correctionRecordId: string
 		readonly hasCorrectionDelta: boolean

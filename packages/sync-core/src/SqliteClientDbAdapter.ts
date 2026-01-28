@@ -1,3 +1,16 @@
+/**
+ * SQLite client DB adapter.
+ *
+ * Provides the sync runtime’s DB-specific hooks for SQLite dialects:
+ * - initialize the sync schema (tables + trigger functions)
+ * - install patch-capture triggers
+ * - manage per-transaction capture context (so triggers attribute AMRs to an action)
+ * - enable/disable patch tracking (used during replay/reset so we don't generate synthetic AMRs)
+ *
+ * SQLite has a few quirks compared to Postgres/PGlite:
+ * - booleans are often represented as 0/1, so we coerce boolean bind params for compatibility
+ * - JSON is typically stored as TEXT (handled at the binding layer, not here)
+ */
 import { SqlClient, type SqlError } from "@effect/sql"
 import * as SqlStatement from "@effect/sql/Statement"
 import { Effect, Layer } from "effect"

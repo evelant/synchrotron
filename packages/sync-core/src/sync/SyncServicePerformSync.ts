@@ -1,3 +1,16 @@
+/**
+ * SyncService "performSync" orchestrator.
+ *
+ * Coordinates the full sync loop:
+ * - remote ingress + readiness checks (transport fetch + core-owned ingestion)
+ * - case selection (remote-only / pending-only / reconcile / etc)
+ * - upload gating (quarantine) and applied-cursor advancement
+ *
+ * Complex subroutines are split out to make the main flow readable:
+ * - `SyncServicePerformSyncRemoteIngress` (fetch + ingest + apply-readiness checks)
+ * - `SyncServicePerformSyncCases` (decision tree for sync strategies)
+ * - `SyncServicePerformSyncAppliedCursor` (applied remote cursor computation)
+ */
 import type { SqlClient } from "@effect/sql"
 import { Effect, Schedule } from "effect"
 import type { ActionRecordRepo } from "../ActionRecordRepo"

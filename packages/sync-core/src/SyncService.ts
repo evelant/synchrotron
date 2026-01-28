@@ -1,3 +1,18 @@
+/**
+ * SyncService: client-side sync runtime orchestrator.
+ *
+ * This service is a thin composition layer that wires the core sync stages together:
+ * - `executeAction`: record + apply a local action with deterministic IDs and patch capture
+ * - `performSync`: fetch/ingest remote rows, apply remote actions, reconcile conflicts, and upload pending
+ * - `applyActionRecords`: apply remote actions (DB-driven) and compute outgoing CORRECTION deltas
+ * - `sendLocalActions`: upload unsynced local actions (RPC-only by design)
+ * - `hardResync` / `rebase`: snapshot-based recovery paths
+ *
+ * Most logic lives in `src/sync/*`; this file mainly:
+ * - pulls required services from the Effect environment
+ * - constructs internal helpers with explicit dependencies
+ * - exports a cohesive API for apps/tests.
+ */
 import { SqlClient } from "@effect/sql"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { Effect } from "effect"
