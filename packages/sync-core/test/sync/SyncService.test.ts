@@ -5,6 +5,7 @@ import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo" // Co
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { ClientClockState } from "@synchrotron/sync-core/ClientClockState"
 import { compareClock } from "@synchrotron/sync-core/ClockOrder"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
 import { ActionExecutionError, SyncService } from "@synchrotron/sync-core/SyncService" // Corrected import path
 import { Effect, Option, Schema } from "effect" // Import DateTime
@@ -317,10 +318,10 @@ describe("Sync Algorithm Integration", () => {
 				)
 				expect(isAppliedClient1).toBe(true)
 
-				// Verify _InternalSyncApply was deleted *on client1*
-				const syncApplyRecordsClient1 =
-					yield* client1.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncApplyRecordsClient1.length).toBe(0)
+				// Verify placeholder CORRECTION was deleted *on client1*
+				const correctionRecordsClient1 =
+					yield* client1.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionRecordsClient1.length).toBe(0)
 
 				// Optional: Verify server state still has the original action
 				const serverAction =

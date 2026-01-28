@@ -6,7 +6,7 @@ Proposed (optional)
 
 ## Summary
 
-Actions are expected to be deterministic (repeatable on the same DB snapshot given the same args). If an action is accidentally nondeterministic (wall clock, random, non-deterministic SQL, implicit ordering, etc), SYNC deltas can “paper over” the bug and convergence still happens, but the system becomes hard to reason about and can leak information via shared-field overwrites.
+Actions are expected to be deterministic (repeatable on the same DB snapshot given the same args). If an action is accidentally nondeterministic (wall clock, random, non-deterministic SQL, implicit ordering, etc), CORRECTION deltas can “paper over” the bug and convergence still happens, but the system becomes hard to reason about and can leak information via shared-field overwrites.
 
 This TODO proposes an **opt-in dev/test-only purity check** that replays the same apply batch twice against the same snapshot and asserts the resulting captured patches are identical.
 
@@ -32,7 +32,7 @@ This is _not required for library correctness_ (the system can converge without 
 
 At the start of applying a remote batch:
 
-1. Create a placeholder `_InternalSyncApply` record (already done today).
+1. Create a placeholder `_InternalCorrectionApply` record (already done today).
 2. Run replay once under the placeholder capture context; collect generated AMRs for the placeholder.
 3. `ROLLBACK TO SAVEPOINT` (or otherwise restore snapshot).
 4. Re-run replay again (same remote batch, same ordering); collect generated AMRs again.
@@ -58,7 +58,7 @@ This avoids touching core runtime code until we’re confident in ergonomics and
 
 ## Where this fits relative to other TODOs
 
-- `0003` and `006` describe SYNC delta semantics and shared-field overwrite cases. Purity checks help diagnose the “impure action” subset, but they should not be required to ship core sync semantics.
+- `0003` and `006` describe CORRECTION delta semantics and shared-field overwrite cases. Purity checks help diagnose the “impure action” subset, but they should not be required to ship core sync semantics.
 
 ## Open questions
 

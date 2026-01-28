@@ -4,7 +4,7 @@ Offline-first sync for Postgres that converges by replaying business logic.
 
 Synchrotron records deterministic _actions_ (your application business logic functions that mutate data) and syncs those, rather than treating row-level patches as the primary source of truth. When clients diverge, they roll back to a common ancestor and replay actions in a global order. This keeps business rules in one place and avoids writing bespoke conflict-resolution handlers.
 
-It is designed to work with private data (Postgres RLS): actions can be conditional on private rows and still converge (per-user view) by emitting SYNC deltas when replay produces different results.
+It is designed to work with private data (Postgres RLS): actions can be conditional on private rows and still converge (per-user view) by emitting CORRECTION deltas when replay produces different results.
 
 It also depends on a few simple but hard requirements (see Usage). They're not optional.
 
@@ -52,7 +52,7 @@ Synchrotron moves the merge boundary up a level:
 - **No dedicated conflict-resolution code**: No per-field merge functions; resolution is "re-run the logic"
 - **RLS-friendly**: PostgreSQL Row Level Security filters what each client can see; clients still converge
 - **Deterministic IDs**: Actions generate stable IDs in TypeScript so clients don't fight over primary keys
-- **Eventual consistency**: Converges even with private data and conditional logic (via SYNC deltas)
+- **Eventual consistency**: Converges even with private data and conditional logic (via CORRECTION deltas)
 
 ## Differences
 
@@ -69,13 +69,13 @@ Synchrotron moves the merge boundary up a level:
 - `action_records` and `action_modified_rows` are delivered to clients either via Electric SQL shape streams (filtered by RLS) or via an RPC transport (`SyncNetworkService`)
 - Remote actions are fetched/streamed incrementally by a server-generated ingestion cursor (`server_ingest_id`) so clients don't miss late-arriving actions; replay order remains clock-based
 - The server is authoritative: it materializes base tables by applying patches in canonical order (rollback+replay on late arrival) and can reject uploads from clients that are behind the server ingestion head (client must fetch+reconcile+retry; `performSync()` does a small bounded retry; RPC error `_tag` = `SendLocalActionsBehindHead`)
-- Applying a remote batch re-runs the action code on the client; if replay produces _additional_ effects beyond the received patches (including any received SYNC patches), the client emits a new patch-only SYNC action at the end of the sync pass (clocked after the observed remote actions)
+- Applying a remote batch re-runs the action code on the client; if replay produces _additional_ effects beyond the received patches (including any received CORRECTION patches), the client emits a new patch-only CORRECTION action at the end of the sync pass (clocked after the observed remote actions)
 - If remote history interleaves with local unsynced actions, the client rolls back to the common ancestor and replays everything in HLC order
 
 ## TODO
 
 - RLS hardening: expand policies + tests beyond the v1 demo (`packages/sync-server/test/rls-filtering.test.ts`).
-- Tighten SYNC semantics + diagnostics (see `DESIGN.md`).
+- Tighten CORRECTION semantics + diagnostics (see `DESIGN.md`).
 - Add end-to-end tests with the example app
 - Improve the APIs. They're proof-of-concept level at the moment and could be significantly nicer.
 - Consider a non-Effect facade. Effect is great, but not every codebase can adopt it; a Promise-based wrapper should be straightforward.
@@ -118,7 +118,7 @@ Synchrotron uses Effect's built-in logging + tracing.
 
 - `SyncService` wraps key sync phases in `Effect.withSpan(...)` and annotates logs with correlation IDs like `syncSessionId`, `applyBatchId`, and `sendBatchId`.
 - `@effect/sql-pglite` logs every executed SQL statement at `TRACE` as `pglite.statement.start` / `pglite.statement.end` / `pglite.statement.error` (statement text is truncated to keep logs readable).
-- The client/server RPC path logs structured `sync.network.*` / `rpc.*` events with action + patch counts (plus extra detail for `_InternalSyncApply` / SYNC deltas).
+- The client/server RPC path logs structured `sync.network.*` / `rpc.*` events with action + patch counts (plus extra detail for `_InternalCorrectionApply` / CORRECTION deltas).
 
 ## Usage
 
@@ -141,7 +141,7 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
     - Actions are defined via `ActionRegistry.defineAction(tag, argsSchema, fn)`.
     - `argsSchema` must include `timestamp: Schema.Number`, but the returned action creator accepts `timestamp` optionally; it is injected automatically when you create an action (and preserved for replay).
     - `action_records.args` are replicated to any client that can read that `action_records` row (no redaction). Don’t put secrets in args; store private inputs in normal tables protected by RLS and pass only opaque references (ids) in args.
-    - Design note: “purity” means repeatable on the same snapshot. If running an action twice against the same DB state produces different writes, that’s a determinism bug. Also treat “hidden/private state influencing writes to shared rows” as an application-level constraint: it can leak derived information, and competing SYNC overwrites on shared fields resolve via action order (last SYNC wins). See `DESIGN.md`.
+    - Design note: “purity” means repeatable on the same snapshot. If running an action twice against the same DB state produces different writes, that’s a determinism bug. Also treat “hidden/private state influencing writes to shared rows” as an application-level constraint: it can leak derived information, and competing CORRECTION overwrites on shared fields resolve via action order (last CORRECTION wins). See `DESIGN.md`.
 4.  **Mutations via Actions:** All modifications (INSERT, UPDATE, DELETE) to synchronized tables _must_ be performed exclusively through actions executed via `SyncService` (e.g. `const sync = yield* SyncService; yield* sync.executeAction(action)`). Patch-capture triggers will reject writes when no capture context is set (unless tracking is explicitly disabled for rollback / patch-apply).
 5.  **IDs are App-Provided (Required):** Inserts into synchronized tables must explicitly include `id`. Use `DeterministicId.forRow(tableName, row)` inside `SyncService`-executed actions to compute deterministic UUIDs scoped to the current action. Avoid relying on DB defaults/triggers for IDs; prefer removing `DEFAULT` clauses for `id` columns so missing IDs fail fast.
 6.  **Client identity + clock state:** Synchrotron splits identity from clock/cursor state:

@@ -1,4 +1,4 @@
-# 0003 — SYNC Action Semantics (Reconciliation Deltas Under RLS)
+# 0003 — CORRECTION Action Semantics (Reconciliation Deltas Under RLS)
 
 ## Status
 
@@ -8,15 +8,15 @@ Implemented (with follow-ups possible)
 
 Synchrotron replays deterministic actions, but “deterministic” is relative to the database state a replica can see. Under PostgreSQL Row Level Security (RLS), two replicas can legitimately observe different rows and therefore take different branches during replay.
 
-To converge in the presence of partial visibility, we introduce **SYNC actions**: system actions that carry **patches only** (no action logic) to reconcile outcomes when replay produces additional writes that were not present in the originating action’s patch set due to visibility differences.
+To converge in the presence of partial visibility, we introduce **CORRECTION actions**: system actions that carry **patches only** (no action logic) to reconcile outcomes when replay produces additional writes that were not present in the originating action’s patch set due to visibility differences.
 
-As implemented today, SYNC actions are emitted as **reconciliation deltas for an apply batch** (not as “corrections” tied to a single base action). Concretely this is `_InternalSyncApply`: a placeholder is created for the batch, then either deleted (no delta) or kept with AMRs trimmed to the uncovered delta.
+As implemented today, CORRECTION actions are emitted as **reconciliation deltas for an apply batch** (not as “corrections” tied to a single base action). Concretely this is `_InternalCorrectionApply`: a placeholder is created for the batch, then either deleted (no delta) or kept with AMRs trimmed to the uncovered delta.
 
-This document formalizes the intended SYNC semantics so they are:
+This document formalizes the intended CORRECTION semantics so they are:
 
 - **Additive / monotonic** in the common case (private-data divergence)
 - Mostly **invisible** across users (because RLS filters patch visibility)
-- Compatible with rollback + replay (SYNC participates in history like any other action)
+- Compatible with rollback + replay (CORRECTION participates in history like any other action)
 - Robust to **accidental action impurity** (diagnostics + bounded convergence); an optional dev/test purity check is tracked separately (see `docs/planning/todo/0014-dev-test-action-purity-check.md`).
 
 ## Problem Statement
@@ -25,7 +25,7 @@ When applying a remote _batch_ of actions, a replica:
 
 - replays action code locally (for normal actions)
 - records the resulting row-level patches via triggers (`action_modified_rows`)
-- compares them to the patches it received for that same batch (including any received SYNC patches)
+- compares them to the patches it received for that same batch (including any received CORRECTION patches)
 
 However, if the replica can see more rows than the origin (or has additional private state), replay may touch additional rows. Those rows may be invisible to other users and therefore should not “broadcast” via sync, but they still need to converge for users who are allowed to see them.
 
@@ -34,10 +34,10 @@ However, if the replica can see more rows than the origin (or has additional pri
 ### Goals
 
 - Define convergence precisely: for a given user (RLS policy), the user’s visible state converges.
-- Make SYNC emission monotonic (“add missing writes”) in the common private-data divergence case.
-- Keep SYNC actions patch-only (no business logic execution).
+- Make CORRECTION emission monotonic (“add missing writes”) in the common private-data divergence case.
+- Keep CORRECTION actions patch-only (no business logic execution).
 - Keep server logic minimal; rely on Postgres + RLS for security.
-- Ensure action-determinism violations don’t cause infinite SYNC ping-pong.
+- Ensure action-determinism violations don’t cause infinite CORRECTION ping-pong.
 
 ### Non-goals
 
@@ -51,33 +51,33 @@ Synchrotron converges **per user view**:
 - For any given user (as defined by role/tenant context + RLS policies), all replicas converge to the same state _as seen by that user_.
 - Different users may observe different overall database contents due to RLS (expected).
 
-This is the practical meaning of “mostly invisible SYNC”: SYNC patches for private rows are filtered by RLS and do not appear to users who cannot see those rows.
+This is the practical meaning of “mostly invisible CORRECTION”: CORRECTION patches for private rows are filtered by RLS and do not appear to users who cannot see those rows.
 
 ## Definitions
 
 For an incoming apply batch `B` (a set of action records being applied/reconciled) and a user view `u`:
 
-- `P_base(B, u)`: the union of forward patches (`action_modified_rows`) attached to the _non-SYNC_ actions in `B` that are visible to `u` (after RLS filtering).
-- `P_sync_in(B, u)`: the union of forward patches attached to the _incoming SYNC_ actions in `B` that are visible to `u`.
-- `P_known(B, u) = P_base(B, u) ∪ P_sync_in(B, u)`: everything `u` currently knows should happen as a result of applying `B`.
-- `P_replay(B, u)`: the patches produced locally by replaying the _non-SYNC_ actions in `B` on a replica under user `u` (patches from incoming SYNC actions are applied directly with patch tracking disabled, so they do not contribute to `P_replay`).
+- `P_base(B, u)`: the union of forward patches (`action_modified_rows`) attached to the _non-CORRECTION_ actions in `B` that are visible to `u` (after RLS filtering).
+- `P_correction_in(B, u)`: the union of forward patches attached to the _incoming CORRECTION_ actions in `B` that are visible to `u`.
+- `P_known(B, u) = P_base(B, u) ∪ P_correction_in(B, u)`: everything `u` currently knows should happen as a result of applying `B`.
+- `P_replay(B, u)`: the patches produced locally by replaying the _non-CORRECTION_ actions in `B` on a replica under user `u` (patches from incoming CORRECTION actions are applied directly with patch tracking disabled, so they do not contribute to `P_replay`).
 
 We treat patches at the level of `(table_name, row_id, operation, forward_patches)` with per-column semantics.
 
-## Proposed SYNC Semantics (Batch Patch Delta)
+## Proposed CORRECTION Semantics (Batch Patch Delta)
 
-### SYNC action shape
+### CORRECTION action shape
 
-A SYNC action record:
+A CORRECTION action record:
 
-- Has a reserved `_tag` (name TBD; prototype uses `_InternalSyncApply`).
+- Has a reserved `_tag` (name TBD; prototype uses `_InternalCorrectionApply`).
 - Stores a small `basis` payload in `args` describing what was applied when the delta was computed (see below).
 - Has associated `action_modified_rows` that represent the **delta patches**.
 
 Current `args` shape (implemented):
 
 - `appliedActionIds: string[]` (or a stable hash if this list is too large)
-- `timestamp: number` (currently `0` for `_InternalSyncApply`)
+- `timestamp: number` (currently `0` for `_InternalCorrectionApply`)
 - Optional: `basis: { lastSeenServerIngestId?: number; observedMaxClock?: HLC; ... }` (not implemented yet)
 
 ### Emission rule
@@ -88,7 +88,7 @@ After replaying the batch `B`, compute a patch delta:
 
 Where subtraction means “keep only row/field effects that are not already present in `P_known` with the same value” (i.e. missing effects and differing values).
 
-If `Δ(B, u)` is non-empty, emit a SYNC action whose patches are exactly `Δ(B, u)`.
+If `Δ(B, u)` is non-empty, emit a CORRECTION action whose patches are exactly `Δ(B, u)`.
 
 Intuition:
 
@@ -97,35 +97,35 @@ Intuition:
 
 ### Why this helps
 
-- If two replicas have the same user view, they should compute the same `P_replay(B, u)` and therefore either emit no SYNC or emit equivalent `Δ`; duplicate SYNC records are harmless if patch-apply is idempotent.
+- If two replicas have the same user view, they should compute the same `P_replay(B, u)` and therefore either emit no CORRECTION or emit equivalent `Δ`; duplicate CORRECTION records are harmless if patch-apply is idempotent.
 - If a replica has more private rows visible, it can emit additional patches affecting those private rows; other users won’t see them.
 
-## Shared-row Caveat (When SYNC is not “invisible”)
+## Shared-row Caveat (When CORRECTION is not “invisible”)
 
 If hidden/private state influences writes to shared rows (rows visible to multiple users), then different users can compute different `P_replay(B, u)` for the same shared row.
 
 That leads to two risks:
 
-- **Visibility**: SYNC patches to shared rows are visible and can leak derived information.
-- **Semantics**: multiple users can legitimately emit competing SYNC overwrites to the same shared fields.
+- **Visibility**: CORRECTION patches to shared rows are visible and can leak derived information.
+- **Semantics**: multiple users can legitimately emit competing CORRECTION overwrites to the same shared fields.
 
 Proposed stance:
 
 - Document this as an application-level design constraint: actions should avoid using hidden/private state to determine writes to shared rows (or accept the implications).
-- Accept that in this scenario the runtime effectively becomes **last-writer-wins for the shared field**: once replicas have applied the same history, they converge to the value of the last SYNC in canonical HLC order.
+- Accept that in this scenario the runtime effectively becomes **last-writer-wins for the shared field**: once replicas have applied the same history, they converge to the value of the last CORRECTION in canonical HLC order.
 - Emit loud diagnostics whenever `Δ(B, u)` includes an overwrite (a replay writes a different value for a row/field already present in `P_known`) so developers can spot shared-row divergence vs legitimate stabilization.
 
-This does not usually create “infinite ping-pong” in steady state: replicas fast-forward apply later SYNC actions without re-running earlier business actions. Repeated flips with no new non-SYNC inputs indicates an action purity bug (nondeterminism) or clock/time-travel issues.
+This does not usually create “infinite ping-pong” in steady state: replicas fast-forward apply later CORRECTION actions without re-running earlier business actions. Repeated flips with no new non-CORRECTION inputs indicates an action purity bug (nondeterminism) or clock/time-travel issues.
 
 ## Ordering Requirements
 
-SYNC actions participate in the global history and must be ordered _after the remote batch they were derived from_.
+CORRECTION actions participate in the global history and must be ordered _after the remote batch they were derived from_.
 
 Practical requirement:
 
-- Before emitting a SYNC action, the replica must **receive/merge** the clocks from all observed remote actions in the batch (vector max + timestamp max), then **increment** for the new SYNC action.
+- Before emitting a CORRECTION action, the replica must **receive/merge** the clocks from all observed remote actions in the batch (vector max + timestamp max), then **increment** for the new CORRECTION action.
 
-This ensures the SYNC action sorts after the observed remote history in replay order (it is a “new action at the end of the sync pass”).
+This ensures the CORRECTION action sorts after the observed remote history in replay order (it is a “new action at the end of the sync pass”).
 
 ## Deduplication (Open Design)
 
@@ -133,11 +133,11 @@ Multiple replicas with the same view can emit identical `Δ(B, u)`. This is not 
 
 If we want bounded growth:
 
-- compute a canonical `delta_hash` over the SYNC patches (e.g. stable ordering + stable JSON encoding),
+- compute a canonical `delta_hash` over the CORRECTION patches (e.g. stable ordering + stable JSON encoding),
 - optionally compute a `basis_hash` over the batch identity (e.g. action ids, or `(last_seen_server_ingest_id_before, last_seen_server_ingest_id_after)`),
 - use these for optional client-side suppression, server-side compaction, and better observability.
 
-The system should not require linking a SYNC delta to a single “corrected” base action for correctness.
+The system should not require linking a CORRECTION delta to a single “corrected” base action for correctness.
 
 ## Purity violations (bug case) and ping-pong prevention
 
@@ -171,9 +171,9 @@ To identify _impurity_, you need evidence that replay is not repeatable on the *
 
 ### Handling the violation (bounded convergence + loud error)
 
-If we detect evidence of impurity (non-repeatable replay on the same snapshot, or repeated overwriting deltas with no new non-SYNC inputs):
+If we detect evidence of impurity (non-repeatable replay on the same snapshot, or repeated overwriting deltas with no new non-CORRECTION inputs):
 
-1. **Stop emitting arbitrary corrections**: treat the existing history (`P_known`) as authoritative for that apply pass (i.e. do not emit an additional overwriting SYNC delta), and surface an explicit sync-health error/diagnostic so the app developer sees it.
+1. **Stop emitting arbitrary corrections**: treat the existing history (`P_known`) as authoritative for that apply pass (i.e. do not emit an additional overwriting CORRECTION delta), and surface an explicit sync-health error/diagnostic so the app developer sees it.
 2. **Surface loudly**:
    - emit an error log/event including action ids, tags, and a diff preview (known vs replay values),
    - optionally persist a local diagnostic record so apps can show a “sync is unhealthy” banner.
@@ -186,21 +186,21 @@ Optional mitigation in development/test (tracked in `docs/planning/todo/0014-dev
 
 **Client**
 
-- Placeholder `_InternalSyncApply` is created per apply batch and patch capture is scoped to it while replaying remote non-SYNC actions.
-- Incoming SYNC actions are applied as patches with patch capture disabled (so they don’t recursively generate more SYNC).
-- The outgoing delta is computed by comparing generated patches (from replay) to the known patch set (base + received SYNC):
-  - if everything is covered, the placeholder SYNC is deleted
+- Placeholder `_InternalCorrectionApply` is created per apply batch and patch capture is scoped to it while replaying remote non-CORRECTION actions.
+- Incoming CORRECTION actions are applied as patches with patch capture disabled (so they don’t recursively generate more CORRECTION).
+- The outgoing delta is computed by comparing generated patches (from replay) to the known patch set (base + received CORRECTION):
+  - if everything is covered, the placeholder CORRECTION is deleted
   - otherwise, its AMRs are trimmed to only uncovered row effects and its clock is incremented so it sorts after the batch
-- Outgoing SYNC is marked locally-applied for rollback correctness.
+- Outgoing CORRECTION is marked locally-applied for rollback correctness.
 
-See `packages/sync-core/src/SyncService.ts` (`applyActionRecords`).
+See `packages/sync-core/src/sync/SyncServiceApply.ts` (`applyActionRecords`).
 
 **Existing coverage**
 
-- Divergence creates SYNC and keeps the placeholder when needed: `packages/sync-core/test/sync/sync-divergence.test.ts`
-- Incoming SYNC is applied directly (and can suppress redundant deltas): `packages/sync-core/test/sync/sync-divergence.test.ts`
-- Outgoing SYNC ordering and local-applied marking: `packages/sync-core/test/sync/sync-delta-semantics.test.ts`
-- Idempotent re-apply of received SYNC: `packages/sync-core/test/sync/ingest-idempotency.test.ts`
+- Divergence creates CORRECTION and keeps the placeholder when needed: `packages/sync-core/test/sync/sync-divergence.test.ts`
+- Incoming CORRECTION is applied directly (and can suppress redundant deltas): `packages/sync-core/test/sync/sync-divergence.test.ts`
+- Outgoing CORRECTION ordering and local-applied marking: `packages/sync-core/test/sync/sync-delta-semantics.test.ts`
+- Idempotent re-apply of received CORRECTION: `packages/sync-core/test/sync/ingest-idempotency.test.ts`
 
 ## RLS Requirements (Underspecified Today)
 
@@ -217,14 +217,14 @@ This project needs a concrete, recommended pattern for RLS on the sync tables.
 
 Covered today (SyncService unit/integration tests):
 
-- Divergence creates an outgoing SYNC delta and associates AMRs with it: `packages/sync-core/test/sync/sync-divergence.test.ts`
-- Incoming SYNC is applied as patches and can suppress redundant outgoing deltas: `packages/sync-core/test/sync/sync-divergence.test.ts`
-- Outgoing SYNC sorts after the corrected batch (observe remotes, then increment): `packages/sync-core/test/sync/sync-delta-semantics.test.ts`
-  - Idempotency: re-applying the same received SYNC does not create another outgoing SYNC: `packages/sync-core/test/sync/ingest-idempotency.test.ts`
+- Divergence creates an outgoing CORRECTION delta and associates AMRs with it: `packages/sync-core/test/sync/sync-divergence.test.ts`
+- Incoming CORRECTION is applied as patches and can suppress redundant outgoing deltas: `packages/sync-core/test/sync/sync-divergence.test.ts`
+- Outgoing CORRECTION sorts after the corrected batch (observe remotes, then increment): `packages/sync-core/test/sync/sync-delta-semantics.test.ts`
+  - Idempotency: re-applying the same received CORRECTION does not create another outgoing CORRECTION: `packages/sync-core/test/sync/ingest-idempotency.test.ts`
 
 Also covered (Postgres/RLS e2e):
 
-- Private divergence under real RLS: a replica with strictly more visibility emits an additive SYNC delta that is filtered from other users: `packages/sync-server/test/e2e-postgres/sync-rpc.e2e.test.ts`.
+- Private divergence under real RLS: a replica with strictly more visibility emits an additive CORRECTION delta that is filtered from other users: `packages/sync-server/test/e2e-postgres/sync-rpc.e2e.test.ts`.
 
 Optional / next:
 

@@ -5,6 +5,7 @@ import type { ActionRecord } from "../models"
 import type { ActionModifiedRowRepo } from "../ActionModifiedRowRepo"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
 import type { ClientClockState } from "../ClientClockState"
+import { CorrectionActionTag } from "../SyncActionTags"
 import {
 	NetworkRequestError,
 	SendLocalActionsBehindHead,
@@ -89,7 +90,7 @@ export const makeUpload = (deps: {
 						actionCount: actionsToSend.length,
 						amrCount: amrs.length,
 						actionTags,
-						hasSyncDelta: actionsToSend.some((a) => a._tag === "_InternalSyncApply"),
+						hasCorrectionDelta: actionsToSend.some((a) => a._tag === CorrectionActionTag),
 						actions: actionsToSend.map((a) => ({
 							id: a.id,
 							_tag: a._tag,
@@ -99,13 +100,13 @@ export const makeUpload = (deps: {
 						amrCountsByActionRecordId
 					})
 
-					const syncActionIds = actionsToSend
-						.filter((a) => a._tag === "_InternalSyncApply")
+					const correctionActionIds = actionsToSend
+						.filter((a) => a._tag === CorrectionActionTag)
 						.map((a) => a.id)
-					if (syncActionIds.length > 0) {
-						const syncActionIdSet = new Set(syncActionIds)
-						const syncAmrPreview = amrs
-							.filter((amr) => syncActionIdSet.has(amr.action_record_id))
+					if (correctionActionIds.length > 0) {
+						const correctionActionIdSet = new Set(correctionActionIds)
+						const correctionAmrPreview = amrs
+							.filter((amr) => correctionActionIdSet.has(amr.action_record_id))
 							.slice(0, 10)
 							.map((amr) => ({
 								id: amr.id,
@@ -115,10 +116,10 @@ export const makeUpload = (deps: {
 								forward_patches: valuePreview(amr.forward_patches),
 								reverse_patches: valuePreview(amr.reverse_patches)
 							}))
-						yield* Effect.logDebug("sendLocalActions.syncDelta.preview", {
+						yield* Effect.logDebug("sendLocalActions.correctionDelta.preview", {
 							sendBatchId,
-							syncActionIds,
-							syncAmrPreview
+							correctionActionIds,
+							correctionAmrPreview
 						})
 					}
 

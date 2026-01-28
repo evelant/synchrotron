@@ -10,6 +10,7 @@ import type { ClientDbAdapterService } from "../ClientDbAdapter"
 import type { DeterministicId } from "../DeterministicId"
 import { applyForwardAmrs } from "../PatchApplier"
 import { bindJsonParam } from "../SqlJson"
+import { CorrectionActionTag, RollbackActionTag } from "../SyncActionTags"
 import { SyncError } from "../SyncServiceErrors"
 import type { SyncNetworkService } from "../SyncNetworkService"
 import type { BootstrapSnapshot } from "./SyncServiceBootstrap"
@@ -124,25 +125,25 @@ export const makeRecovery = (deps: {
 					yield* Effect.gen(function* () {
 						const pendingActions = yield* actionRecordRepo.allUnsyncedActive()
 
-						const pendingSyncActionIds = pendingActions
-							.filter((a) => a._tag === "_InternalSyncApply")
+						const pendingCorrectionActionIds = pendingActions
+							.filter((a) => a._tag === CorrectionActionTag)
 							.map((a) => a.id)
 
-						const pendingSyncAmrs =
-							pendingSyncActionIds.length === 0
+						const pendingCorrectionAmrs =
+							pendingCorrectionActionIds.length === 0
 								? ([] as const)
-								: yield* actionModifiedRowRepo.findByActionRecordIds(pendingSyncActionIds)
+								: yield* actionModifiedRowRepo.findByActionRecordIds(pendingCorrectionActionIds)
 
-						const pendingSyncAmrsByActionId = new Map<string, readonly ActionModifiedRow[]>()
+						const pendingCorrectionAmrsByActionId = new Map<string, readonly ActionModifiedRow[]>()
 						{
 							const buckets = new Map<string, ActionModifiedRow[]>()
-							for (const amr of pendingSyncAmrs) {
+							for (const amr of pendingCorrectionAmrs) {
 								const existing = buckets.get(amr.action_record_id) ?? []
 								existing.push(amr)
 								buckets.set(amr.action_record_id, existing)
 							}
 							for (const [actionId, rows] of buckets) {
-								pendingSyncAmrsByActionId.set(actionId, rows)
+								pendingCorrectionAmrsByActionId.set(actionId, rows)
 							}
 						}
 
@@ -150,8 +151,8 @@ export const makeRecovery = (deps: {
 							rebaseId,
 							clientId,
 							pendingActionCount: pendingActions.length,
-							pendingSyncActionCount: pendingSyncActionIds.length,
-							pendingSyncAmrCount: pendingSyncAmrs.length
+							pendingCorrectionActionCount: pendingCorrectionActionIds.length,
+							pendingCorrectionAmrCount: pendingCorrectionAmrs.length
 						})
 
 						yield* clientDbAdapter.withCaptureContext(
@@ -185,10 +186,10 @@ export const makeRecovery = (deps: {
 								})
 							)
 
-							if (pending._tag === "_InternalSyncApply") {
-								const syncAmrs = pendingSyncAmrsByActionId.get(pending.id) ?? []
+							if (pending._tag === CorrectionActionTag) {
+								const correctionAmrs = pendingCorrectionAmrsByActionId.get(pending.id) ?? []
 
-								for (const amr of syncAmrs) {
+								for (const amr of correctionAmrs) {
 									yield* sqlClient`
 										INSERT INTO action_modified_rows ${sqlClient.insert({
 											id: amr.id,
@@ -205,11 +206,11 @@ export const makeRecovery = (deps: {
 									`.pipe(Effect.asVoid)
 								}
 
-								if (syncAmrs.length > 0) {
+								if (correctionAmrs.length > 0) {
 									yield* clientDbAdapter.withCaptureContext(
 										null,
 										clientDbAdapter.withPatchTrackingDisabled(
-											applyForwardAmrs(syncAmrs).pipe(
+											applyForwardAmrs(correctionAmrs).pipe(
 												Effect.provideService(SqlClient.SqlClient, sqlClient)
 											)
 										)
@@ -220,7 +221,7 @@ export const makeRecovery = (deps: {
 								continue
 							}
 
-							if (pending._tag === "RollbackAction") {
+							if (pending._tag === RollbackActionTag) {
 								yield* actionRecordRepo.markLocallyApplied(pending.id)
 								continue
 							}

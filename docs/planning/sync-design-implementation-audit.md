@@ -6,7 +6,7 @@ Updated (audit; many items implemented)
 
 ## TL;DR
 
-Synchrotron’s core approach (deterministic action log + rollback/replay + DB-level patch capture) is coherent and the repo has strong tests demonstrating the “SYNC delta” idea.
+Synchrotron’s core approach (deterministic action log + rollback/replay + DB-level patch capture) is coherent and the repo has strong tests demonstrating the “CORRECTION delta” idea.
 
 Since this audit was first written, the system has been updated to:
 
@@ -16,7 +16,7 @@ Since this audit was first written, the system has been updated to:
 - treat `RollbackAction` as a patch-less replay hint (handled at the sync strategy / materializer level)
 - merge observed remote clocks into the client clock during apply (no upload-time rewriting of unsent action clocks)
 
-Remaining high-leverage gaps are mostly around: (1) formalizing SYNC stabilization/purity diagnostics for “private influences shared writes”, (2) unifying the Electric vs RPC ingress/apply story to avoid double-apply pressure, (3) crash-consistency (reconcile is not a single atomic transaction), and (4) broadening patch-apply type coverage beyond the current “mostly works for demo tables” state.
+Remaining high-leverage gaps are mostly around: (1) formalizing CORRECTION stabilization/purity diagnostics for “private influences shared writes”, (2) unifying the Electric vs RPC ingress/apply story to avoid double-apply pressure, (3) crash-consistency (reconcile is not a single atomic transaction), and (4) broadening patch-apply type coverage beyond the current “mostly works for demo tables” state.
 
 ## What I reviewed
 
@@ -41,32 +41,32 @@ For shared data (same visibility on all replicas), the “rollback + replay in a
 
 Those are clearly stated in `README.md` and mostly enforced by the runtime (patch triggers abort when no capture context, deterministic IDs are available, etc.).
 
-### 2) Private/conditional actions: does “SYNC delta” cover the hard case?
+### 2) Private/conditional actions: does “CORRECTION delta” cover the hard case?
 
-The SYNC idea is sound for the _intended_ case described in `0003`:
+The CORRECTION idea is sound for the _intended_ case described in `0003`:
 
 - A replica applies a batch of incoming actions under user/view `u`.
-- If replay produces _additional_ effects that weren’t present in the received patch set (including any received SYNC patches), emit a SYNC action with only the missing delta.
+- If replay produces _additional_ effects that weren’t present in the received patch set (including any received CORRECTION patches), emit a CORRECTION action with only the missing delta.
 - RLS filtering makes those deltas “mostly invisible” to users who can’t see the affected rows.
 
 There is good test coverage in `packages/sync-core/test/sync-divergence*.test.ts` showing:
 
-- divergence on replay creates a `_InternalSyncApply` action,
-- receiving a SYNC action applies patches directly and can eliminate local divergence.
+- divergence on replay creates a `_InternalCorrectionApply` action,
+- receiving a CORRECTION action applies patches directly and can eliminate local divergence.
 
 ### 3) The big design caveat: private state influencing shared writes
 
 This is the key “flaw”/constraint that determines whether the design meets the stated goal in the README:
 
 - If hidden/private state can influence writes to rows that are visible to multiple users, then different user views can legitimately compute different replay outcomes for _shared_ rows.
-- In that case SYNC is no longer “invisible” and you can get:
+- In that case CORRECTION is no longer “invisible” and you can get:
   - **information leakage** via shared rows, and/or
-  - **competing SYNC overwrites** on shared fields (the system converges, but the semantics become “last SYNC wins” for that shared field).
+  - **competing CORRECTION overwrites** on shared fields (the system converges, but the semantics become “last CORRECTION wins” for that shared field).
 
 `DESIGN.md` and `0003` already call this out; the project probably needs to treat it as a first-class constraint:
 
 - Treat it as “unsupported/discouraged unless you accept leakage + churn” at the application level.
-- Treat shared-field overwrites as an explicit (and diagnosable) tradeoff: replicas converge to the value of the last SYNC in canonical order, but it can leak derived information and produce surprising results.
+- Treat shared-field overwrites as an explicit (and diagnosable) tradeoff: replicas converge to the value of the last CORRECTION in canonical order, but it can leak derived information and produce surprising results.
   - Detailed write-up: `docs/planning/todo/006-sync-conflict.md`.
 
 ### 4) Rollback markers need a clarified contract
@@ -91,7 +91,7 @@ This is an important design decision because it affects:
 Resolved: remote clock receive/merge is applied during action application.
 
 - `SyncService.applyActionRecords(...)` calls `ClientClockState.observeRemoteClocks(...)` after applying a remote batch.
-- This ensures causal “happens-after” and guarantees outgoing SYNC clocks can be incremented after observing the remote history.
+- This ensures causal “happens-after” and guarantees outgoing CORRECTION clocks can be incremented after observing the remote history.
 - This covers both RPC-driven sync (`performSync`) and Electric-driven apply loops (which also call `applyActionRecords`).
 
 ### B) RollbackAction handling is effectively a no-op on clients (doc mismatch)
@@ -113,23 +113,23 @@ Resolved: the server materializer rewinds + replays patches so base tables match
 
 Decision: the server is authoritative (base tables are the source of truth). Track the server materialization work in `docs/planning/todo/0007-server-materialization.md`.
 
-### D) SYNC actions are “batch deltas” (needs purity-violation handling + optional identity/compaction)
+### D) CORRECTION actions are “batch deltas” (needs purity-violation handling + optional identity/compaction)
 
-The current prototype `_InternalSyncApply`:
+The current prototype `_InternalCorrectionApply`:
 
 - is created as a placeholder record for a batch apply,
 - records batch basis metadata (`appliedActionIds`) and is kept/deleted based on “remaining delta after accounting for received patches”,
 
-This is consistent with the updated `0003` direction (SYNC as “reconciliation delta for an apply batch”), but leaves open problems for “real” usage:
+This is consistent with the updated `0003` direction (CORRECTION as “reconciliation delta for an apply batch”), but leaves open problems for “real” usage:
 
     - **Non-additive delta handling is not explicit**: replay can produce differing values for row/fields already present in the received patch set. That can be legitimate during stabilization (late-arriving actions + rollback/replay changing prior outcomes), or it can indicate action impurity / shared-field divergence under RLS. We need clear diagnostics (and optional dev/test purity checks) so this doesn’t silently produce confusing overwrites.
 
-- **Identity/compaction is underspecified**: duplicates of an identical SYNC delta are not a correctness issue, but they can bloat the log. It may still be worth adding a `delta_hash` (and possibly a compact `basis_hash`) for observability and optional compaction.
-- Clock ordering of outgoing SYNC after observed remote history is ensured by observing remote clocks during apply.
+- **Identity/compaction is underspecified**: duplicates of an identical CORRECTION delta are not a correctness issue, but they can bloat the log. It may still be worth adding a `delta_hash` (and possibly a compact `basis_hash`) for observability and optional compaction.
+- Clock ordering of outgoing CORRECTION after observed remote history is ensured by observing remote clocks during apply.
 
 ### E) A small correctness footgun: delete handling in `compareActionModifiedRows`
 
-`packages/sync-core/src/ActionModifiedRowRepo.ts` exports `compareActionModifiedRows`. It aggregates per-row forward patches but does not clear column state on `DELETE`, which can make “final state” comparisons incorrect when deletes occur. Today this is mostly used for logging (the actual SYNC delta decision uses a separate “final effects” computation in `SyncService.ts`), but it’s a trap if that helper becomes relied on.
+`packages/sync-core/src/ActionModifiedRowRepo.ts` exports `compareActionModifiedRows`. It aggregates per-row forward patches but does not clear column state on `DELETE`, which can make “final state” comparisons incorrect when deletes occur. Today this is mostly used for logging (the actual CORRECTION delta decision uses a separate “final effects” computation in `packages/sync-core/src/sync/SyncServiceApply.ts`), but it’s a trap if that helper becomes relied on.
 
 ### F) Idempotency / “apply twice” safety is fragile
 
@@ -147,9 +147,9 @@ This has improved:
 
 Remaining risk: overlapping ingress paths (Electric + RPC) can still create “who applies / who advances cursor?” ambiguity (see J).
 
-### G) `_InternalSyncApply` deltas are not marked as locally applied (rollback correctness risk)
+### G) `_InternalCorrectionApply` deltas are not marked as locally applied (rollback correctness risk)
 
-Resolved: when a SYNC delta is kept, it is marked as locally applied so future rollbacks include its patches.
+Resolved: when a CORRECTION delta is kept, it is marked as locally applied so future rollbacks include its patches.
 
 ### H) Server patch-apply SQL is not generic (type/column assumptions leak into core)
 
@@ -214,14 +214,14 @@ This is probably fine for the current test suite, but it makes crash/restart beh
 Completed since this audit:
 
 1. RollbackAction semantics clarified (patch-less replay hint) and aligned with implementation.
-2. Client observes/merges remote clocks during apply; outgoing SYNC clocks are created after observing remotes.
+2. Client observes/merges remote clocks during apply; outgoing CORRECTION clocks are created after observing remotes.
 3. Server is an authoritative materializer (rewind + replay patches for late arrivals).
 4. Added core tests for rollback markers, late arrival reorder, server upload gating, and retry-after-rejection behavior.
 
 Remaining high-leverage next steps:
 
-1. **Formalize SYNC semantics (batch delta + purity handling)**:
-   - support stabilization cases where SYNC deltas supersede previously-known effects (including prior SYNC),
+1. **Formalize CORRECTION semantics (batch delta + purity handling)**:
+   - support stabilization cases where CORRECTION deltas supersede previously-known effects (including prior CORRECTION),
    - define purity diagnostics (and an optional dev/test “replay twice” check),
    - add optional `delta_hash`/`basis_hash` for observability + optional compaction.
 2. **Unify ingress/apply responsibilities** (Electric vs RPC) to avoid double-apply pressure and clarify which component advances `last_seen_server_ingest_id`.
@@ -229,12 +229,12 @@ Remaining high-leverage next steps:
 4. **Patch apply coverage**: broaden server patch applier type support beyond the current demo-friendly set.
 
 5. **Additional edge-case tests (need a bit more design work)**:
-   - **SYNC duplicates / compaction:** two clients emit the _same_ SYNC delta for the same applied batch → assert idempotent apply (safe duplicates) and (optionally) compaction keyed by `(basis_hash, delta_hash)`.
-     - **SYNC purity violation is loud:** craft a nondeterministic action that produces different results on two runs against the same snapshot → assert we surface a diagnostic (and optionally suppress emitting an additional overwriting SYNC delta for that apply pass).
-   - **SYNC stabilization after rebase:** client B emits a SYNC delta, then client A later reconciles with local pending actions that interleave and produces a new delta that supersedes B’s SYNC; after B fetches again and replays the full history, it should reach a fixed point (no further SYNC).
-     - Concrete sketch: B fast-forwards a remote batch and emits SYNC; later, A uploads older-clock local actions that force B to rollback+replay; B may produce a new (overwriting) SYNC that supersedes the earlier one; once both have applied the full history, a subsequent sync produces no new SYNC.
-     - **Shared-row divergence (LWW semantics):** craft a scenario where two _different_ views compute different writes to the same shared row/field (private state influencing shared writes) → assert the system converges to the value of the last SYNC in canonical order and surfaces a loud diagnostic (signals leakage + surprising semantics).
-       - Concrete sketch: an action reads a per-user/private row and writes a _shared_ column; two different user views compute different values for the same `(table,row,column)` even with the same non-SYNC history.
-   - **Transactional safety on unknown actions:** receiving an action with an unknown `_tag` should fail without leaving a persisted placeholder `_InternalSyncApply` and without partial DB changes.
+   - **CORRECTION duplicates / compaction:** two clients emit the _same_ CORRECTION delta for the same applied batch → assert idempotent apply (safe duplicates) and (optionally) compaction keyed by `(basis_hash, delta_hash)`.
+     - **CORRECTION purity violation is loud:** craft a nondeterministic action that produces different results on two runs against the same snapshot → assert we surface a diagnostic (and optionally suppress emitting an additional overwriting CORRECTION delta for that apply pass).
+   - **CORRECTION stabilization after rebase:** client B emits a CORRECTION delta, then client A later reconciles with local pending actions that interleave and produces a new delta that supersedes B’s CORRECTION; after B fetches again and replays the full history, it should reach a fixed point (no further CORRECTION).
+     - Concrete sketch: B fast-forwards a remote batch and emits CORRECTION; later, A uploads older-clock local actions that force B to rollback+replay; B may produce a new (overwriting) CORRECTION that supersedes the earlier one; once both have applied the full history, a subsequent sync produces no new CORRECTION.
+     - **Shared-row divergence (LWW semantics):** craft a scenario where two _different_ views compute different writes to the same shared row/field (private state influencing shared writes) → assert the system converges to the value of the last CORRECTION in canonical order and surfaces a loud diagnostic (signals leakage + surprising semantics).
+       - Concrete sketch: an action reads a per-user/private row and writes a _shared_ column; two different user views compute different values for the same `(table,row,column)` even with the same non-CORRECTION history.
+   - **Transactional safety on unknown actions:** receiving an action with an unknown `_tag` should fail without leaving a persisted placeholder `_InternalCorrectionApply` and without partial DB changes.
    - **Rollback correctness with multi-AMR actions:** rollback/replay should correctly undo+redo actions that produced multiple `action_modified_rows` for the same row (sequence-sensitive).
    - **Server patch-apply type coverage:** add tests for applying patches to non-`tags` arrays and other tricky types (e.g. `uuid[]`, `int[]`, nested `jsonb` objects) to make “generic apply” expectations explicit.

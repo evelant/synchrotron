@@ -8,6 +8,7 @@ import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ClientDbAdapter } from "@synchrotron/sync-core/ClientDbAdapter"
 import { ClientIdentity } from "@synchrotron/sync-core"
 import { ClientIdOverride } from "@synchrotron/sync-core/ClientIdOverride"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import { SyncNetworkService } from "@synchrotron/sync-core/SyncNetworkService"
 import { SyncService } from "@synchrotron/sync-core/SyncService"
 import { ConfigProvider, Effect, Layer, Runtime, Schema } from "effect"
@@ -995,28 +996,28 @@ describe("E2E (Postgres): SyncNetworkRpc over real Postgres", () => {
 						)
 						yield* syncB.performSync()
 
-						// userA replays userB's action with more visibility and emits a SYNC delta for admin-only metadata.
+						// userA replays userB's action with more visibility and emits a CORRECTION delta for admin-only metadata.
 						yield* waitForNextMillisecond
 						yield* syncA.performSync()
 
-						// userB should not receive the admin-only SYNC delta or the admin-only row.
+						// userB should not receive the admin-only CORRECTION delta or the admin-only row.
 						yield* waitForNextMillisecond
 						yield* syncB.performSync()
 
 						expect(yield* getAdminMetaCount.pipe(Effect.provide(clientBContext))).toBe(0)
 
-						const syncTagCountB = yield* Effect.gen(function* () {
+						const correctionTagCountB = yield* Effect.gen(function* () {
 							const sql = yield* SqlClient.SqlClient
 							const rows = yield* sql<{ readonly count: number | string }>`
-									SELECT count(*)::int as count
-									FROM action_records
-									WHERE _tag = '_InternalSyncApply'
-								`
+										SELECT count(*)::int as count
+										FROM action_records
+										WHERE _tag = ${CorrectionActionTag}
+									`
 							return typeof rows[0]?.count === "number"
 								? rows[0].count
 								: Number(rows[0]?.count ?? 0)
 						}).pipe(Effect.provide(clientBContext))
-						expect(syncTagCountB).toBe(0)
+						expect(correctionTagCountB).toBe(0)
 
 						expect(
 							yield* getAdminMetaLastSeenContent(noteId).pipe(Effect.provide(clientAContext))

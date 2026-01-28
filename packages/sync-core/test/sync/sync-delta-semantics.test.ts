@@ -1,12 +1,13 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
 import { compareClock } from "@synchrotron/sync-core/ClockOrder"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import { Effect } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
-describe("SYNC delta semantics", () => {
+describe("CORRECTION delta semantics", () => {
 	it.scoped(
-		"outgoing _InternalSyncApply is marked locally applied (rollback correctness)",
+		"outgoing CORRECTION is marked locally applied (rollback correctness)",
 		() =>
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
@@ -38,18 +39,18 @@ describe("SYNC delta semantics", () => {
 
 				yield* clientB.syncService.performSync()
 
-				const syncActions = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncActions.length).toBe(1)
-				const syncAction = syncActions[0]!
+				const correctionActions = yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActions.length).toBe(1)
+				const correctionAction = correctionActions[0]!
 
-				const locallyApplied = yield* clientB.actionRecordRepo.isLocallyApplied(syncAction.id)
+				const locallyApplied = yield* clientB.actionRecordRepo.isLocallyApplied(correctionAction.id)
 				expect(locallyApplied).toBe(true)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30000 }
 	)
 
 	it.scoped(
-		"outgoing SYNC delta sorts after the base action it corrects",
+		"outgoing CORRECTION delta sorts after the base action it corrects",
 		() =>
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
@@ -92,12 +93,16 @@ describe("SYNC delta semantics", () => {
 				expect(observedBase._tag).toBe("Some")
 				if (observedBase._tag !== "Some") return
 
-				const syncActions = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncActions.length).toBe(1)
-				const syncAction = syncActions[0]!
+				const correctionActions = yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActions.length).toBe(1)
+				const correctionAction = correctionActions[0]!
 
 				const ordering = compareClock(
-					{ clock: syncAction.clock, clientId: syncAction.client_id, id: syncAction.id },
+					{
+						clock: correctionAction.clock,
+						clientId: correctionAction.client_id,
+						id: correctionAction.id
+					},
 					{
 						clock: observedBase.value.clock,
 						clientId: observedBase.value.client_id,

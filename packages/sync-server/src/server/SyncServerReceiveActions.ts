@@ -1,6 +1,7 @@
 import type { SqlClient } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
 import { bindJsonParam } from "@synchrotron/sync-core/SqlJson"
+import { CorrectionActionTag, RollbackActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import {
 	SendLocalActionsBehindHead,
@@ -40,7 +41,7 @@ export const makeReceiveActions = (deps: { readonly sql: SqlClient.SqlClient }) 
 				acc[action._tag] = (acc[action._tag] ?? 0) + 1
 				return acc
 			}, {})
-			const hasSyncDelta = actions.some((a) => a._tag === "_InternalSyncApply")
+			const hasCorrectionDelta = actions.some((a) => a._tag === CorrectionActionTag)
 
 			yield* Effect.logInfo("server.receiveActions.start", {
 				userId,
@@ -49,7 +50,7 @@ export const makeReceiveActions = (deps: { readonly sql: SqlClient.SqlClient }) 
 				actionCount: actions.length,
 				amrCount: amrs.length,
 				actionTags,
-				hasSyncDelta
+				hasCorrectionDelta
 			})
 
 			if (actions.length === 0) {
@@ -241,7 +242,7 @@ export const makeReceiveActions = (deps: { readonly sql: SqlClient.SqlClient }) 
 				`.pipe(Effect.mapError(classifyUploadSqlError))
 			}
 
-			const incomingRollbacks = actions.filter((a) => a._tag === "RollbackAction")
+			const incomingRollbacks = actions.filter((a) => a._tag === RollbackActionTag)
 			let forcedRollbackTarget: string | null | undefined = undefined
 			if (incomingRollbacks.length > 0) {
 				const targets = incomingRollbacks.map((rb) => rb.args["target_action_id"] as string | null)
@@ -313,15 +314,15 @@ export const makeReceiveActions = (deps: { readonly sql: SqlClient.SqlClient }) 
 					readonly client_id: string
 				}>`
 					SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
-					FROM action_records ar
-					JOIN action_modified_rows amr ON amr.action_record_id = ar.id
-					LEFT JOIN local_applied_action_ids la ON la.action_record_id = ar.id
-					WHERE la.action_record_id IS NULL
-					AND ar._tag != 'RollbackAction'
-					GROUP BY ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
-					ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
-					LIMIT 1
-				`.pipe(Effect.map((rows) => rows[0] ?? null))
+						FROM action_records ar
+						JOIN action_modified_rows amr ON amr.action_record_id = ar.id
+						LEFT JOIN local_applied_action_ids la ON la.action_record_id = ar.id
+						WHERE la.action_record_id IS NULL
+						AND ar._tag != ${RollbackActionTag}
+						GROUP BY ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
+						ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
+						LIMIT 1
+					`.pipe(Effect.map((rows) => rows[0] ?? null))
 
 			const findPredecessorId = (key: ReplayKey) =>
 				sql<{ readonly id: string }>`
@@ -344,14 +345,14 @@ export const makeReceiveActions = (deps: { readonly sql: SqlClient.SqlClient }) 
 								readonly client_id: string
 							}>`
 								SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
-								FROM action_records ar
-								JOIN action_modified_rows amr ON amr.action_record_id = ar.id
-								LEFT JOIN local_applied_action_ids la ON la.action_record_id = ar.id
-								WHERE la.action_record_id IS NULL
-								AND ar._tag != 'RollbackAction'
-								GROUP BY ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
-								ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
-							`
+									FROM action_records ar
+									JOIN action_modified_rows amr ON amr.action_record_id = ar.id
+									LEFT JOIN local_applied_action_ids la ON la.action_record_id = ar.id
+									WHERE la.action_record_id IS NULL
+									AND ar._tag != ${RollbackActionTag}
+									GROUP BY ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
+									ORDER BY ar.clock_time_ms ASC, ar.clock_counter ASC, ar.client_id ASC, ar.id ASC
+								`
 
 							yield* Effect.logInfo("server.materialize.applyUnapplied.start", {
 								actionCount: unappliedActions.length,

@@ -27,7 +27,7 @@ Instead of syncing table/row patches as the source of truth (usually with last-w
 - Execute vs apply:
   - Execute: run an action and create a new action record + patches.
   - Apply: replay an existing action record without creating a new record.
-- SYNC action: a system action record whose patches represent the delta between the incoming patches and what a local replay produced (typically due to private data / conditionals).
+- CORRECTION action: a system action record whose patches represent the delta between the incoming patches and what a local replay produced (typically due to private data / conditionals).
 - ROLLBACK action: a system marker that tells replicas to roll back to a specific ancestor action before replaying.
 - HLC details:
   - `timestamp`: physical time (ms)
@@ -99,7 +99,7 @@ Backend state:
 
 - Sync phases are instrumented with `Effect.withSpan(...)` and log annotations (for example: `clientId`, `syncSessionId`, `applyBatchId`, `sendBatchId`) so logs can be correlated across fetch/apply/send/reconcile.
 - The PGlite `@effect/sql` adapter logs all executed SQL statements at `TRACE` (`pglite.statement.*`) to make it easier to follow replay and patch application.
-- Client/server transport emits structured logs (`sync.network.*`, `rpc.*`) including action + AMR counts and SYNC delta previews.
+- Client/server transport emits structured logs (`sync.network.*`, `rpc.*`) including action + AMR counts and CORRECTION delta previews.
 
 ## Deterministic row IDs
 
@@ -136,20 +136,20 @@ Result: replaying the same action record on different clients produces the same 
 
 1. `action_records` and `action_modified_rows` replicate via Electric SQL (filtered by RLS).
 2. Client applies incoming actions in HLC order.
-3. A placeholder SYNC action captures the patches produced by local replay of the incoming batch.
-4. The client computes a SYNC delta: `P_replay(batch) − P_known(batch)` where `P_known` includes the received base patches plus any received SYNC patches.
-5. If the delta is empty, the placeholder is deleted (no outgoing SYNC). If non-empty, the placeholder is kept as a new local SYNC action to be uploaded (clocked after all observed remote actions in that apply pass).
+3. A placeholder CORRECTION action captures the patches produced by local replay of the incoming batch.
+4. The client computes a CORRECTION delta: `P_replay(batch) − P_known(batch)` where `P_known` includes the received base patches plus any received CORRECTION patches.
+5. If the delta is empty, the placeholder is deleted (no outgoing CORRECTION). If non-empty, the placeholder is kept as a new local CORRECTION action to be uploaded (clocked after all observed remote actions in that apply pass).
 
-### SYNC actions (private data / conditional logic)
+### CORRECTION actions (private data / conditional logic)
 
 Replaying an action can legitimately produce different writes when:
 
 - branches depend on rows the client cannot see (RLS),
 - logic is conditional on private state.
 
-When patch comparison finds a mismatch, the client may emit a SYNC action record (patch-only) to reconcile outcomes. In the common case (private-data divergence), SYNC is intended to be additive: it adds missing row/field effects that were not present in the received patch set due to partial visibility. Incoming SYNC actions are applied directly as patches (no action code to run).
+When patch comparison finds a mismatch, the client may emit a CORRECTION action record (patch-only) to reconcile outcomes. In the common case (private-data divergence), CORRECTION is intended to be additive: it adds missing row/field effects that were not present in the received patch set due to partial visibility. Incoming CORRECTION actions are applied directly as patches (no action code to run).
 
-However, reconciliation deltas are not guaranteed to be purely additive: late-arriving actions and rollback+replay can legitimately change what an earlier action “should have done” in canonical replay order, which can supersede previously-known effects (including prior SYNC patches). The key requirement is that replicas reach a fixed point once they have applied the same history; repeated non-convergence for the same basis indicates action impurity (nondeterminism) or an unsupported shared-row divergence case.
+However, reconciliation deltas are not guaranteed to be purely additive: late-arriving actions and rollback+replay can legitimately change what an earlier action “should have done” in canonical replay order, which can supersede previously-known effects (including prior CORRECTION patches). The key requirement is that replicas reach a fixed point once they have applied the same history; repeated non-convergence for the same basis indicates action impurity (nondeterminism) or an unsupported shared-row divergence case.
 
 ### Conflict detection
 
@@ -164,8 +164,8 @@ A conflict exists when incoming actions are not strictly after the client's loca
 2. Start a transaction.
 3. Roll back to the ancestor by undoing `action_modified_rows` in reverse `sequence` order without recording patches.
 4. Insert a single ROLLBACK marker that references the ancestor action id.
-5. Replay all actions from that point to "now" in total HLC order, using the same apply+SYNC logic as the fast-forward case.
-6. Send any new actions (ROLLBACK marker + SYNC deltas) to the server.
+5. Replay all actions from that point to "now" in total HLC order, using the same apply+CORRECTION logic as the fast-forward case.
+6. Send any new actions (ROLLBACK marker + CORRECTION deltas) to the server.
 7. If rejected due to newer actions, abort and retry with the updated history.
 8. Commit.
 
@@ -173,7 +173,7 @@ Analogy: this is a bit like Git. Find the merge base (common ancestor), rewind t
 
 ### Common sync cases
 
-- No local pending actions, incoming actions exist: apply; emit SYNC only if patch diff exists.
+- No local pending actions, incoming actions exist: apply; emit CORRECTION only if patch diff exists.
 - Local pending actions, no incoming: send local actions; mark as synced when accepted.
 - Incoming actions that interleave with local pending: reconcile (rollback + replay).
 - Incoming rollback markers: roll back to the oldest referenced ancestor once, then apply forward patches in order.
@@ -197,7 +197,7 @@ Synchrotron originally tried a different rollback/replay strategy:
 This caused problems (especially on the server: rollback patches could reference state that never existed server-side until after the rollback), so the design changed:
 
 1. `RollbackAction` is a patch-less marker that references a target ancestor action id.
-2. Replay does **not** create new `action_records` or patches for existing actions; it re-applies existing history in canonical order and may emit new patch-only `_InternalSyncApply` (SYNC) deltas.
+2. Replay does **not** create new `action_records` or patches for existing actions; it re-applies existing history in canonical order and may emit new patch-only `_InternalCorrectionApply` (CORRECTION) deltas.
 3. The server handles rollbacks like the client: choose the rollback targeting the oldest state, roll back to it, then apply forward patches for actions in total order (skipping rollbacks).
 4. `action_modified_rows` records every mutation to a row with an incrementing `sequence` (no merging), so forward/reverse patch application is well-defined.
 
@@ -207,7 +207,7 @@ This caused problems (especially on the server: rollback patches could reference
 - Remote ingress is transport-specific (Electric stream, RPC fetch, polling, etc). Transports deliver remote sync-log rows; `sync-core` persists them into local `action_records` / `action_modified_rows` via a shared ingestion helper. Applying those remotes is DB-driven: the client applies actions discovered in the local DB (`synced=true` and not present in `local_applied_action_ids`), not by trusting the transient fetch return value.
 - By default, the fetch/RPC path excludes actions authored by the requesting client (avoid echo). `includeSelf=true` is primarily a fallback for action-log restore (see below).
 - `last_seen_server_ingest_id` is treated as an **applied** watermark (not merely ingested) for remote (other-client) actions: it is advanced only after those actions have been incorporated into the client’s materialized state (apply/reconcile). It is also used as `basisServerIngestId` for upload head-gating.
-- Use up-to-date signals to ensure the complete set of `action_modified_rows` for a transaction has arrived before applying. The sync loop will not apply remote actions until their patches are present, to preserve rollback correctness and avoid spurious outgoing SYNC deltas.
+- Use up-to-date signals to ensure the complete set of `action_modified_rows` for a transaction has arrived before applying. The sync loop will not apply remote actions until their patches are present, to preserve rollback correctness and avoid spurious outgoing CORRECTION deltas.
 - This may use Electric's experimental `multishapestream` / `transactionmultishapestream` APIs, depending on how you stream the shapes.
 - Bootstrap / restore options:
   - Fast bootstrap snapshot (recommended): hydrate base tables from the server’s canonical state and reset `client_sync_status` from the snapshot metadata. The RPC transport provides this via `FetchBootstrapSnapshot` (tables + head `server_ingest_id` + `serverClock`); the client applies it with patch tracking disabled, sets `last_seen_server_ingest_id` to the snapshot head cursor (and uses `serverClock` as the new clock baseline), then resumes incremental action fetch from that point.
@@ -244,12 +244,12 @@ Private-data divergence example:
 
 - Client B modifies shared rows and private rows in one action.
 - Client A can only see shared rows, so it only receives patches for shared rows.
-- A replica with access to the private rows can emit an (additive) SYNC action containing additional patches for those private rows.
+- A replica with access to the private rows can emit an (additive) CORRECTION action containing additional patches for those private rows.
 - On rollback, Client B rolls back and replays with its full state, restoring shared + private rows.
 
-Note: if hidden/private state influences writes to shared rows, SYNC can become visible and may leak derived information via shared state; this is application-dependent and should be treated as a design constraint.
+Note: if hidden/private state influences writes to shared rows, CORRECTION can become visible and may leak derived information via shared state; this is application-dependent and should be treated as a design constraint.
 
-If hidden/private state influences writes to shared rows, different user views can legitimately compute different values for the same shared `(table,row,column)`. When that happens, SYNC deltas can include visible overwrites and the system effectively becomes **last-writer-wins for that shared field** (the last SYNC in canonical HLC order wins). This should be treated as an application-level constraint and surfaced with loud diagnostics; repeated flips without any new non-SYNC inputs suggests action impurity (nondeterminism) or clock/time-travel bugs.
+If hidden/private state influences writes to shared rows, different user views can legitimately compute different values for the same shared `(table,row,column)`. When that happens, CORRECTION deltas can include visible overwrites and the system effectively becomes **last-writer-wins for that shared field** (the last CORRECTION in canonical HLC order wins). This should be treated as an application-level constraint and surfaced with loud diagnostics; repeated flips without any new non-CORRECTION inputs suggests action impurity (nondeterminism) or clock/time-travel bugs.
 
 Avoiding unintended writes:
 
@@ -314,8 +314,8 @@ Important test cases:
   - ordering and merge semantics
   - causality detection and tie-breaking
 - Sync protocol:
-  - fast-forward with/without SYNC emission
-  - applying SYNC actions as patches (no action code)
+  - fast-forward with/without CORRECTION emission
+  - applying CORRECTION actions as patches (no action code)
   - rollback to common ancestor and replay in total order
   - server rollback selection and patch application ordering
 - Security:

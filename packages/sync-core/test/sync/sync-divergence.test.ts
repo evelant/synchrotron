@@ -1,11 +1,12 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import { Effect, Option } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
 describe("Sync Divergence Scenarios", () => {
 	it.scoped(
-		"should create SYNC action when local apply diverges from remote patches",
+		"should create CORRECTION action when local apply diverges from remote patches",
 		() =>
 			Effect.gen(function* () {
 				// --- Arrange ---
@@ -61,32 +62,32 @@ describe("Sync Divergence Scenarios", () => {
 					expect(noteB_final.value.content).toBe(baseContent)
 				}
 
-				// Client B should have created an _InternalSyncApply action due to divergence
-				const syncApplyActionsB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncApplyActionsB.length).toBe(1)
-				const syncApplyAction = syncApplyActionsB[0]
-				expect(syncApplyAction).toBeDefined()
-				if (!syncApplyAction) return // Type guard
+				// Client B should have created a CORRECTION action due to divergence
+				const correctionActionsB = yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActionsB.length).toBe(1)
+				const correctionAction = correctionActionsB[0]
+				expect(correctionAction).toBeDefined()
+				if (!correctionAction) return // Type guard
 
-				// The SYNC action should be sent immediately in the same sync pass.
-				expect(syncApplyAction.synced).toBe(true)
+				// The CORRECTION action should be sent immediately in the same sync pass.
+				expect(correctionAction.synced).toBe(true)
 
-				// Fetch the ActionModifiedRows associated with the SYNC action
-				const syncApplyAmrs = yield* clientB.actionModifiedRowRepo.findByActionRecordIds([
-					syncApplyAction.id
+				// Fetch the ActionModifiedRows associated with the CORRECTION action
+				const correctionAmrs = yield* clientB.actionModifiedRowRepo.findByActionRecordIds([
+					correctionAction.id
 				])
-				expect(syncApplyAmrs.length).toBe(1) // Should only modify the content field
-				const syncApplyAmr = syncApplyAmrs[0]
-				expect(syncApplyAmr).toBeDefined()
+				expect(correctionAmrs.length).toBe(1) // Should only modify the content field
+				const correctionAmr = correctionAmrs[0]
+				expect(correctionAmr).toBeDefined()
 
-				if (syncApplyAmr) {
-					expect(syncApplyAmr.table_name).toBe("notes")
-					expect(syncApplyAmr.row_id).toBe(noteId)
-					expect(syncApplyAmr.operation).toBe("UPDATE") // It's an update operation
+				if (correctionAmr) {
+					expect(correctionAmr.table_name).toBe("notes")
+					expect(correctionAmr.row_id).toBe(noteId)
+					expect(correctionAmr.operation).toBe("UPDATE") // It's an update operation
 					// Forward patches reflect the state Client B calculated locally
-					expect(syncApplyAmr.forward_patches).toHaveProperty("content", baseContent)
+					expect(correctionAmr.forward_patches).toHaveProperty("content", baseContent)
 					// Reverse patches should reflect the state *before* Client B applied the logic
-					expect(syncApplyAmr.reverse_patches).toHaveProperty("content", initialContent)
+					expect(correctionAmr.reverse_patches).toHaveProperty("content", initialContent)
 				}
 
 				// The original remote action (actionA) should be marked as applied on Client B
@@ -105,7 +106,7 @@ describe("Sync Divergence Scenarios", () => {
 	)
 
 	it.scoped(
-		"should apply received SYNC action directly",
+		"should apply received CORRECTION action directly",
 		() =>
 			Effect.gen(function* () {
 				// --- Arrange ---
@@ -120,7 +121,7 @@ describe("Sync Divergence Scenarios", () => {
 				// 1. ClientA creates initial note
 				const { result } = yield* clientA.syncService.executeAction(
 					clientA.testHelpers.createNoteAction({
-						title: "SYNC Apply Test",
+						title: "CORRECTION Apply Test",
 						content: initialContent,
 						user_id: "user1"
 					})
@@ -144,158 +145,170 @@ describe("Sync Divergence Scenarios", () => {
 				// 4. ClientA syncs action to server
 				yield* clientA.syncService.performSync()
 
-				// 5. ClientB syncs, receives actionA, applies locally, diverges, creates SYNC action
+				// 5. ClientB syncs, receives actionA, applies locally, diverges, creates CORRECTION action
 				yield* clientB.syncService.performSync()
-				const syncApplyActionsB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncApplyActionsB.length).toBe(1)
-				const syncActionBRecord = syncApplyActionsB[0]
-				expect(syncActionBRecord).toBeDefined()
-				if (!syncActionBRecord) return // Type guard
+				const correctionActionsB = yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActionsB.length).toBe(1)
+				const correctionActionBRecord = correctionActionsB[0]
+				expect(correctionActionBRecord).toBeDefined()
+				if (!correctionActionBRecord) return // Type guard
 
-				// 6. ClientB syncs again to send its SYNC action to the server
-				yield* Effect.log("--- Client B Syncing (Sending SYNC Action) ---")
+				// 6. ClientB syncs again to send its CORRECTION action to the server
+				yield* Effect.log("--- Client B Syncing (Sending CORRECTION Action) ---")
 				yield* clientB.syncService.performSync()
 
 				// --- Act ---
-				// 7. ClientC syncs. Should receive actionA AND syncActionBRecord.
+				// 7. ClientC syncs. Should receive actionA AND correctionActionBRecord.
 				// The SyncService should handle applying actionA, detecting divergence (like B did),
-				// but then applying syncActionBRecord's patches directly, overwriting the divergence.
-				yield* Effect.log("--- Client C Syncing (Applying SYNC Action) ---")
+				// but then applying correctionActionBRecord's patches directly, overwriting the divergence.
+				yield* Effect.log("--- Client C Syncing (Applying CORRECTION Action) ---")
 				yield* clientC.syncService.performSync()
 
 				// --- Assert ---
-				// Client C's final state should reflect the SYNC action from B
+				// Client C's final state should reflect the CORRECTION action from B
 				const noteC_final = yield* clientC.noteRepo.findById(noteId)
 				expect(noteC_final._tag).toBe("Some")
 				if (noteC_final._tag === "Some") {
-					// Content should match Client B's divergent state after applying B's SYNC action patches
+					// Content should match Client B's divergent state after applying B's CORRECTION action patches
 					expect(noteC_final.value.content).toBe(baseContent)
 				}
 
-				// Client C should have exactly ONE SYNC action: the one received from B.
-				const syncApplyActionsC = yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncApplyActionsC.length).toBe(1)
-				const syncActionOnC = syncApplyActionsC[0]
-				expect(syncActionOnC).toBeDefined()
+				// Client C should have exactly ONE CORRECTION action: the one received from B.
+				const correctionActionsC = yield* clientC.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActionsC.length).toBe(1)
+				const correctionActionOnC = correctionActionsC[0]
+				expect(correctionActionOnC).toBeDefined()
 				// Verify it's the one from B and it's applied + synced
-				if (syncActionOnC) {
-					expect(syncActionOnC.id).toBe(syncActionBRecord.id)
-					const isSyncAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(syncActionOnC.id)
-					expect(isSyncAppliedC).toBe(true)
-					expect(syncActionOnC.synced).toBe(true)
+				if (correctionActionOnC) {
+					expect(correctionActionOnC.id).toBe(correctionActionBRecord.id)
+					const isCorrectionAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+						correctionActionOnC.id
+					)
+					expect(isCorrectionAppliedC).toBe(true)
+					expect(correctionActionOnC.synced).toBe(true)
 				}
 
 				// The original action from A should be marked applied on C
 				const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
 				expect(isOriginalAppliedC).toBe(true)
 
-				// The SYNC action from B should be marked applied on C
-				const isSyncBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
-					syncActionBRecord.id
+				// The CORRECTION action from B should be marked applied on C
+				const isCorrectionBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+					correctionActionBRecord.id
 				)
-				expect(isSyncBAppliedC).toBe(true)
+				expect(isCorrectionBAppliedC).toBe(true)
 				// It should also be marked synced as it came from the server
-				const syncActionCOnC = yield* clientC.actionRecordRepo.findById(syncActionBRecord.id)
-				expect(syncActionCOnC._tag).toBe("Some")
-				if (syncActionCOnC._tag === "Some") {
-					expect(syncActionCOnC.value.synced).toBe(true)
+				const correctionActionOnCOption = yield* clientC.actionRecordRepo.findById(
+					correctionActionBRecord.id
+				)
+				expect(correctionActionOnCOption._tag).toBe("Some")
+				if (correctionActionOnCOption._tag === "Some") {
+					expect(correctionActionOnCOption.value.synced).toBe(true)
 				}
 			}).pipe(Effect.provide(makeTestLayers("server"))) // Provide layer for the test
 	)
 
-	it.scoped("should keep placeholder SYNC when received SYNC does not cover local divergence", () =>
-		Effect.gen(function* () {
-			// --- Arrange ---
-			const serverSql = yield* PgliteClient.PgliteClient
-			const clientA = yield* createTestClient("clientA", serverSql)
-			const clientB = yield* createTestClient("clientB", serverSql)
-			const clientC = yield* createTestClient("clientC", serverSql)
-			const baseContent = "Base Apply + Extra"
-			const suffixA = " Suffix Apply A"
-			const initialContent = "Initial Apply"
-			const clientCTags = ["clientC"]
+	it.scoped(
+		"should keep placeholder CORRECTION when received CORRECTION does not cover local divergence",
+		() =>
+			Effect.gen(function* () {
+				// --- Arrange ---
+				const serverSql = yield* PgliteClient.PgliteClient
+				const clientA = yield* createTestClient("clientA", serverSql)
+				const clientB = yield* createTestClient("clientB", serverSql)
+				const clientC = yield* createTestClient("clientC", serverSql)
+				const baseContent = "Base Apply + Extra"
+				const suffixA = " Suffix Apply A"
+				const initialContent = "Initial Apply"
+				const clientCTags = ["clientC"]
 
-			// 1. ClientA creates initial note
-			const { result } = yield* clientA.syncService.executeAction(
-				clientA.testHelpers.createNoteAction({
-					title: "SYNC Apply Extra Divergence Test",
-					content: initialContent,
-					user_id: "user1"
-				})
-			)
-			const noteId = result.id
+				// 1. ClientA creates initial note
+				const { result } = yield* clientA.syncService.executeAction(
+					clientA.testHelpers.createNoteAction({
+						title: "CORRECTION Apply Extra Divergence Test",
+						content: initialContent,
+						user_id: "user1"
+					})
+				)
+				const noteId = result.id
 
-			// 2. Sync all clients
-			yield* clientA.syncService.performSync()
-			yield* clientB.syncService.performSync()
-			yield* clientC.syncService.performSync()
+				// 2. Sync all clients
+				yield* clientA.syncService.performSync()
+				yield* clientB.syncService.performSync()
+				yield* clientC.syncService.performSync()
 
-			// 3. ClientA executes conditional update (adds suffix); clientC will additionally update tags.
-			const { actionRecord: actionA } = yield* clientA.syncService.executeAction(
-				clientA.testHelpers.conditionalUpdateWithClientCExtraAction({
-					id: noteId,
-					baseContent: baseContent, // Condition will fail on B and C (they don't add suffix)
-					conditionalSuffix: suffixA,
-					clientCTags
-				})
-			)
+				// 3. ClientA executes conditional update (adds suffix); clientC will additionally update tags.
+				const { actionRecord: actionA } = yield* clientA.syncService.executeAction(
+					clientA.testHelpers.conditionalUpdateWithClientCExtraAction({
+						id: noteId,
+						baseContent: baseContent, // Condition will fail on B and C (they don't add suffix)
+						conditionalSuffix: suffixA,
+						clientCTags
+					})
+				)
 
-			// 4. ClientA syncs action to server
-			yield* clientA.syncService.performSync()
+				// 4. ClientA syncs action to server
+				yield* clientA.syncService.performSync()
 
-			// 5. ClientB syncs, receives actionA, applies locally, diverges, creates SYNC action
-			yield* clientB.syncService.performSync()
-			const syncApplyActionsB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-			expect(syncApplyActionsB.length).toBe(1)
-			const syncActionBRecord = syncApplyActionsB[0]
-			expect(syncActionBRecord).toBeDefined()
-			if (!syncActionBRecord) return
+				// 5. ClientB syncs, receives actionA, applies locally, diverges, creates CORRECTION action
+				yield* clientB.syncService.performSync()
+				const correctionActionsB = yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActionsB.length).toBe(1)
+				const correctionActionBRecord = correctionActionsB[0]
+				expect(correctionActionBRecord).toBeDefined()
+				if (!correctionActionBRecord) return
 
-			// 6. ClientB syncs again to send its SYNC action to the server
-			yield* clientB.syncService.performSync()
+				// 6. ClientB syncs again to send its CORRECTION action to the server
+				yield* clientB.syncService.performSync()
 
-			// --- Act ---
-			// 7. ClientC syncs. Should receive actionA AND syncActionBRecord.
-			// ClientC should still keep its own placeholder SYNC because it has additional divergence (tags).
-			yield* clientC.syncService.performSync()
+				// --- Act ---
+				// 7. ClientC syncs. Should receive actionA AND correctionActionBRecord.
+				// ClientC should still keep its own placeholder CORRECTION because it has additional divergence (tags).
+				yield* clientC.syncService.performSync()
 
-			// --- Assert ---
-			const noteC_final = yield* clientC.noteRepo.findById(noteId)
-			expect(noteC_final._tag).toBe("Some")
-			if (noteC_final._tag === "Some") {
-				expect(noteC_final.value.content).toBe(baseContent)
-				expect(noteC_final.value.tags).toEqual(clientCTags)
-			}
+				// --- Assert ---
+				const noteC_final = yield* clientC.noteRepo.findById(noteId)
+				expect(noteC_final._tag).toBe("Some")
+				if (noteC_final._tag === "Some") {
+					expect(noteC_final.value.content).toBe(baseContent)
+					expect(noteC_final.value.tags).toEqual(clientCTags)
+				}
 
-			const syncApplyActionsC = yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
-			expect(syncApplyActionsC.length).toBe(2)
+				const correctionActionsC = yield* clientC.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActionsC.length).toBe(2)
 
-			const receivedSyncOnC = syncApplyActionsC.find((a) => a.id === syncActionBRecord.id)
-			const localSyncOnC = syncApplyActionsC.find((a) => a.id !== syncActionBRecord.id)
-			expect(receivedSyncOnC).toBeDefined()
-			expect(localSyncOnC).toBeDefined()
-			if (!receivedSyncOnC || !localSyncOnC) return
+				const receivedCorrectionOnC = correctionActionsC.find(
+					(a) => a.id === correctionActionBRecord.id
+				)
+				const localCorrectionOnC = correctionActionsC.find(
+					(a) => a.id !== correctionActionBRecord.id
+				)
+				expect(receivedCorrectionOnC).toBeDefined()
+				expect(localCorrectionOnC).toBeDefined()
+				if (!receivedCorrectionOnC || !localCorrectionOnC) return
 
-			expect(receivedSyncOnC.synced).toBe(true)
-			expect(localSyncOnC.synced).toBe(true)
+				expect(receivedCorrectionOnC.synced).toBe(true)
+				expect(localCorrectionOnC.synced).toBe(true)
 
-			const localSyncAmrs = yield* clientC.actionModifiedRowRepo.findByActionRecordIds([
-				localSyncOnC.id
-			])
-			expect(localSyncAmrs.length).toBeGreaterThan(0)
-			const hasTagsPatch = localSyncAmrs.some((amr) =>
-				Object.prototype.hasOwnProperty.call(amr.forward_patches, "tags")
-			)
-			expect(hasTagsPatch).toBe(true)
+				const localCorrectionAmrs = yield* clientC.actionModifiedRowRepo.findByActionRecordIds([
+					localCorrectionOnC.id
+				])
+				expect(localCorrectionAmrs.length).toBeGreaterThan(0)
+				const hasTagsPatch = localCorrectionAmrs.some((amr) =>
+					Object.prototype.hasOwnProperty.call(amr.forward_patches, "tags")
+				)
+				expect(hasTagsPatch).toBe(true)
 
-			// The original action from A should be marked applied on C
-			const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
-			expect(isOriginalAppliedC).toBe(true)
+				// The original action from A should be marked applied on C
+				const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
+				expect(isOriginalAppliedC).toBe(true)
 
-			// The SYNC action from B should be marked applied on C
-			const isSyncBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(syncActionBRecord.id)
-			expect(isSyncBAppliedC).toBe(true)
-		}).pipe(Effect.provide(makeTestLayers("server")))
+				// The CORRECTION action from B should be marked applied on C
+				const isCorrectionBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+					correctionActionBRecord.id
+				)
+				expect(isCorrectionBAppliedC).toBe(true)
+			}).pipe(Effect.provide(makeTestLayers("server")))
 	)
 
 	it.scopedLive(

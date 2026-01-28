@@ -75,7 +75,7 @@ This allows a single `receiveActions` call to safely re-materialize actions acro
 - **Authoritative materialization:** server base tables match the defined materialization semantics for the stored log.
 - **Idempotent ingest + apply:** safe retries, duplicate uploads, and partial failures.
 - **Late-arrival correctness:** older-clock actions arriving later must be incorporated into the canonical materialized state.
-- **No server action logic:** server stays patch-only; SYNC deltas remain patch-only actions.
+- **No server action logic:** server stays patch-only; CORRECTION deltas remain patch-only actions.
 - **RLS enforcement:** patch application honors application RLS policies under the authenticated context.
 
 ### Non-goals (for this doc)
@@ -94,7 +94,7 @@ Define the server’s canonical materialized state as the result of:
 
 Notes:
 
-- `_InternalSyncApply` is a normal patch-carrying action and participates in the same ordering.
+- `_InternalCorrectionApply` is a normal patch-carrying action and participates in the same ordering.
 - `RollbackAction` has no patches; whether it participates is a semantic decision (see below).
 
 ## Proposed Server Materializer Design
@@ -152,11 +152,11 @@ The server must roll back and replay **internally** to incorporate late-arriving
 - Replicas may use it to take the safe path (rollback+replay) even if they would otherwise try to fast-forward.
 - The server may use the oldest rollback target in an ingest batch as an efficient rollback point for re-materialization.
 
-Historical note: an earlier design tried “server-side rebase” by re-recording replayed actions as new `action_records`. This caused practical issues and was abandoned in favor of “replay existing history + optionally emit patch-only SYNC deltas”.
+Historical note: an earlier design tried “server-side rebase” by re-recording replayed actions as new `action_records`. This caused practical issues and was abandoned in favor of “replay existing history + optionally emit patch-only CORRECTION deltas”.
 
 ## Upload Gate (Server-Side)
 
-Because the server does not execute action logic, it relies on clients to reconcile locally (rollback+replay and emit SYNC deltas) before uploading patches.
+Because the server does not execute action logic, it relies on clients to reconcile locally (rollback+replay and emit CORRECTION deltas) before uploading patches.
 
 For now (assuming honest clients), the server enforces a single coarse correctness gate:
 
@@ -210,7 +210,7 @@ Add server-focused tests (can be PGlite-backed or Postgres-in-docker, depending 
 ## Related
 
 - Fetch cursor / late arrival: `docs/planning/todo/0002-reliable-fetch-cursor.md`
-- SYNC delta semantics (stabilization + overwrite cases): `docs/planning/todo/0003-sync-action-semantics.md`
+- CORRECTION delta semantics (stabilization + overwrite cases): `docs/planning/todo/0003-sync-action-semantics.md`
 - RLS policies & visibility: `docs/planning/todo/0004-rls-policies.md`
 - Sort key definition: `docs/planning/todo/0001-rework-sort-key.md`
 - Audit notes motivating this doc: `docs/planning/sync-design-implementation-audit.md`

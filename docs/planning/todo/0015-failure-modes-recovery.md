@@ -81,7 +81,7 @@ even though:
 
 **Example:** Electric/transport writes `action_records` first and AMRs later.
 
-**Current behavior:** `performSync()` bails out early to avoid generating spurious outgoing SYNC deltas.
+**Current behavior:** `performSync()` bails out early to avoid generating spurious outgoing CORRECTION deltas.
 
 **Desired outcome:** bounded “wait for patches” retry/backoff and clear logging so it doesn’t look like a hang.
 

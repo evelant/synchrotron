@@ -40,7 +40,7 @@ Improve maintainability and understandability by clarifying package boundaries, 
 ## Architecture at a glance
 
 - `packages/sync-core`
-  - Core algorithm + storage model: action log (`action_records`) + row patches (`action_modified_rows`) + rollback/replay + SYNC deltas
+  - Core algorithm + storage model: action log (`action_records`) + row patches (`action_modified_rows`) + rollback/replay + CORRECTION deltas
   - DB schema + patch capture triggers (`packages/sync-core/src/db/*`)
   - Repositories (`ActionRecordRepo`, `ActionModifiedRowRepo`)
   - Core runtime orchestrator (`SyncService`)
@@ -94,7 +94,7 @@ It currently owns:
 - local action execution + patch capture context
 - remote ingress coordination (including snapshot bootstrap policy)
 - apply pipeline (idempotency, patch completeness checks)
-- reconciliation (rollback + replay) + SYNC delta emission
+- reconciliation (rollback + replay) + CORRECTION delta emission
 - recovery policies (hard resync, rebase, quarantine)
 
 This works, but it was hard to read, test, and evolve because responsibilities were interleaved inside one large service constructor.
@@ -104,7 +104,7 @@ This has since been addressed: `SyncService.ts` is now primarily wiring, and the
 - `SyncServiceBootstrap.ts` (bootstrap snapshot apply helpers)
 - `SyncServiceExecuteAction.ts` (local action execution)
 - `SyncServiceRollback.ts` (rollback + common-ancestor discovery)
-- `SyncServiceApply.ts` (apply pipeline + SYNC delta handling)
+- `SyncServiceApply.ts` (apply pipeline + CORRECTION delta handling)
 - `SyncServiceUpload.ts` (upload pipeline)
 - `SyncServiceQuarantine.ts` (quarantine + discard flow)
 - `SyncServiceRecovery.ts` (hard resync + rebase)
@@ -226,7 +226,7 @@ Split `SyncService` into internal modules/services with narrower APIs:
 
 - snapshot bootstrap logic
 - remote apply pipeline (idempotency + patch completeness gate)
-- reconcile engine (rollback + replay + SYNC delta emission)
+- reconcile engine (rollback + replay + CORRECTION delta emission)
 - local upload pipeline (+ quarantine policy)
 
 Split `SyncServerService` similarly:

@@ -1,5 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import { Effect, Option } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
@@ -12,7 +13,7 @@ const waitForNextMillisecond = Effect.sync(() => {
 
 describe("Shared-field overwrite convergence", () => {
 	it.scoped(
-		"converges to the last SYNC overwrite in canonical order",
+		"converges to the last CORRECTION overwrite in canonical order",
 		() =>
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
@@ -43,7 +44,7 @@ describe("Shared-field overwrite convergence", () => {
 				)
 				yield* source.syncService.performSync()
 
-				// Client A applies the base action and emits an overwriting SYNC ("Base-clientA"),
+				// Client A applies the base action and emits an overwriting CORRECTION ("Base-clientA"),
 				// then uploads it.
 				yield* clientA.syncService.performSync()
 				const noteAAfterBase = yield* clientA.noteRepo.findById(note.id)
@@ -54,29 +55,31 @@ describe("Shared-field overwrite convergence", () => {
 
 				yield* waitForNextMillisecond
 
-				// Client B receives the base action and A's SYNC in one batch, computes a different
-				// shared-field value ("Base-clientB"), and emits a second overwriting SYNC.
+				// Client B receives the base action and A's CORRECTION in one batch, computes a different
+				// shared-field value ("Base-clientB"), and emits a second overwriting CORRECTION.
 				yield* clientB.syncService.performSync()
-				const syncActionsOnB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-				// B should have both the received SYNC from A and its own newly-emitted SYNC.
-				expect(syncActionsOnB.length).toBe(2)
-				const localSyncOnB = syncActionsOnB.find((a) => a.client_id === "clientB")
-				expect(localSyncOnB?.synced).toBe(true)
+				const correctionActionsOnB = yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+				// B should have both the received CORRECTION from A and its own newly-emitted CORRECTION.
+				expect(correctionActionsOnB.length).toBe(2)
+				const localCorrectionOnB = correctionActionsOnB.find((a) => a.client_id === "clientB")
+				expect(localCorrectionOnB?.synced).toBe(true)
 
-				// Client A fast-forwards the later SYNC (no replay of the underlying action) and converges.
+				// Client A fast-forwards the later CORRECTION (no replay of the underlying action) and converges.
 				yield* clientA.syncService.performSync()
 				const noteAAfterB = yield* clientA.noteRepo.findById(note.id)
 				expect(noteAAfterB.pipe(Option.map((n) => n.content)).pipe(Option.getOrThrow)).toBe(
 					"Base-clientB"
 				)
 
-				// A subsequent sync pass without new inputs does not emit additional SYNC.
+				// A subsequent sync pass without new inputs does not emit additional CORRECTION.
 				yield* clientA.syncService.performSync()
 				yield* clientB.syncService.performSync()
-				const syncCountA = (yield* clientA.actionRecordRepo.findByTag("_InternalSyncApply")).length
-				const syncCountB = (yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")).length
-				expect(syncCountA).toBe(2)
-				expect(syncCountB).toBe(2)
+				const correctionCountA = (yield* clientA.actionRecordRepo.findByTag(CorrectionActionTag))
+					.length
+				const correctionCountB = (yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag))
+					.length
+				expect(correctionCountA).toBe(2)
+				expect(correctionCountB).toBe(2)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30000 }
 	)

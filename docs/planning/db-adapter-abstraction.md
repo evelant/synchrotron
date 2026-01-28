@@ -72,7 +72,7 @@ Requirement:
 Today:
 
 - An AFTER trigger calls `generate_patches()` and stores diffs into `action_modified_rows` using the transaction’s action record (`txid_current()`) (`packages/sync-core/src/db/sql/patch/generate_patches.ts`).
-- During apply/replay, patches for a batch are attributed to a single placeholder record (`_InternalSyncApply`) and compared to the incoming patches (`packages/sync-core/src/SyncService.ts`).
+- During apply/replay, patches for a batch are attributed to a single placeholder record (`_InternalCorrectionApply`) and compared to the incoming patches (`packages/sync-core/src/sync/SyncServiceApply.ts`).
 
 Adapter implications:
 

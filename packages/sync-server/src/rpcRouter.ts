@@ -2,6 +2,7 @@ import type { Headers as PlatformHeaders } from "@effect/platform/Headers"
 import { HLC } from "@synchrotron/sync-core/HLC"
 import type { HLC as HLCType } from "@synchrotron/sync-core/HLC"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import type {
 	FetchBootstrapSnapshot,
 	FetchRemoteActions,
@@ -186,7 +187,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 						acc[a._tag] = (acc[a._tag] ?? 0) + 1
 						return acc
 					}, {}),
-					hasSyncDelta: payload.actions.some((a) => a._tag === "_InternalSyncApply")
+					hasCorrectionDelta: payload.actions.some((a) => a._tag === CorrectionActionTag)
 				})
 
 				yield* serverService

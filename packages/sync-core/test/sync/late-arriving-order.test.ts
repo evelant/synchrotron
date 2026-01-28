@@ -1,5 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import { Effect, Option } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
@@ -113,8 +114,9 @@ describe("Late-arriving action ordering", () => {
 					"Title-new"
 				)
 
-				const syncActionsAfterNew = yield* receiver.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncActionsAfterNew.length).toBe(0)
+				const correctionActionsAfterNew =
+					yield* receiver.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActionsAfterNew.length).toBe(0)
 
 				const oldUpdateAmrs = yield* remoteOld.actionModifiedRowRepo.findByActionRecordIds([
 					oldUpdate.id

@@ -138,7 +138,7 @@ This becomes the single place to encode DB specifics (SQL dialect differences, u
 `SyncService.performSync()` continues to:
 
 - discover remote work via `findSyncedButUnapplied()`
-- refuse to apply remote actions until their patches are present (prevents spurious SYNC deltas)
+- refuse to apply remote actions until their patches are present (prevents spurious CORRECTION deltas)
 - advance `last_seen_server_ingest_id` only after apply/reconcile succeeds
 
 So the transport does not need to be “perfectly ordered” or “transactional”, only reliable enough to eventually deliver the rows.

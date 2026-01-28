@@ -11,6 +11,7 @@ import type { ClientDbAdapterService } from "../ClientDbAdapter"
 import { sortClocks } from "../ClockOrder"
 import type { DeterministicId } from "../DeterministicId"
 import { applyForwardAmrs } from "../PatchApplier"
+import { CorrectionActionTag, RollbackActionTag } from "../SyncActionTags"
 import { bindJsonParam } from "../SqlJson"
 import { SyncError } from "../SyncServiceErrors"
 import { deepObjectEquals } from "../utils"
@@ -43,7 +44,7 @@ export const makeApplyActionRecords = (deps: {
 	} = deps
 
 	/**
-	 * Applies incoming remote actions, creating a SYNC record to capture the resulting
+	 * Applies incoming remote actions, creating a CORRECTION record to capture the resulting
 	 * patches, and compares them against original patches to detect divergence.
 	 */
 	const applyActionRecords = (remoteActions: readonly ActionRecord[]) =>
@@ -67,40 +68,38 @@ export const makeApplyActionRecords = (deps: {
 					// 1. Use an application-level transaction identifier for the batch.
 					const transactionId = Date.now()
 
-					// 2. Create ONE placeholder SYNC ActionRecord for the batch
-					const syncActionTag = "_InternalSyncApply"
-					const syncActionArgs = {
+					// 2. Create ONE placeholder CORRECTION ActionRecord for the batch
+					const correctionActionArgs = {
 						appliedActionIds: remoteActions.map((a) => a.id),
 						timestamp: 0 // Add placeholder timestamp for internal action
 					}
 					const currentClock = yield* clockState.getCurrentClock // Use clock before potential increments
-					const syncRecord = yield* actionRecordRepo.insert(
+					const correctionRecord = yield* actionRecordRepo.insert(
 						ActionRecord.insert.make({
 							id: crypto.randomUUID(),
 							client_id: clientId,
 							clock: currentClock, // Use current clock initially
-							_tag: syncActionTag,
-							args: syncActionArgs,
+							_tag: CorrectionActionTag,
+							args: correctionActionArgs,
 							created_at: new Date(),
 							synced: false, // Placeholder is initially local
 							transaction_id: transactionId
 						})
 					)
-					yield* Effect.logDebug("applyActionRecords.createdSyncPlaceholder", {
+					yield* Effect.logDebug("applyActionRecords.createdCorrectionPlaceholder", {
 						applyBatchId,
-						syncActionRecordId: syncRecord.id,
-						syncActionTag
+						correctionActionRecordId: correctionRecord.id
 					})
-					yield* clientDbAdapter.setCaptureContext(syncRecord.id)
+					yield* clientDbAdapter.setCaptureContext(correctionRecord.id)
 
-					// 3. Apply the incoming remote actions' logic (or patches for SYNC) in HLC order
+					// 3. Apply the incoming remote actions' logic (or patches for CORRECTION) in HLC order
 					const sortedRemoteActions = sortClocks(
 						remoteActions.map((a) => ({ ...a, clientId: a.client_id }))
 					)
 
 					const applyOneRemoteAction = (actionRecord: ActionRecord) =>
 						Effect.gen(function* () {
-							if (actionRecord._tag === "RollbackAction") {
+							if (actionRecord._tag === RollbackActionTag) {
 								yield* Effect.logTrace(
 									`Skipping RollbackAction during applyActionRecords (re-materialization is handled at the sync strategy level): ${actionRecord.id}`
 								)
@@ -110,25 +109,25 @@ export const makeApplyActionRecords = (deps: {
 
 							const actionCreator = actionRegistry.getActionCreator(actionRecord._tag)
 
-							if (actionRecord._tag === "_InternalSyncApply") {
-								yield* Effect.logDebug("applyActionRecords.applyReceivedSyncPatches", {
-									receivedSyncActionId: actionRecord.id
+							if (actionRecord._tag === CorrectionActionTag) {
+								yield* Effect.logDebug("applyActionRecords.applyReceivedCorrectionPatches", {
+									receivedCorrectionActionId: actionRecord.id
 								})
-								const syncAmrs = yield* actionModifiedRowRepo.findByActionRecordIds([
+								const correctionAmrs = yield* actionModifiedRowRepo.findByActionRecordIds([
 									actionRecord.id
 								])
-								if (syncAmrs.length > 0) {
+								if (correctionAmrs.length > 0) {
 									yield* clientDbAdapter.withPatchTrackingDisabled(
-										applyForwardAmrs(syncAmrs).pipe(
+										applyForwardAmrs(correctionAmrs).pipe(
 											Effect.provideService(SqlClient.SqlClient, sqlClient)
 										)
 									)
 									yield* Effect.logDebug(
-										`Applied forward patches for ${syncAmrs.length} AMRs associated with received SYNC action ${actionRecord.id}`
+										`Applied forward patches for ${correctionAmrs.length} AMRs associated with received CORRECTION action ${actionRecord.id}`
 									)
 								} else {
 									yield* Effect.logWarning(
-										`Received SYNC action ${actionRecord.id} had no associated ActionModifiedRows.`
+										`Received CORRECTION action ${actionRecord.id} had no associated ActionModifiedRows.`
 									)
 								}
 							} else if (!actionCreator) {
@@ -172,19 +171,19 @@ export const makeApplyActionRecords = (deps: {
 					// local actions carry causal context (vector) and don't regress vs. far-future remotes.
 					yield* clockState.observeRemoteClocks(sortedRemoteActions.map((a) => a.clock))
 
-					// 4. Fetch *all* generated patches associated with the placeholder SYNC ActionRecord
+					// 4. Fetch *all* generated patches associated with the placeholder CORRECTION ActionRecord
 					const generatedPatches = yield* actionModifiedRowRepo.findByActionRecordIds([
-						syncRecord.id
+						correctionRecord.id
 					])
 
 					// 5. Fetch *all* original patches associated with *all* received actions
 					const originalRemoteActionIds = sortedRemoteActions
-						.filter((a) => a._tag !== "_InternalSyncApply" && a._tag !== "RollbackAction")
+						.filter((a) => a._tag !== CorrectionActionTag && a._tag !== RollbackActionTag)
 						.map((a) => a.id)
 					const originalPatches =
 						yield* actionModifiedRowRepo.findByActionRecordIds(originalRemoteActionIds)
 					const knownRemoteActionIds = sortedRemoteActions
-						.filter((a) => a._tag !== "RollbackAction")
+						.filter((a) => a._tag !== RollbackActionTag)
 						.map((a) => a.id)
 					const knownPatches =
 						yield* actionModifiedRowRepo.findByActionRecordIds(knownRemoteActionIds)
@@ -196,7 +195,7 @@ export const makeApplyActionRecords = (deps: {
 						`Original Patches (${originalPatches.length}): ${JSON.stringify(originalPatches, null, 2)}`
 					)
 					yield* Effect.logDebug(
-						`Known Patches (Base + SYNC) (${knownPatches.length}): ${JSON.stringify(knownPatches, null, 2)}`
+						`Known Patches (Base + CORRECTION) (${knownPatches.length}): ${JSON.stringify(knownPatches, null, 2)}`
 					)
 
 					// 6. Compare total generated patches vs. total original patches
@@ -263,16 +262,16 @@ export const makeApplyActionRecords = (deps: {
 						}
 					}
 
-					const hasSyncDelta = deltaRowKeys.length > 0
+					const hasCorrectionDelta = deltaRowKeys.length > 0
 
 					yield* Effect.logDebug(
 						`Overall Divergence check (strict): Generated ${generatedPatches.length} patches, Original ${originalPatches.length} patches. Identical: ${arePatchesIdentical}`
 					)
 					yield* Effect.logDebug(
-						`SYNC delta check (generated - known): delta rows=${deltaRowKeys.length}, covered rows=${coveredRowKeys.length}`
+						`CORRECTION delta check (generated - known): delta rows=${deltaRowKeys.length}, covered rows=${coveredRowKeys.length}`
 					)
 
-					if (hasSyncDelta) {
+					if (hasCorrectionDelta) {
 						const deltaDetails = deltaRowKeys.map(({ table_name, row_id }) => {
 							const key = `${table_name}|${row_id}`
 							const generated = generatedFinalEffects.get(key)
@@ -355,9 +354,9 @@ export const makeApplyActionRecords = (deps: {
 						// Overwrites are a distinct severity class: they can indicate shared-field divergence or action impurity.
 						const logDelta = hasOverwrites ? Effect.logError : Effect.logWarning
 
-						yield* logDelta("applyActionRecords.syncDeltaDetected", {
+						yield* logDelta("applyActionRecords.correctionDeltaDetected", {
 							applyBatchId,
-							syncActionRecordId: syncRecord.id,
+							correctionActionRecordId: correctionRecord.id,
 							deltaRowCount: deltaRowKeys.length,
 							coveredRowCount: coveredRowKeys.length,
 							hasOverwrites,
@@ -367,32 +366,34 @@ export const makeApplyActionRecords = (deps: {
 						})
 					}
 
-					if (!hasSyncDelta) {
+					if (!hasCorrectionDelta) {
 						yield* Effect.logInfo(
-							"No outgoing SYNC delta remains after accounting for received patches (base + SYNC). Deleting placeholder SYNC action."
+							"No outgoing CORRECTION delta remains after accounting for received patches (base + CORRECTION). Deleting placeholder CORRECTION action."
 						)
-						yield* actionModifiedRowRepo.deleteByActionRecordIds(syncRecord.id)
-						yield* actionRecordRepo.deleteById(syncRecord.id)
+						yield* actionModifiedRowRepo.deleteByActionRecordIds(correctionRecord.id)
+						yield* actionRecordRepo.deleteById(correctionRecord.id)
 					} else {
 						// 7b. Divergence detected and there is remaining delta to sync:
-						yield* Effect.logWarning("Overall divergence detected Keeping placeholder SYNC action.")
-						// Prune any generated patches that are already covered by received patches (base + SYNC).
+						yield* Effect.logWarning(
+							"Overall divergence detected. Keeping placeholder CORRECTION action."
+						)
+						// Prune any generated patches that are already covered by received patches (base + CORRECTION).
 						for (const { table_name, row_id } of coveredRowKeys) {
 							yield* sqlClient`
 								DELETE FROM action_modified_rows
-								WHERE action_record_id = ${syncRecord.id}
+								WHERE action_record_id = ${correctionRecord.id}
 								AND table_name = ${table_name}
 								AND row_id = ${row_id}
 							`
 						}
-						const newSyncClock = yield* clockState.incrementClock
+						const newCorrectionClock = yield* clockState.incrementClock
 						yield* Effect.logDebug(
-							`Updating placeholder SYNC action ${syncRecord.id} clock due to divergence: ${JSON.stringify(newSyncClock)}`
+							`Updating placeholder CORRECTION action ${correctionRecord.id} clock due to divergence: ${JSON.stringify(newCorrectionClock)}`
 						)
-						const clockValue = bindJsonParam(sqlClient, newSyncClock)
-						yield* sqlClient`UPDATE action_records SET clock = ${clockValue} WHERE id = ${syncRecord.id}`
+						const clockValue = bindJsonParam(sqlClient, newCorrectionClock)
+						yield* sqlClient`UPDATE action_records SET clock = ${clockValue} WHERE id = ${correctionRecord.id}`
 						// The delta patches are already applied locally (they came from replay). Track this so rollbacks are correct.
-						yield* actionRecordRepo.markLocallyApplied(syncRecord.id)
+						yield* actionRecordRepo.markLocallyApplied(correctionRecord.id)
 					}
 
 					yield* clockState.updateLastSyncedClock().pipe(

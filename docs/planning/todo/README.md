@@ -12,14 +12,14 @@ This folder contains **internal planning docs** for Synchrotron. These are not u
 
 ## Chores
 
-- Rename SYNC corrective action to CORRECTION for clarity since "sync" is a frequently used term elsewhere
+- (none)
 
 ## Implemented (with follow-ups possible)
 
 | ID     | Topic                                               | Status      |
 | ------ | --------------------------------------------------- | ----------- |
-| `0003` | SYNC action semantics (batch delta)                 | Implemented |
-| `006`  | SYNC conflicts (shared-field overwrites)            | Implemented |
+| `0003` | CORRECTION action semantics (batch delta)           | Implemented |
+| `006`  | CORRECTION conflicts (shared-field overwrites)      | Implemented |
 | `0007` | Server materialization (authoritative patch apply)  | Implemented |
 | `0010` | JWT auth for RPC (`user_id` for RLS)                | Implemented |
 | `0011` | Shared rows via `audience_key` + membership mapping | Implemented |

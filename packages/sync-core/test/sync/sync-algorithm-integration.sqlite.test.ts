@@ -1,5 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
 import { Effect, Option } from "effect"
 import { makeSqliteTestServerLayer, withSqliteTestClients } from "../helpers/SqliteTestLayers"
@@ -50,9 +51,9 @@ describe("Sync Algorithm Integration (SQLite clients)", () => {
 						)
 						expect(isAppliedClient1).toBe(true)
 
-						const syncApplyRecordsClient1 =
-							yield* client1.actionRecordRepo.findByTag("_InternalSyncApply")
-						expect(syncApplyRecordsClient1.length).toBe(0)
+						const correctionRecordsClient1 =
+							yield* client1.actionRecordRepo.findByTag(CorrectionActionTag)
+						expect(correctionRecordsClient1.length).toBe(0)
 
 						const serverAction =
 							yield* serverSql<ActionRecord>`SELECT * FROM action_records WHERE id = ${remoteActionRecord.id}`

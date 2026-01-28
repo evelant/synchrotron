@@ -8,6 +8,7 @@ import {
 	ActionRegistry,
 	ClientClockState,
 	ClientIdOverride,
+	CorrectionActionTag,
 	DeterministicId,
 	PostgresClientDbAdapter,
 	SyncNetworkService,
@@ -146,7 +147,7 @@ describe("ElectricSyncService", () => {
 			const actionRow = {
 				server_ingest_id: 1,
 				id: actionId,
-				_tag: "_InternalSyncApply",
+				_tag: CorrectionActionTag,
 				client_id: "remote",
 				transaction_id: 1,
 				clock: { timestamp: 1000, vector: { remote: 1 } },
@@ -257,7 +258,7 @@ describe("ElectricSyncService", () => {
 			const actionRow = {
 				server_ingest_id: 42,
 				id: actionId,
-				_tag: "_InternalSyncApply",
+				_tag: CorrectionActionTag,
 				client_id: "remote",
 				transaction_id: 1,
 				clock: { timestamp: 1000, vector: { remote: 1 } },

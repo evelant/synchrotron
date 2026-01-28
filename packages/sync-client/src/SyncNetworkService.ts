@@ -13,7 +13,7 @@ import {
 import { HLC } from "@synchrotron/sync-core/HLC"
 import type { ActionRecord } from "@synchrotron/sync-core/models"
 import type { ActionModifiedRow } from "@synchrotron/sync-core/models"
-import { ClientClockState, ClientIdentity } from "@synchrotron/sync-core"
+import { ClientClockState, ClientIdentity, CorrectionActionTag } from "@synchrotron/sync-core"
 import { Cause, Chunk, Effect, Layer, Option, Redacted } from "effect"
 import { SynchrotronClientConfig } from "./config"
 import { SyncRpcAuthToken } from "./SyncRpcAuthToken"
@@ -107,17 +107,17 @@ const makeSyncNetworkServiceLayer = (fetchMode: RemoteFetchMode) =>
 						amrCountsByTable: amrSummary.countsByTable
 					})
 
-					const syncActionIds = new Set(
-						actions.filter((a) => a._tag === "_InternalSyncApply").map((a) => a.id)
+					const correctionActionIds = new Set(
+						actions.filter((a) => a._tag === CorrectionActionTag).map((a) => a.id)
 					)
-					if (syncActionIds.size > 0) {
-						const syncAmrs = amrs
-							.filter((amr) => syncActionIds.has(amr.action_record_id))
+					if (correctionActionIds.size > 0) {
+						const correctionAmrs = amrs
+							.filter((amr) => correctionActionIds.has(amr.action_record_id))
 							.slice(0, 10)
-						yield* Effect.logDebug("sync.network.sendLocalActions.syncDelta.preview", {
+						yield* Effect.logDebug("sync.network.sendLocalActions.correctionDelta.preview", {
 							clientId,
-							syncActionIds: Array.from(syncActionIds),
-							syncAmrPreview: syncAmrs.map((amr) => ({
+							correctionActionIds: Array.from(correctionActionIds),
+							correctionAmrPreview: correctionAmrs.map((amr) => ({
 								id: amr.id,
 								table_name: amr.table_name,
 								row_id: amr.row_id,

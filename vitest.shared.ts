@@ -22,6 +22,8 @@ const config: ViteUserConfig = {
 		preserveSymlinks: true
 	},
 	test: {
+		testTimeout: 30000,
+		hookTimeout: 30000,
 		disableConsoleIntercept: true,
 		// setupFiles: [path.join(__dirname, "vitest.setup.ts")],
 		fakeTimers: {

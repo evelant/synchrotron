@@ -1,5 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import { Effect, Option } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
@@ -50,7 +51,7 @@ describe("Ingest/apply idempotency", () => {
 	)
 
 	it.scoped(
-		"re-applying the same received _InternalSyncApply does not error or create new outgoing SYNC",
+		"re-applying the same received CORRECTION does not error or create new outgoing CORRECTION",
 		() =>
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
@@ -84,18 +85,18 @@ describe("Ingest/apply idempotency", () => {
 				yield* clientA.syncService.performSync()
 
 				yield* clientB.syncService.performSync()
-				const syncActionsB = yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncActionsB.length).toBe(1)
-				const syncActionB = syncActionsB[0]!
+				const correctionActionsB = yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActionsB.length).toBe(1)
+				const correctionActionB = correctionActionsB[0]!
 
-				// Send SYNC delta to server.
+				// Send CORRECTION delta to server.
 				yield* clientB.syncService.performSync()
 
 				// First apply on C.
 				yield* clientC.syncService.performSync()
-				const syncActionsC = yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncActionsC.length).toBe(1)
-				expect(syncActionsC[0]!.id).toBe(syncActionB.id)
+				const correctionActionsC = yield* clientC.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActionsC.length).toBe(1)
+				expect(correctionActionsC[0]!.id).toBe(correctionActionB.id)
 
 				const baseIngestId = (yield* serverSql<{ server_ingest_id: number }>`
 						SELECT server_ingest_id
@@ -105,7 +106,7 @@ describe("Ingest/apply idempotency", () => {
 				expect(baseIngestId).toBeDefined()
 				if (baseIngestId === undefined) return
 
-				// Force C to re-fetch the SYNC action (but not the earlier actions).
+				// Force C to re-fetch the CORRECTION action (but not the earlier actions).
 				yield* clientC.rawSql`
 					UPDATE client_sync_status
 					SET last_seen_server_ingest_id = ${baseIngestId}
@@ -114,7 +115,7 @@ describe("Ingest/apply idempotency", () => {
 
 				yield* clientC.syncService.performSync()
 
-				// Desired behavior: no outgoing placeholder SYNC is kept.
+				// Desired behavior: no outgoing placeholder CORRECTION is kept.
 				const unsyncedAfter = yield* clientC.actionRecordRepo.allUnsynced()
 				expect(unsyncedAfter.length).toBe(0)
 			}).pipe(Effect.provide(makeTestLayers("server"))),

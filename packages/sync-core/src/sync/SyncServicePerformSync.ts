@@ -325,7 +325,7 @@ export const makePerformSync = (deps: {
 						// - rollback correctness requires reverse patches for applied actions
 						// - divergence detection requires comparing replay patches vs. original patches
 						// If ingress is mid-flight (e.g. action_records arrived before action_modified_rows),
-						// bail out and retry later rather than creating spurious outgoing SYNC deltas.
+						// bail out and retry later rather than creating spurious outgoing CORRECTION deltas.
 						const remoteIdsNeedingPatches = remoteActions
 							.filter((a) => a._tag !== "RollbackAction")
 							.map((a) => a.id)

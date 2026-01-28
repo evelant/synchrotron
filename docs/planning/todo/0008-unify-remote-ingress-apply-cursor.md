@@ -225,7 +225,7 @@ Implemented regressions:
 - DB-driven remote apply when fetch returns `[]`: `packages/sync-core/test/sync/remote-ingest.test.ts`
 - Applied cursor semantics (does not advance on ingress alone; advances after apply): `packages/sync-core/test/sync/remote-ingest.test.ts`
 - Duplicate ingress idempotency (Electric + fetch): `packages/sync-core/test/sync/remote-ingest.test.ts`
-- Do not apply remote actions until their patches are present (prevents spurious outgoing SYNC): `packages/sync-core/test/sync/remote-ingest.test.ts`
+- Do not apply remote actions until their patches are present (prevents spurious outgoing CORRECTION): `packages/sync-core/test/sync/remote-ingest.test.ts`
 - Electric-only mode: ingest+apply via Electric even when `fetchRemoteActions` is a no-op: `packages/sync-client/test/electric/ElectricSyncService.test.ts`
 - Electric up-to-date gating: only trigger `performSync` once both shapes report `last=true`: `packages/sync-client/test/electric/ElectricSyncService.test.ts`
 

@@ -1,11 +1,12 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import { Effect } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
 
 describe("Unknown remote actions", () => {
 	it.scoped(
-		"fails atomically on unknown action tags (no partial apply, no persisted SYNC placeholder)",
+		"fails atomically on unknown action tags (no partial apply, no persisted CORRECTION placeholder)",
 		() =>
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
@@ -43,9 +44,9 @@ describe("Unknown remote actions", () => {
 				const noteOnReceiver = yield* receiver.noteRepo.findById(note.id)
 				expect(noteOnReceiver._tag).toBe("None")
 
-				// The per-batch placeholder SYNC action should not be persisted on failure.
-				const syncActions = yield* receiver.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(syncActions.length).toBe(0)
+				// The per-batch placeholder CORRECTION action should not be persisted on failure.
+				const correctionActions = yield* receiver.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(correctionActions.length).toBe(0)
 
 				expect(yield* receiver.actionRecordRepo.isLocallyApplied(createAction.id)).toBe(false)
 				expect(yield* receiver.actionRecordRepo.isLocallyApplied(updateAction.id)).toBe(false)

@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { compareClock } from "@synchrotron/sync-core/ClockOrder"
 import { bindJsonParam } from "@synchrotron/sync-core/SqlJson"
 import { ingestRemoteSyncLogBatch } from "@synchrotron/sync-core/SyncLogIngest"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import type { ActionModifiedRow, ActionRecord } from "@synchrotron/sync-core/models"
 import { Effect } from "effect"
 import { createTestClient, makeTestLayers } from "../helpers/TestLayers"
@@ -454,8 +455,9 @@ describe("Remote ingest semantics", () => {
 				const cursorBefore = yield* receiver.clockState.getLastSeenServerIngestId
 				expect(cursorBefore).toBe(0)
 
-				const outgoingSyncBefore = yield* receiver.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(outgoingSyncBefore.length).toBe(0)
+				const outgoingCorrectionsBefore =
+					yield* receiver.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(outgoingCorrectionsBefore.length).toBe(0)
 
 				// Now the patches arrive; the next sync should apply and advance the cursor.
 				for (const row of serverAmrs) {
@@ -494,8 +496,9 @@ describe("Remote ingest semantics", () => {
 				const cursorAfter = yield* receiver.clockState.getLastSeenServerIngestId
 				expect(cursorAfter).toBe(Number(serverAction.server_ingest_id))
 
-				const outgoingSyncAfter = yield* receiver.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(outgoingSyncAfter.length).toBe(0)
+				const outgoingCorrectionsAfter =
+					yield* receiver.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(outgoingCorrectionsAfter.length).toBe(0)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30000 }
 	)
@@ -594,8 +597,8 @@ describe("Remote ingest semantics", () => {
 				const receiverNote2 = yield* receiver.noteRepo.findById(note2.id)
 				expect(receiverNote2._tag).toBe("Some")
 
-				const outgoingSyncDeltas = yield* receiver.actionRecordRepo.findByTag("_InternalSyncApply")
-				expect(outgoingSyncDeltas.length).toBe(0)
+				const outgoingCorrections = yield* receiver.actionRecordRepo.findByTag(CorrectionActionTag)
+				expect(outgoingCorrections.length).toBe(0)
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30000 }
 	)

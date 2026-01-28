@@ -1,11 +1,12 @@
 import { PgliteClient } from "@effect/sql-pglite"
 import { describe, expect, it } from "@effect/vitest"
+import { CorrectionActionTag } from "@synchrotron/sync-core/SyncActionTags"
 import { Effect, Option } from "effect"
 import { makeSqliteTestServerLayer, withSqliteTestClients } from "../helpers/SqliteTestLayers"
 
 describe("Sync Divergence Scenarios (SQLite clients)", () => {
 	it.scoped(
-		"should create SYNC action when local apply diverges from remote patches",
+		"should create CORRECTION action when local apply diverges from remote patches",
 		() =>
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
@@ -54,28 +55,28 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 							expect(noteB_final.value.content).toBe(baseContent)
 						}
 
-						const syncApplyActionsB =
-							yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-						expect(syncApplyActionsB.length).toBe(1)
-						const syncApplyAction = syncApplyActionsB[0]
-						expect(syncApplyAction).toBeDefined()
-						if (!syncApplyAction) return
+						const correctionActionsB =
+							yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+						expect(correctionActionsB.length).toBe(1)
+						const correctionAction = correctionActionsB[0]
+						expect(correctionAction).toBeDefined()
+						if (!correctionAction) return
 
-						expect(syncApplyAction.synced).toBe(true)
+						expect(correctionAction.synced).toBe(true)
 
-						const syncApplyAmrs = yield* clientB.actionModifiedRowRepo.findByActionRecordIds([
-							syncApplyAction.id
+						const correctionAmrs = yield* clientB.actionModifiedRowRepo.findByActionRecordIds([
+							correctionAction.id
 						])
-						expect(syncApplyAmrs.length).toBe(1)
-						const syncApplyAmr = syncApplyAmrs[0]
-						expect(syncApplyAmr).toBeDefined()
+						expect(correctionAmrs.length).toBe(1)
+						const correctionAmr = correctionAmrs[0]
+						expect(correctionAmr).toBeDefined()
 
-						if (syncApplyAmr) {
-							expect(syncApplyAmr.table_name).toBe("notes")
-							expect(syncApplyAmr.row_id).toBe(noteId)
-							expect(syncApplyAmr.operation).toBe("UPDATE")
-							expect(syncApplyAmr.forward_patches).toHaveProperty("content", baseContent)
-							expect(syncApplyAmr.reverse_patches).toHaveProperty("content", initialContent)
+						if (correctionAmr) {
+							expect(correctionAmr.table_name).toBe("notes")
+							expect(correctionAmr.row_id).toBe(noteId)
+							expect(correctionAmr.operation).toBe("UPDATE")
+							expect(correctionAmr.forward_patches).toHaveProperty("content", baseContent)
+							expect(correctionAmr.reverse_patches).toHaveProperty("content", initialContent)
 						}
 
 						const isOriginalActionAppliedB = yield* clientB.actionRecordRepo.isLocallyApplied(
@@ -95,7 +96,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 	)
 
 	it.scoped(
-		"should apply received SYNC action directly",
+		"should apply received CORRECTION action directly",
 		() =>
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
@@ -111,7 +112,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 
 						const { result } = yield* clientA.syncService.executeAction(
 							clientA.testHelpers.createNoteAction({
-								title: "SYNC Apply Test",
+								title: "CORRECTION Apply Test",
 								content: initialContent,
 								user_id: "user1"
 							})
@@ -132,17 +133,17 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 						yield* clientA.syncService.performSync()
 
 						yield* clientB.syncService.performSync()
-						const syncApplyActionsB =
-							yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-						expect(syncApplyActionsB.length).toBe(1)
-						const syncActionBRecord = syncApplyActionsB[0]
-						expect(syncActionBRecord).toBeDefined()
-						if (!syncActionBRecord) return
+						const correctionActionsB =
+							yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+						expect(correctionActionsB.length).toBe(1)
+						const correctionActionBRecord = correctionActionsB[0]
+						expect(correctionActionBRecord).toBeDefined()
+						if (!correctionActionBRecord) return
 
-						yield* Effect.log("--- Client B Syncing (Sending SYNC Action) ---")
+						yield* Effect.log("--- Client B Syncing (Sending CORRECTION Action) ---")
 						yield* clientB.syncService.performSync()
 
-						yield* Effect.log("--- Client C Syncing (Applying SYNC Action) ---")
+						yield* Effect.log("--- Client C Syncing (Applying CORRECTION Action) ---")
 						yield* clientC.syncService.performSync()
 
 						const noteC_final = yield* clientC.noteRepo.findById(noteId)
@@ -151,32 +152,34 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 							expect(noteC_final.value.content).toBe(baseContent)
 						}
 
-						const syncApplyActionsC =
-							yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
-						expect(syncApplyActionsC.length).toBe(1)
-						const syncActionOnC = syncApplyActionsC[0]
-						expect(syncActionOnC).toBeDefined()
-						if (syncActionOnC) {
-							expect(syncActionOnC.id).toBe(syncActionBRecord.id)
-							const isSyncAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
-								syncActionOnC.id
+						const correctionActionsC =
+							yield* clientC.actionRecordRepo.findByTag(CorrectionActionTag)
+						expect(correctionActionsC.length).toBe(1)
+						const correctionActionOnC = correctionActionsC[0]
+						expect(correctionActionOnC).toBeDefined()
+						if (correctionActionOnC) {
+							expect(correctionActionOnC.id).toBe(correctionActionBRecord.id)
+							const isCorrectionAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+								correctionActionOnC.id
 							)
-							expect(isSyncAppliedC).toBe(true)
-							expect(syncActionOnC.synced).toBe(true)
+							expect(isCorrectionAppliedC).toBe(true)
+							expect(correctionActionOnC.synced).toBe(true)
 						}
 
 						const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
 						expect(isOriginalAppliedC).toBe(true)
 
-						const isSyncBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
-							syncActionBRecord.id
+						const isCorrectionBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+							correctionActionBRecord.id
 						)
-						expect(isSyncBAppliedC).toBe(true)
+						expect(isCorrectionBAppliedC).toBe(true)
 
-						const syncActionCOnC = yield* clientC.actionRecordRepo.findById(syncActionBRecord.id)
-						expect(syncActionCOnC._tag).toBe("Some")
-						if (syncActionCOnC._tag === "Some") {
-							expect(syncActionCOnC.value.synced).toBe(true)
+						const correctionActionOnCOption = yield* clientC.actionRecordRepo.findById(
+							correctionActionBRecord.id
+						)
+						expect(correctionActionOnCOption._tag).toBe("Some")
+						if (correctionActionOnCOption._tag === "Some") {
+							expect(correctionActionOnCOption.value.synced).toBe(true)
 						}
 					})
 				)
@@ -185,7 +188,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 	)
 
 	it.scoped(
-		"should keep placeholder SYNC when received SYNC does not cover local divergence",
+		"should keep placeholder CORRECTION when received CORRECTION does not cover local divergence",
 		() =>
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
@@ -202,7 +205,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 
 						const { result } = yield* clientA.syncService.executeAction(
 							clientA.testHelpers.createNoteAction({
-								title: "SYNC Apply Extra Divergence Test",
+								title: "CORRECTION Apply Extra Divergence Test",
 								content: initialContent,
 								user_id: "user1"
 							})
@@ -225,14 +228,14 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 						yield* clientA.syncService.performSync()
 
 						yield* clientB.syncService.performSync()
-						const syncApplyActionsB =
-							yield* clientB.actionRecordRepo.findByTag("_InternalSyncApply")
-						expect(syncApplyActionsB.length).toBe(1)
-						const syncActionBRecord = syncApplyActionsB[0]
-						expect(syncActionBRecord).toBeDefined()
-						if (!syncActionBRecord) return
+						const correctionActionsB =
+							yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+						expect(correctionActionsB.length).toBe(1)
+						const correctionActionBRecord = correctionActionsB[0]
+						expect(correctionActionBRecord).toBeDefined()
+						if (!correctionActionBRecord) return
 
-						expect(syncActionBRecord.synced).toBe(true)
+						expect(correctionActionBRecord.synced).toBe(true)
 
 						yield* clientB.syncService.performSync()
 
@@ -245,24 +248,28 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 							expect(noteC_final.value.tags).toEqual(clientCTags)
 						}
 
-						const syncApplyActionsC =
-							yield* clientC.actionRecordRepo.findByTag("_InternalSyncApply")
-						expect(syncApplyActionsC.length).toBe(2)
+						const correctionActionsC =
+							yield* clientC.actionRecordRepo.findByTag(CorrectionActionTag)
+						expect(correctionActionsC.length).toBe(2)
 
-						const receivedSyncOnC = syncApplyActionsC.find((a) => a.id === syncActionBRecord.id)
-						const localSyncOnC = syncApplyActionsC.find((a) => a.id !== syncActionBRecord.id)
-						expect(receivedSyncOnC).toBeDefined()
-						expect(localSyncOnC).toBeDefined()
-						if (!receivedSyncOnC || !localSyncOnC) return
+						const receivedCorrectionOnC = correctionActionsC.find(
+							(a) => a.id === correctionActionBRecord.id
+						)
+						const localCorrectionOnC = correctionActionsC.find(
+							(a) => a.id !== correctionActionBRecord.id
+						)
+						expect(receivedCorrectionOnC).toBeDefined()
+						expect(localCorrectionOnC).toBeDefined()
+						if (!receivedCorrectionOnC || !localCorrectionOnC) return
 
-						expect(receivedSyncOnC.synced).toBe(true)
-						expect(localSyncOnC.synced).toBe(true)
+						expect(receivedCorrectionOnC.synced).toBe(true)
+						expect(localCorrectionOnC.synced).toBe(true)
 
-						const localSyncAmrs = yield* clientC.actionModifiedRowRepo.findByActionRecordIds([
-							localSyncOnC.id
+						const localCorrectionAmrs = yield* clientC.actionModifiedRowRepo.findByActionRecordIds([
+							localCorrectionOnC.id
 						])
-						expect(localSyncAmrs.length).toBeGreaterThan(0)
-						const hasTagsPatch = localSyncAmrs.some((amr) =>
+						expect(localCorrectionAmrs.length).toBeGreaterThan(0)
+						const hasTagsPatch = localCorrectionAmrs.some((amr) =>
 							Object.prototype.hasOwnProperty.call(amr.forward_patches, "tags")
 						)
 						expect(hasTagsPatch).toBe(true)
@@ -270,10 +277,10 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 						const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
 						expect(isOriginalAppliedC).toBe(true)
 
-						const isSyncBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
-							syncActionBRecord.id
+						const isCorrectionBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+							correctionActionBRecord.id
 						)
-						expect(isSyncBAppliedC).toBe(true)
+						expect(isCorrectionBAppliedC).toBe(true)
 					})
 				)
 			}).pipe(Effect.provide(makeSqliteTestServerLayer())),

@@ -15,8 +15,8 @@ const dialectOf = (sql: SqlClient.SqlClient): PatchDialect =>
 		orElse: () => "other"
 	})
 
-// Note: Patch apply runs primarily for received SYNC actions (patch-only). Those are expected to be rare,
-// but caching avoids repeated catalog/pragma lookups when a SYNC has many AMRs for the same table.
+// Note: Patch apply runs primarily for received CORRECTION actions (patch-only). Those are expected to be rare,
+// but caching avoids repeated catalog/pragma lookups when a CORRECTION has many AMRs for the same table.
 const shouldWriteAudienceKeyCache = new Map<string, boolean>()
 
 const shouldWriteAudienceKey = (

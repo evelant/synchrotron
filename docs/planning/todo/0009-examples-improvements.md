@@ -31,7 +31,7 @@ The most compelling correctness stories require two clients:
 
 - divergence while offline
 - late-arriving actions
-- rollback + replay + SYNC deltas
+- rollback + replay + CORRECTION deltas
 
 Today, reproducing these requires opening multiple tabs/devices and correlating logs manually.
 
