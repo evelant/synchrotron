@@ -1,10 +1,8 @@
 import type { SqlClient } from "@effect/sql"
-import { Effect, Option, Schedule } from "effect"
+import { Effect, Schedule } from "effect"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
 import type { ClientClockState } from "../ClientClockState"
-import { compareClock, sortClocks } from "../ClockOrder"
-import { ActionRecord } from "../models"
-import { ingestRemoteSyncLogBatch } from "../SyncLogIngest"
+import type { ActionRecord } from "../models"
 import {
 	FetchRemoteActionsCompacted,
 	NetworkRequestError,
@@ -18,6 +16,9 @@ import {
 } from "../SyncNetworkService"
 import { SyncError } from "../SyncServiceErrors"
 import type { BootstrapSnapshot } from "./SyncServiceBootstrap"
+import { makeAppliedRemoteCursor } from "./SyncServicePerformSyncAppliedCursor"
+import { makePerformSyncCases } from "./SyncServicePerformSyncCases"
+import { fetchIngestAndListRemoteActions } from "./SyncServicePerformSyncRemoteIngress"
 
 export const makePerformSync = (deps: {
 	readonly sqlClient: SqlClient.SqlClient
@@ -67,86 +68,11 @@ export const makePerformSync = (deps: {
 		quarantineUnsyncedActions
 	} = deps
 
-	/**
-	 * Applied-cursor helper: compute the maximum `server_ingest_id` among remote (other-client)
-	 * actions that are already incorporated into the local materialized state.
-	 *
-	 * We treat `last_seen_server_ingest_id` as an "applied" watermark (not merely ingested):
-	 * - safe to use as `basisServerIngestId` for upload gating (under the honest-client assumption)
-	 * - does not advance past ingested-but-unapplied remote actions (e.g. concurrent Electric ingest)
-	 */
-	const getMaxAppliedRemoteServerIngestId = () =>
-		sqlClient<{ readonly max_server_ingest_id: number | string | null }>`
-			SELECT COALESCE(MAX(ar.server_ingest_id), 0) AS max_server_ingest_id
-			FROM action_records ar
-			JOIN local_applied_action_ids la ON la.action_record_id = ar.id
-			WHERE ar.synced = 1
-			AND ar.server_ingest_id IS NOT NULL
-			AND ar.client_id != ${clientId}
-		`.pipe(
-			Effect.map((rows) => {
-				const raw = rows[0]?.max_server_ingest_id ?? 0
-				const parsed = typeof raw === "number" ? raw : Number(raw)
-				return Number.isFinite(parsed) ? parsed : 0
-			})
-		)
-
-	const advanceAppliedRemoteServerIngestCursor = () =>
-		getMaxAppliedRemoteServerIngestId().pipe(
-			Effect.flatMap((maxApplied) => clockState.advanceLastSeenServerIngestId(maxApplied))
-		)
-
-	const reconcile = (
-		pendingActions: readonly ActionRecord[],
-		remoteActions: readonly ActionRecord[],
-		allLocalActions: readonly ActionRecord[]
-	) =>
-		Effect.gen(function* () {
-			yield* Effect.logInfo(
-				`Performing reconciliation. Pending: [${pendingActions.map((a) => `${a.id} (${a._tag})`).join(", ")}], Remote: [${remoteActions.map((a) => `${a.id} (${a._tag})`).join(", ")}]`
-			)
-			yield* Effect.logDebug(
-				`All local actions provided to reconcile: [${allLocalActions.map((a) => `${a.id} (${a._tag})`).join(", ")}]`
-			)
-
-			// Roll back to common ancestor, passing all local actions for context
-			const commonAncestorOpt = yield* rollbackToCommonAncestor().pipe(
-				Effect.map(Option.fromNullable)
-			)
-			const commonAncestor = Option.getOrNull(commonAncestorOpt)
-			yield* Effect.logDebug(
-				`Rolled back to common ancestor during reconcile: ${JSON.stringify(commonAncestor)}`
-			)
-			const rollbackClock = yield* clockState.incrementClock
-			// even if the actual DB rollback happened in the SQL function's implicit transaction.
-			const rollbackTransactionId = Date.now()
-			const rollbackActionRecord = yield* actionRecordRepo.insert(
-				ActionRecord.insert.make({
-					id: crypto.randomUUID(),
-					_tag: "RollbackAction",
-					client_id: clientId,
-					clock: rollbackClock,
-					args: {
-						target_action_id: commonAncestor?.id ?? null,
-						timestamp: rollbackClock.timestamp
-					},
-					synced: false,
-					created_at: new Date(),
-					transaction_id: rollbackTransactionId
-				})
-			)
-			yield* Effect.logInfo(`Created RollbackAction record: ${rollbackActionRecord.id}`)
-
-			const actionsToReplay = yield* actionRecordRepo.findUnappliedLocally()
-			yield* Effect.logDebug(
-				`Final list of actions to REPLAY in reconcile: [${actionsToReplay.map((a: ActionRecord) => `${a.id} (${a._tag})`).join(", ")}]`
-			)
-			yield* applyActionRecords(actionsToReplay)
-			return yield* actionRecordRepo.allUnsynced()
-		}).pipe(
-			Effect.annotateLogs({ clientId, operation: "reconcile" }),
-			Effect.withSpan("SyncService.reconcile", { attributes: { clientId } })
-		)
+	const { advanceAppliedRemoteServerIngestCursor } = makeAppliedRemoteCursor({
+		sqlClient,
+		clockState,
+		clientId
+	})
 
 	/**
 	 * synchronize with the server
@@ -261,328 +187,33 @@ export const makePerformSync = (deps: {
 							}))
 						})
 
-						// 2. Remote ingress (transport-specific).
-						//
-						// Transports deliver remote sync-log rows; `sync-core` owns the ingestion step
-						// (idempotent persistence into `action_records` / `action_modified_rows`).
-						//
-						// Electric-enabled clients typically return no action rows here (metadata-only) because
-						// their authoritative ingress is the Electric stream.
-						const fetched = yield* syncNetworkService.fetchRemoteActions().pipe(
-							Effect.withSpan("SyncNetworkService.fetchRemoteActions", {
-								attributes: { clientId, syncSessionId }
-							})
-						)
-						const localEpoch = yield* clockState.getServerEpoch
-						if (localEpoch === null) {
-							yield* clockState.setServerEpoch(fetched.serverEpoch)
-						} else if (localEpoch !== fetched.serverEpoch) {
-							return yield* Effect.fail(
-								new SyncHistoryEpochMismatch({
-									message:
-										"Server sync history epoch mismatch (server reset/restore or breaking migration)",
-									localEpoch,
-									serverEpoch: fetched.serverEpoch
-								})
-							)
-						}
-						if (lastSeenServerIngestId + 1 < fetched.minRetainedServerIngestId) {
-							return yield* Effect.fail(
-								new FetchRemoteActionsCompacted({
-									message:
-										"Client cursor is older than the server's retained action log history (compacted)",
-									sinceServerIngestId: lastSeenServerIngestId,
-									minRetainedServerIngestId: fetched.minRetainedServerIngestId,
-									serverEpoch: fetched.serverEpoch
-								})
-							)
-						}
-
-						yield* ingestRemoteSyncLogBatch(sqlClient, {
-							actions: fetched.actions,
-							modifiedRows: fetched.modifiedRows
+						const remoteReadiness = yield* fetchIngestAndListRemoteActions({
+							sqlClient,
+							clockState,
+							actionRecordRepo,
+							syncNetworkService,
+							clientId,
+							syncSessionId,
+							lastSeenServerIngestId
 						})
-						yield* Effect.logInfo("performSync.remoteIngress", {
-							fetchedActionCount: fetched.actions.length,
-							fetchedAmrCount: fetched.modifiedRows.length
-						})
-
-						// Remote apply is DB-driven: treat `action_records` as the authoritative ingress queue.
-						// This enables Electric/custom transports to populate the tables without relying on
-						// the RPC fetch return value.
-						const remoteActions = yield* actionRecordRepo.findSyncedButUnapplied()
-						yield* Effect.logInfo("performSync.remoteUnapplied", {
-							count: remoteActions.length,
-							actions: remoteActions.map((a) => ({
-								id: a.id,
-								_tag: a._tag,
-								client_id: a.client_id,
-								server_ingest_id: a.server_ingest_id
-							}))
-						})
-
-						// Remote actions must have their patches ingested before we can safely apply:
-						// - rollback correctness requires reverse patches for applied actions
-						// - divergence detection requires comparing replay patches vs. original patches
-						// If ingress is mid-flight (e.g. action_records arrived before action_modified_rows),
-						// bail out and retry later rather than creating spurious outgoing CORRECTION deltas.
-						const remoteIdsNeedingPatches = remoteActions
-							.filter((a) => a._tag !== "RollbackAction")
-							.map((a) => a.id)
-						if (remoteIdsNeedingPatches.length > 0) {
-							const idsWithPatches = yield* sqlClient<{ readonly action_record_id: string }>`
-								SELECT DISTINCT action_record_id
-								FROM action_modified_rows
-								WHERE action_record_id IN ${sqlClient.in(remoteIdsNeedingPatches)}
-							`
-							const havePatches = new Set(idsWithPatches.map((r) => r.action_record_id))
-							const missingPatchActionIds = remoteIdsNeedingPatches.filter(
-								(id) => havePatches.has(id) === false
-							)
-							if (missingPatchActionIds.length > 0) {
-								yield* Effect.logInfo("performSync.remoteNotReady.missingPatches", {
-									missingPatchActionCount: missingPatchActionIds.length,
-									missingPatchActionIds: missingPatchActionIds.slice(0, 20)
-								})
-								return [] as const
-							}
-						}
-
-						const hasPending = pendingActions.length > 0
-						const hasRemote = remoteActions.length > 0
-						if (!hasPending && !hasRemote) {
-							yield* Effect.logInfo("performSync.noop")
-							yield* advanceAppliedRemoteServerIngestCursor()
+						if (remoteReadiness._tag === "RemoteNotReady") {
 							return [] as const
 						}
-						if (!hasPending && hasRemote) {
-							yield* Effect.logInfo("performSync.case1.applyRemote", {
-								remoteCount: remoteActions.length
-							})
-							const rollbackActions = remoteActions.filter((a) => a._tag === "RollbackAction")
-							const unappliedNonRollback = remoteActions.filter((a) => a._tag !== "RollbackAction")
 
-							let forcedRollbackTarget: string | null | undefined = undefined
-							if (rollbackActions.length > 0) {
-								const targets = rollbackActions.map(
-									(rb) => rb.args["target_action_id"] as string | null
-								)
-								const hasGenesis = targets.some((t) => t === null)
-								if (hasGenesis) {
-									forcedRollbackTarget = null
-								} else {
-									const targetIds = targets.filter(
-										(t): t is string => typeof t === "string" && t.length > 0
-									)
-									if (targetIds.length > 0) {
-										const targetRows = yield* sqlClient<{
-											readonly id: string
-											readonly clock: ActionRecord["clock"]
-											readonly client_id: string
-										}>`
-											SELECT id, clock, client_id
-											FROM action_records
-											WHERE id IN ${sqlClient.in(targetIds)}
-										`
-										if (targetRows.length !== targetIds.length) {
-											return yield* Effect.fail(
-												new SyncError({
-													message: `Rollback target action(s) not found locally: ${targetIds.join(", ")}`
-												})
-											)
-										}
-										const oldest = [...targetRows]
-											.map((a) => ({ ...a, clientId: a.client_id }))
-											.sort((a, b) =>
-												compareClock(
-													{ clock: a.clock, clientId: a.clientId, id: a.id },
-													{ clock: b.clock, clientId: b.clientId, id: b.id }
-												)
-											)[0]
-										forcedRollbackTarget = oldest?.id
-									}
-								}
-							}
+						const { run } = makePerformSyncCases({
+							sqlClient,
+							clockState,
+							actionRecordRepo,
+							clientId,
+							uploadsDisabled,
+							rollbackToAction,
+							rollbackToCommonAncestor,
+							applyActionRecords,
+							sendLocalActions,
+							advanceAppliedRemoteServerIngestCursor
+						})
 
-							const latestApplied = yield* sqlClient<{
-								readonly id: string
-								readonly clock_time_ms: number | string
-								readonly clock_counter: number | string
-								readonly client_id: string
-							}>`
-								SELECT ar.id, ar.clock_time_ms, ar.clock_counter, ar.client_id
-								FROM action_records ar
-								JOIN local_applied_action_ids la ON la.action_record_id = ar.id
-								ORDER BY ar.clock_time_ms DESC, ar.clock_counter DESC, ar.client_id DESC, ar.id DESC
-								LIMIT 1
-							`.pipe(Effect.map((rows) => rows[0] ?? null))
-
-							const earliestRemote = unappliedNonRollback.length
-								? sortClocks(
-										unappliedNonRollback.map((a) => ({
-											action: a,
-											clock: a.clock,
-											clientId: a.client_id,
-											id: a.id
-										}))
-									)[0]?.action
-								: undefined
-
-							const needsRollbackForLateArrival =
-								latestApplied && earliestRemote
-									? compareClock(
-											{
-												clock: earliestRemote.clock,
-												clientId: earliestRemote.client_id,
-												id: earliestRemote.id
-											},
-											{
-												clock: {
-													timestamp: Number(latestApplied.clock_time_ms),
-													vector: {
-														[latestApplied.client_id]: Number(latestApplied.clock_counter)
-													}
-												},
-												clientId: latestApplied.client_id,
-												id: latestApplied.id
-											}
-										) <= 0
-									: false
-
-							let rollbackTarget: string | null | undefined = forcedRollbackTarget
-							if (rollbackTarget === undefined && needsRollbackForLateArrival && earliestRemote) {
-								const predecessor = yield* sqlClient<{ readonly id: string }>`
-									SELECT id
-									FROM action_records
-									WHERE (clock_time_ms, clock_counter, client_id, id) < (
-										${earliestRemote.clock_time_ms},
-										${earliestRemote.clock_counter},
-										${earliestRemote.client_id},
-										${earliestRemote.id}
-									)
-									ORDER BY clock_time_ms DESC, clock_counter DESC, client_id DESC, id DESC
-									LIMIT 1
-								`
-								rollbackTarget = predecessor[0]?.id ?? null
-							}
-
-							if (rollbackTarget !== undefined) {
-								yield* Effect.logInfo("performSync.case1.rematerialize", {
-									remoteCount: remoteActions.length,
-									rollbackTarget: rollbackTarget ?? null,
-									hasRollbackAction: rollbackActions.length > 0,
-									lateArrival: forcedRollbackTarget === undefined && needsRollbackForLateArrival
-								})
-
-								yield* rollbackToAction(rollbackTarget).pipe(sqlClient.withTransaction)
-								for (const rb of rollbackActions) {
-									yield* actionRecordRepo.markLocallyApplied(rb.id)
-								}
-
-								const actionsToReplay = yield* actionRecordRepo.findUnappliedLocally()
-								const replayWithoutRollbacks = actionsToReplay.filter(
-									(a) => a._tag !== "RollbackAction"
-								)
-								if (replayWithoutRollbacks.length > 0) {
-									yield* applyActionRecords(replayWithoutRollbacks)
-								}
-
-								yield* advanceAppliedRemoteServerIngestCursor()
-								if (!uploadsDisabled) {
-									yield* sendLocalActions()
-								}
-								return remoteActions
-							}
-
-							// Fast-forward: apply only newly received non-rollback actions in canonical order.
-							if (unappliedNonRollback.length > 0) {
-								yield* applyActionRecords(unappliedNonRollback)
-							}
-							yield* advanceAppliedRemoteServerIngestCursor()
-							if (!uploadsDisabled) {
-								yield* sendLocalActions()
-							}
-							return remoteActions
-						}
-						if (hasPending && !hasRemote) {
-							yield* Effect.logInfo("performSync.case2.sendPending", {
-								pendingCount: pendingActions.length
-							})
-							yield* advanceAppliedRemoteServerIngestCursor()
-							return uploadsDisabled ? ([] as const) : yield* sendLocalActions()
-						}
-						if (hasPending && hasRemote) {
-							const sortedPending = sortClocks(
-								pendingActions.map((a) => ({
-									action: a,
-									clock: a.clock,
-									clientId: a.client_id,
-									id: a.id
-								}))
-							)
-							const sortedRemote = sortClocks(
-								remoteActions.map((a) => ({
-									action: a,
-									clock: a.clock,
-									clientId: a.client_id,
-									id: a.id
-								}))
-							)
-
-							const latestPendingAction = sortedPending[sortedPending.length - 1]?.action
-							const earliestRemoteAction = sortedRemote[0]?.action
-
-							if (latestPendingAction && earliestRemoteAction) {
-								if (
-									!remoteActions.find((a) => a._tag === "RollbackAction") &&
-									compareClock(
-										{
-											clock: latestPendingAction.clock,
-											clientId: latestPendingAction.client_id,
-											id: latestPendingAction.id
-										},
-										{
-											clock: earliestRemoteAction.clock,
-											clientId: earliestRemoteAction.client_id,
-											id: earliestRemoteAction.id
-										}
-									) < 0
-								) {
-									yield* Effect.logInfo("performSync.case4.applyRemoteThenSendPending", {
-										latestPendingActionId: latestPendingAction.id,
-										earliestRemoteActionId: earliestRemoteAction.id,
-										pendingCount: pendingActions.length,
-										remoteCount: remoteActions.length
-									})
-
-									// 1. Apply remote actions
-									const appliedRemotes = yield* applyActionRecords(remoteActions)
-									yield* advanceAppliedRemoteServerIngestCursor()
-									// 2. Send pending actions
-									if (!uploadsDisabled) {
-										yield* sendLocalActions()
-									}
-									// For now, returning applied remotes as they were processed first in this flow.
-									return appliedRemotes
-								} else {
-									yield* Effect.logInfo("performSync.case3.reconcileThenSendPending", {
-										pendingCount: pendingActions.length,
-										remoteCount: remoteActions.length
-									})
-									const allLocalActions = yield* actionRecordRepo.all()
-									yield* reconcile(pendingActions, remoteActions, allLocalActions)
-									yield* advanceAppliedRemoteServerIngestCursor()
-									return uploadsDisabled ? ([] as const) : yield* sendLocalActions()
-								}
-							} else {
-								return yield* Effect.fail(
-									new SyncError({
-										message: "Could not determine latest pending or earliest remote clock."
-									})
-								)
-							}
-						}
-						return yield* Effect.dieMessage("Unreachable code reached in performSync")
+						return yield* run(pendingActions, remoteReadiness.remoteActions)
 					}).pipe(
 						Effect.tapError((error) => {
 							if (error instanceof SendLocalActionsBehindHead) {
