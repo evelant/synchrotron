@@ -45,7 +45,7 @@ const canonicalJson = (value: unknown): string => JSON.stringify(normalizeForJso
  * - `withActionContext` must wrap any action execution that calls `forRow`, otherwise `forRow` fails.
  */
 export class DeterministicId extends Effect.Service<DeterministicId>()("DeterministicId", {
-	effect: Effect.gen(function* () {
+	scoped: Effect.gen(function* () {
 		const stateRef = yield* FiberRef.make<State>({
 			actionId: null,
 			collisionByKey: new Map()
@@ -100,6 +100,5 @@ export class DeterministicId extends Effect.Service<DeterministicId>()("Determin
 			getCurrentActionId,
 			forRow
 		} as const
-	}),
-	accessors: true
+	})
 }) {}

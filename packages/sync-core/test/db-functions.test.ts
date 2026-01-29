@@ -768,7 +768,7 @@ describe("Sync Database Functions", () => {
 	it.scoped(
 		"should correctly detect concurrent updates",
 		() =>
-			Effect.gen(function* (_) {
+			Effect.gen(function* () {
 				const importHLC = yield* Effect.promise(() => import("@synchrotron/sync-core/HLC"))
 
 				// Create test clocks with the updated HLC.make method

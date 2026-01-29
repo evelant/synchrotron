@@ -70,8 +70,8 @@ Proposed surface (exact names TBD):
 
 Deterministic ID generation is provided as an Effect service in TypeScript (not stored procedures / triggers):
 
-- `SyncService` wraps both execute and replay in `DeterministicId.withActionContext(actionRecord.id, ...)`.
-- Action code calls `DeterministicId.forRow(tableName, row)` to compute a deterministic UUID.
+- `SyncService` wraps both execute and replay in `deterministicId.withActionContext(actionRecord.id, ...)` (where `const deterministicId = yield* DeterministicId`).
+- Action code calls `deterministicId.forRow(tableName, row)` to compute a deterministic UUID.
 - A per-action collision counter disambiguates identical inserts within the same action.
 
 ### Deterministic ID helper (TypeScript)

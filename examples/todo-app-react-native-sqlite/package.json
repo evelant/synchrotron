@@ -20,6 +20,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@effect/platform": "catalog:",
 		"@effect/sql": "catalog:",
 		"@effect/sql-sqlite-react-native": "catalog:",
 		"@expo/metro-runtime": "~6.1.2",
@@ -29,7 +30,6 @@
 		"effect": "catalog:",
 		"expo": "~54.0.31",
 		"expo-build-properties": "~1.0.10",
-		"expo-crypto": "~15.0.8",
 		"expo-status-bar": "~3.0.9",
 		"react": "19.1.0",
 		"react-dom": "19.1.0",
@@ -40,10 +40,11 @@
 		"uuid": "catalog:"
 	},
 	"devDependencies": {
+		"@expo/metro-config": "54.0.13",
+		"metro-minify-terser": "0.83.3",
+		"@types/react": "~19.1.0",
 		"concurrently": "~9.2.1",
 		"dotenv-cli": "~11.0.0",
-		"@types/react": "~19.1.0",
-		"tsx": "^4.19.3",
 		"typescript": "~5.9.2"
 	},
 	"private": true

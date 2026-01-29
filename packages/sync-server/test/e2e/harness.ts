@@ -1,5 +1,4 @@
-import { HttpApp, HttpRouter, KeyValueStore } from "@effect/platform"
-import { NodeHttpServer } from "@effect/platform-node"
+import { HttpApp, KeyValueStore } from "@effect/platform"
 import { RpcSerialization, RpcServer } from "@effect/rpc"
 import { SqlClient } from "@effect/sql"
 import { PgliteClient } from "@effect/sql-pglite"
@@ -8,7 +7,6 @@ import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
 import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
 import type { ConfigProvider } from "effect"
 import { Effect, Layer } from "effect"
-import { createServer } from "node:http"
 import { SyncNetworkRpcHandlersLive } from "../../src/rpcRouter"
 import { createSyncSnapshotConfig } from "../../src/SyncSnapshotConfig"
 
@@ -190,27 +188,6 @@ export const setupServerDatabase = Effect.gen(function* () {
 	// Enforce RLS by switching to the limited role for the remainder of the session.
 	yield* sql`SET ROLE synchrotron_app`
 })
-
-export const makeSyncRpcServerLayer = (options: { readonly dataDir: string }) => {
-	const dbLayer = makeServerSqlLayer(options.dataDir).pipe(
-		Layer.tap((context) => setupServerDatabase.pipe(Effect.provide(context)))
-	)
-
-	const HttpProtocol = RpcServer.layerProtocolHttp({
-		path: "/rpc"
-	}).pipe(Layer.provideMerge(RpcSerialization.layerJson))
-
-	const RpcLayer = RpcServer.layer(SyncNetworkRpcGroup).pipe(
-		Layer.provideMerge(SyncNetworkRpcHandlersLive),
-		Layer.provideMerge(HttpProtocol)
-	)
-
-	return HttpRouter.Default.serve().pipe(
-		Layer.provide(RpcLayer),
-		Layer.provide(dbLayer),
-		Layer.provide(NodeHttpServer.layer(createServer, { port: 0, host: "127.0.0.1" }))
-	)
-}
 
 export const TestSyncRpcBaseUrl = "http://synchrotron.test"
 

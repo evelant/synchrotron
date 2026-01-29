@@ -55,6 +55,7 @@ const makeSqliteTestLayers = (clientId: string) => {
 	const layer7 = Layer.succeed(
 		SyncNetworkService,
 		SyncNetworkService.of({
+			_tag: "SyncNetworkService",
 			fetchBootstrapSnapshot: () =>
 				Effect.fail(
 					new RemoteActionFetchError({

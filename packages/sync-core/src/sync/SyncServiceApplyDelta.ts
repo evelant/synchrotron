@@ -20,7 +20,7 @@ type FinalRowEffect = {
 	columns: Record<string, unknown>
 }
 
-export type CorrectionDeltaDetails = {
+type CorrectionDeltaDetails = {
 	table_name: string
 	row_id: string
 	generatedOperation: string

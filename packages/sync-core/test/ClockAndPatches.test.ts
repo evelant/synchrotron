@@ -17,7 +17,7 @@ describe("Clock Operations", () => {
 	it.scoped(
 		"should correctly increment clock with single client",
 		() =>
-			Effect.gen(function* (_) {
+			Effect.gen(function* () {
 				const clockState = yield* ClientClockState
 				const clientId = yield* clockState.getClientId
 
@@ -961,7 +961,7 @@ describe("DB Reverse Patch Functions", () => {
 	it.scoped(
 		"should correctly detect concurrent updates",
 		() =>
-			Effect.gen(function* (_) {
+			Effect.gen(function* () {
 				const importHLC = yield* Effect.promise(() => import("@synchrotron/sync-core/HLC"))
 
 				// Create test clocks with the updated HLC.make method

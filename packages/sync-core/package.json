@@ -35,7 +35,6 @@
 		"@effect/rpc": "catalog:",
 		"@effect/sql": "catalog:",
 		"@effect/sql-pglite": "workspace:*",
-		"@synchrotron/sync-core": "workspace:*",
 		"effect": "catalog:",
 		"uuid": "catalog:"
 	},

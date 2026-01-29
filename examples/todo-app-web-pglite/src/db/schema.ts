@@ -1,6 +1,5 @@
 import { Model } from "@effect/sql"
 import { Schema } from "effect"
-export { ActionRecord, ActionModifiedRow } from "@synchrotron/sync-core" // Re-export directly
 
 export class Todo extends Model.Class<Todo>("todos")({
 	id: Schema.UUID,

@@ -6,7 +6,7 @@ import { Todo } from "./db/schema"
 import { SqlClient } from "@effect/sql"
 
 export class TodoActions extends Effect.Service<TodoActions>()("TodoActions", {
-	effect: Effect.gen(function* () {
+	scoped: Effect.gen(function* () {
 		const registry = yield* ActionRegistry
 		const todoRepo = yield* TodoRepo
 		const sql = yield* SqlClient.SqlClient

@@ -37,7 +37,7 @@ import { TestHelpers } from "./TestHelpers"
  *
  * This depends on `SqlClient` being available in the environment.
  */
-export const initializeDbForTests = (schema: string) =>
+const initializeDbForTests = (schema: string) =>
 	Effect.gen(function* () {
 		yield* Effect.logInfo(`${schema}: Setting up database schema for tests...`)
 
@@ -78,12 +78,10 @@ export const initializeDbForTests = (schema: string) =>
 		yield* Effect.logInfo("Database schema setup complete for tests")
 	}).pipe(Effect.annotateLogs("clientId", schema))
 
-export const makeDbInitLayer = (schema: string) => Layer.effectDiscard(initializeDbForTests(schema))
-
 /**
  * Create a layer that provides PgliteClient with Electric extensions based on config
  */
-export const PgliteClientLive = PgliteClient.layer({
+const PgliteClientLive = PgliteClient.layer({
 	// debug: 1,
 	dataDir: "memory://",
 	relaxedDurability: true,
@@ -164,12 +162,12 @@ export const createNoteRepo = (sqlClient?: SchemaWrappedSqlClient) =>
 			findById
 		} as const
 	})
-export interface NoteRepo extends Effect.Effect.Success<ReturnType<typeof createNoteRepo>> {}
+interface NoteRepo extends Effect.Effect.Success<ReturnType<typeof createNoteRepo>> {}
 
-export interface SchemaWrappedSqlClient {
+interface SchemaWrappedSqlClient {
 	<A extends object = Row>(strings: TemplateStringsArray, ...args: Array<unknown>): Statement<A>
 }
-export interface TestClient {
+interface TestClient {
 	// For schema-isolated SQL client, we only need the tagged template literal functionality
 	sql: SchemaWrappedSqlClient
 	rawSql: SqlClient.SqlClient // Original SQL client for operations that need to span schemas
@@ -247,7 +245,7 @@ export class NoteModel extends Model.Class<NoteModel>("notes")({
  * Creates a schema-isolated SQL client that sets the search path to a client-specific schema
  * This allows us to simulate isolated client databases while still using a single PgLite instance
  */
-export const createSchemaIsolatedClient = (clientId: string, sql: SqlClient.SqlClient) => {
+const createSchemaIsolatedClient = (clientId: string, sql: SqlClient.SqlClient) => {
 	// Create a transaction wrapper that sets the search path
 	const executeInClientSchema = <T>(effect: Effect.Effect<T, unknown, never>) =>
 		Effect.gen(function* () {

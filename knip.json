@@ -1,0 +1,92 @@
+{
+	"$schema": "https://unpkg.com/knip@5/schema.json",
+	"ignoreWorkspaces": ["packages/sql-pglite"],
+	"workspaces": {
+		".": {
+			"entry": [
+				"eslint.config.mjs",
+				"vite.shared.ts",
+				"vitest.config.ts",
+				"vitest.shared.ts",
+				"vitest-setup-client.ts",
+				"scripts/**/*.ts"
+			],
+			"project": [
+				"eslint.config.mjs",
+				"vite.shared.ts",
+				"vitest.config.ts",
+				"vitest.shared.ts",
+				"vitest-setup-client.ts",
+				"scripts/**/*.ts"
+			],
+			"ignoreDependencies": ["bun"]
+		},
+		"packages/*": {
+			"entry": ["src/index.ts", "vite.config.ts", "vitest.config.ts"],
+			"project": ["src/**/*.{ts,tsx,d.ts}", "test/**/*.{ts,tsx}", "vite.config.ts", "vitest*.ts"]
+		},
+		"packages/sync-client": {
+			"entry": ["src/index.ts", "src/react-native.ts", "src/electric/index.ts", "vitest-setup.ts"],
+			"ignoreDependencies": [
+				"@effect/sql-sqlite-react-native",
+				"@op-engineering/op-sqlite",
+				"react-native-mmkv"
+			]
+		},
+		"packages/sync-server": {
+			"entry": [
+				"src/index.ts",
+				"vite.config.ts",
+				"vitest.config.ts",
+				"vitest.postgres.config.ts",
+				"vitest-setup.ts"
+			]
+		},
+		"examples/*": {
+			"entry": ["src/**/*.{ts,tsx}"],
+			"project": ["src/**/*.{ts,tsx}", "**/*.{cjs,mjs,js,ts,tsx}"],
+			"ignore": ["dist/**", "build/**", "coverage/**", ".expo/**", "android/**", "ios/**"]
+		},
+		"examples/backend": {
+			"entry": ["src/**/*.ts", "scripts/**/*.ts"],
+			"project": ["src/**/*.ts", "scripts/**/*.ts", "**/*.{cjs,mjs,js,ts}"]
+		},
+		"examples/todo-app-react-native-sqlite": {
+			"entry": [
+				"App.tsx",
+				"app.config.ts",
+				"babel.config.js",
+				"metro.config.js",
+				"src/**/*.{ts,tsx}",
+				"scripts/**/*.ts"
+			],
+			"project": [
+				"App.tsx",
+				"app.config.ts",
+				"metro.config.js",
+				"src/**/*.{ts,tsx}",
+				"scripts/**/*.ts"
+			],
+			"ignoreDependencies": [
+				"expo-updates",
+				"expo-system-ui",
+				"react-native-web",
+				"@effect/wa-sqlite"
+			]
+		},
+		"examples/todo-app-web-pglite": {
+			"entry": ["src/main.tsx", "server.ts", "bun-env.d.ts", "src/**/*.d.ts"],
+			"project": ["src/**/*.{ts,tsx,d.ts}", "server.ts", "bun-env.d.ts", "**/*.{cjs,mjs,js,ts,tsx}"]
+		}
+	},
+	"ignore": [
+		"docs/**",
+		"dist/**",
+		"build/**",
+		"coverage/**",
+		".vinxi/**",
+		".vite/**",
+		".vite-temp/**",
+		"node_modules/**"
+	]
+}

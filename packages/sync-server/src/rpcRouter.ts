@@ -49,7 +49,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 			RemoteActionFetchError | FetchRemoteActionsCompacted,
 			never
 		> =>
-			Effect.gen(function* (_) {
+			Effect.gen(function* () {
 				const clientId = payload.clientId
 				const userId = (yield* auth.requireUserId(options.headers).pipe(
 					Effect.mapError(
@@ -176,7 +176,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 			payload: SendLocalActions,
 			options: { readonly headers: PlatformHeaders }
 		): Effect.Effect<boolean, SendLocalActionsFailure, never> =>
-			Effect.gen(function* (_) {
+			Effect.gen(function* () {
 				const clientId = payload.clientId
 				const userId = (yield* auth.requireUserId(options.headers).pipe(
 					Effect.mapError(

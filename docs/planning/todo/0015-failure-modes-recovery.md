@@ -179,7 +179,7 @@ Decision / implementation approach:
 
 Concrete example (why new action ids can break a naive “re-record”):
 
-- Pending action A: `test-create-note` (see `packages/sync-core/test/helpers/TestHelpers.ts`) does _not_ take a note id in args; it generates the inserted note id via `DeterministicId.forRow(...)` (namespaced by the action id).
+- Pending action A: `test-create-note` (see `packages/sync-core/test/helpers/TestHelpers.ts`) does _not_ take a note id in args; it generates the inserted note id via `deterministicId.forRow(...)` (namespaced by the action id).
 - Pending action B: `test-update-content` takes `{ id: noteId, ... }` in args.
 - If rebase “re-records” A as a new action with a new id, the created note id changes. B’s args still reference the old note id, so the update becomes a no-op (or fails), even though we re-ran the actions in order.
 

@@ -105,8 +105,8 @@ Backend state:
 
 Synced tables require app-provided `id`s. To keep replay deterministic across client databases, Synchrotron generates row IDs in TypeScript (not via DB triggers):
 
-- `SyncService` wraps action execution/replay in `DeterministicId.withActionContext(actionRecord.id, ...)`.
-- Actions call `DeterministicId.forRow(tableName, row)` to compute a UUIDv5 from:
+- `SyncService` wraps action execution/replay in `deterministicId.withActionContext(actionRecord.id, ...)` (where `const deterministicId = yield* DeterministicId`).
+- Actions call `deterministicId.forRow(tableName, row)` to compute a UUIDv5 from:
   - the table name
   - a canonical JSON representation of the row content (excluding `id`)
   - a per-action collision counter (so identical inserts within one action remain unique)

@@ -7,5 +7,5 @@
 		"allowSyntheticDefaultImports": true,
 		"types": ["bun"]
 	},
-	"include": ["server.ts", "sst.config.ts", "bun-env.d.ts"]
+	"include": ["server.ts", "bun-env.d.ts"]
 }

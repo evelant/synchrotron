@@ -46,7 +46,7 @@ const DbDateTime = Model.Field({
 	jsonUpdate: Schema.DateFromString
 })
 
-export class NoteModelPortable extends Model.Class<NoteModelPortable>("notes")({
+class NoteModelPortable extends Model.Class<NoteModelPortable>("notes")({
 	id: Schema.UUID,
 	title: Schema.String,
 	content: Schema.String,
@@ -55,7 +55,7 @@ export class NoteModelPortable extends Model.Class<NoteModelPortable>("notes")({
 	user_id: Schema.String
 }) {}
 
-export const createNoteRepoPortable = () =>
+const createNoteRepoPortable = () =>
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
 
@@ -66,11 +66,11 @@ export const createNoteRepoPortable = () =>
 		}).pipe(Effect.provideService(SqlClient.SqlClient, sql))
 	})
 
-export interface NoteRepoPortable extends Effect.Effect.Success<
+interface NoteRepoPortable extends Effect.Effect.Success<
 	ReturnType<typeof createNoteRepoPortable>
 > {}
 
-export class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("SqliteTestHelpers", {
+class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("SqliteTestHelpers", {
 	effect: Effect.gen(function* () {
 		const actionRegistry = yield* ActionRegistry
 		const identity = yield* ClientIdentity
@@ -258,7 +258,7 @@ export class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("Sqli
 	})
 }) {}
 
-export const makeSqliteTestLayers = (clientId: string, serverSql: PgliteClient.PgliteClient) => {
+const makeSqliteTestLayers = (clientId: string, serverSql: PgliteClient.PgliteClient) => {
 	const baseLayer = Layer.mergeAll(
 		SqliteClient.layer({ filename: ":memory:" }),
 		KeyValueStore.layerMemory,
@@ -319,7 +319,7 @@ export const makeSqliteTestLayers = (clientId: string, serverSql: PgliteClient.P
 	return SyncService.DefaultWithoutDependencies.pipe(Layer.provideMerge(layer9))
 }
 
-export interface SqliteTestClient {
+interface SqliteTestClient {
 	sql: SqlClient.SqlClient
 	syncService: SyncService
 	actionRecordRepo: ActionRecordRepo

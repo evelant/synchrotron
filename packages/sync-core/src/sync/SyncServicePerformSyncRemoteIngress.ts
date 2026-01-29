@@ -21,7 +21,7 @@ import {
 } from "../SyncNetworkService"
 import { RollbackActionTag } from "../SyncActionTags"
 
-export type RemoteApplyReadiness =
+type RemoteApplyReadiness =
 	| { readonly _tag: "RemoteReady"; readonly remoteActions: readonly ActionRecord[] }
 	| { readonly _tag: "RemoteNotReady" }
 

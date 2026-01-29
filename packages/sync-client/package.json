@@ -48,7 +48,8 @@
 	"peerDependencies": {
 		"@effect/sql-sqlite-react-native": "*",
 		"@op-engineering/op-sqlite": "*",
-		"react-native": "*"
+		"react-native": "*",
+		"react-native-mmkv": "*"
 	},
 	"peerDependenciesMeta": {
 		"@effect/sql-sqlite-react-native": {
@@ -58,6 +59,9 @@
 			"optional": true
 		},
 		"react-native": {
+			"optional": true
+		},
+		"react-native-mmkv": {
 			"optional": true
 		}
 	},

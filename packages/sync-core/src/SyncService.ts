@@ -34,7 +34,7 @@ import { makeUpload } from "./sync/SyncServiceUpload"
 export { ActionExecutionError, SyncError } from "./SyncServiceErrors"
 
 export class SyncService extends Effect.Service<SyncService>()("SyncService", {
-	effect: Effect.gen(function* () {
+	scoped: Effect.gen(function* () {
 		const sqlClient = yield* SqlClient.SqlClient
 		const clientDbAdapter = yield* ClientDbAdapter
 		const clockState = yield* ClientClockState

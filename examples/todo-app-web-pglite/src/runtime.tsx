@@ -8,7 +8,7 @@ import React, {
 	type ReactNode
 } from "react"
 
-export type AppRuntime = ManagedRuntime.ManagedRuntime<any, any>
+type AppRuntime = ManagedRuntime.ManagedRuntime<any, any>
 
 const RuntimeContext = createContext<AppRuntime | null>(null)
 

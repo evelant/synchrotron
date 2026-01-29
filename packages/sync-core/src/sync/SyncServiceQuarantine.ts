@@ -1,11 +1,7 @@
 import type { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
-import type {
-	SendLocalActionsDenied,
-	SendLocalActionsInvalid,
-	SendLocalActionsFailure
-} from "../SyncNetworkService"
+import type { SendLocalActionsDenied, SendLocalActionsInvalid } from "../SyncNetworkService"
 import { SyncError } from "../SyncServiceErrors"
 
 export const makeQuarantine = (deps: {
@@ -161,5 +157,3 @@ export const makeQuarantine = (deps: {
 		discardQuarantinedActions
 	} as const
 }
-
-export type QuarantineFailure = SendLocalActionsFailure

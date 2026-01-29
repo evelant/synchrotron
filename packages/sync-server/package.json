@@ -32,7 +32,6 @@
 	"dependencies": {
 		"@effect/experimental": "catalog:",
 		"@effect/platform": "catalog:",
-		"@effect/platform-node": "catalog:",
 		"@effect/rpc": "catalog:",
 		"@effect/sql": "catalog:",
 		"@effect/sql-pg": "^0.34.6",
@@ -44,6 +43,7 @@
 		"@effect/sql-pglite": "workspace:*",
 		"@effect/vitest": "catalog:",
 		"@electric-sql/pglite": "catalog:",
+		"@synchrotron/sync-client": "workspace:*",
 		"@types/node": "catalog:",
 		"typescript": "catalog:",
 		"vite": "catalog:",
