@@ -78,7 +78,6 @@ export const makePerformSyncCases = (deps: {
 				`Rolled back to common ancestor during reconcile: ${JSON.stringify(commonAncestor)}`
 			)
 			const rollbackClock = yield* clockState.incrementClock
-			// even if the actual DB rollback happened in the SQL function's implicit transaction.
 			const rollbackTransactionId = Date.now()
 			const rollbackActionRecord = yield* actionRecordRepo.insert(
 				ActionRecord.insert.make({
@@ -102,8 +101,10 @@ export const makePerformSyncCases = (deps: {
 				`Final list of actions to REPLAY in reconcile: [${actionsToReplay.map((a: ActionRecord) => `${a.id} (${a._tag})`).join(", ")}]`
 			)
 			yield* applyActionRecords(actionsToReplay)
+			yield* advanceAppliedRemoteServerIngestCursor()
 			return yield* actionRecordRepo.allUnsynced()
 		}).pipe(
+			sqlClient.withTransaction,
 			Effect.annotateLogs({ clientId, operation: "reconcile" }),
 			Effect.withSpan("SyncService.reconcile", { attributes: { clientId } })
 		)
@@ -232,29 +233,33 @@ export const makePerformSyncCases = (deps: {
 					lateArrival
 				})
 
-				yield* rollbackToAction(rollbackTarget).pipe(sqlClient.withTransaction)
-				for (const rb of rollbackActions) {
-					yield* actionRecordRepo.markLocallyApplied(rb.id)
-				}
+				// Rematerialization must be atomic: rollback + marking rollback markers + replay.
+				yield* Effect.gen(function* () {
+					yield* rollbackToAction(rollbackTarget)
+					for (const rb of rollbackActions) {
+						yield* actionRecordRepo.markLocallyApplied(rb.id)
+					}
 
-				const actionsToReplay = yield* actionRecordRepo.findUnappliedLocally()
-				const replayWithoutRollbacks = actionsToReplay.filter((a) => a._tag !== RollbackActionTag)
-				if (replayWithoutRollbacks.length > 0) {
-					yield* applyActionRecords(replayWithoutRollbacks)
-				}
+					const actionsToReplay = yield* actionRecordRepo.findUnappliedLocally()
+					const replayWithoutRollbacks = actionsToReplay.filter((a) => a._tag !== RollbackActionTag)
+					if (replayWithoutRollbacks.length > 0) {
+						yield* applyActionRecords(replayWithoutRollbacks)
+					}
+					yield* advanceAppliedRemoteServerIngestCursor()
+				}).pipe(sqlClient.withTransaction)
 
-				yield* advanceAppliedRemoteServerIngestCursor()
 				if (!uploadsDisabled) {
 					yield* sendLocalActions()
 				}
 				return remoteActions
 			}
 
-			// Fast-forward: apply only newly received non-rollback actions in canonical order.
-			if (unappliedNonRollback.length > 0) {
-				yield* applyActionRecords(unappliedNonRollback)
-			}
-			yield* advanceAppliedRemoteServerIngestCursor()
+			yield* Effect.gen(function* () {
+				if (unappliedNonRollback.length > 0) {
+					yield* applyActionRecords(unappliedNonRollback)
+				}
+				yield* advanceAppliedRemoteServerIngestCursor()
+			}).pipe(sqlClient.withTransaction)
 			if (!uploadsDisabled) {
 				yield* sendLocalActions()
 			}
@@ -330,9 +335,11 @@ export const makePerformSyncCases = (deps: {
 					remoteCount: remoteActions.length
 				})
 
-				// 1. Apply remote actions
-				const appliedRemotes = yield* applyActionRecords(remoteActions)
-				yield* advanceAppliedRemoteServerIngestCursor()
+				const appliedRemotes = yield* Effect.gen(function* () {
+					const applied = yield* applyActionRecords(remoteActions)
+					yield* advanceAppliedRemoteServerIngestCursor()
+					return applied
+				}).pipe(sqlClient.withTransaction)
 				// 2. Send pending actions
 				if (!uploadsDisabled) {
 					yield* sendLocalActions()
@@ -347,7 +354,6 @@ export const makePerformSyncCases = (deps: {
 			})
 			const allLocalActions = yield* actionRecordRepo.all()
 			yield* reconcile(pendingActions, remoteActions, allLocalActions)
-			yield* advanceAppliedRemoteServerIngestCursor()
 			return uploadsDisabled ? ([] as const) : yield* sendLocalActions()
 		})
 

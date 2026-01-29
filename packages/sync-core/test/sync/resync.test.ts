@@ -156,4 +156,57 @@ describe("Resync primitives (hard resync + rebase)", () => {
 			}).pipe(Effect.provide(makeTestLayers("server"))),
 		{ timeout: 30000 }
 	)
+
+	it.scoped(
+		"hardResync is atomic (does not wipe sync tables if snapshot apply fails)",
+		() =>
+			Effect.gen(function* () {
+				const serverSql = yield* PgliteClient.PgliteClient
+
+				const clientA = yield* createTestClient("clientA", serverSql).pipe(Effect.orDie)
+
+				yield* clientA.syncService.executeAction(
+					clientA.testHelpers.createNoteAction({
+						title: "Local note",
+						content: "from client",
+						user_id: "user-1",
+						timestamp: 1100
+					})
+				)
+
+				const actionCountBefore = (yield* clientA.actionRecordRepo.all()).length
+				expect(actionCountBefore).toBeGreaterThan(0)
+
+				yield* clientA.syncNetworkServiceTestHelpers.setBootstrapSnapshot(
+					Effect.succeed({
+						serverEpoch: "test-epoch",
+						minRetainedServerIngestId: 0,
+						serverIngestId: 1,
+						serverClock: HLC.make(),
+						tables: [
+							{
+								tableName: "notes",
+								rows: [
+									{
+										id: "bad-snapshot-note",
+										content: "missing title should fail",
+										user_id: "user-1"
+									}
+								]
+							}
+						]
+					})
+				)
+
+				const exit = yield* clientA.syncService.hardResync().pipe(Effect.exit)
+				expect(exit._tag).toBe("Failure")
+
+				const actionCountAfter = (yield* clientA.actionRecordRepo.all()).length
+				expect(actionCountAfter).toBe(actionCountBefore)
+
+				const localNotes = yield* clientA.noteRepo.findByTitle("Local note")
+				expect(localNotes.length).toBe(1)
+			}).pipe(Effect.provide(makeTestLayers("server"))),
+		{ timeout: 30000 }
+	)
 })

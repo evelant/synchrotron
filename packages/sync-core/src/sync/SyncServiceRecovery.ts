@@ -36,9 +36,6 @@ export const makeRecovery = (deps: {
 	readonly actionRegistry: ActionRegistry
 	readonly deterministicId: DeterministicId
 	readonly newTraceId: Effect.Effect<string>
-	readonly applyBootstrapSnapshot: (
-		snapshot: BootstrapSnapshot
-	) => Effect.Effect<void, unknown, never>
 	readonly applyBootstrapSnapshotInTx: (
 		snapshot: BootstrapSnapshot
 	) => Effect.Effect<void, unknown, never>
@@ -54,7 +51,6 @@ export const makeRecovery = (deps: {
 		actionRegistry,
 		deterministicId,
 		newTraceId,
-		applyBootstrapSnapshot,
 		applyBootstrapSnapshotInTx
 	} = deps
 
@@ -76,16 +72,16 @@ export const makeRecovery = (deps: {
 
 					const snapshot = yield* fetchBootstrapSnapshotOrFail(syncNetworkService)
 
-					yield* Effect.logInfo("hardResync.clearSyncTables", { resyncId, clientId })
-					yield* clearSyncTablesInTx({ sqlClient, clientDbAdapter }).pipe(sqlClient.withTransaction)
-
-					yield* Effect.logInfo("hardResync.applySnapshot", {
+					yield* Effect.logInfo("hardResync.clearAndApplySnapshot", {
 						resyncId,
 						clientId,
 						serverIngestId: snapshot.serverIngestId,
 						tableCount: snapshot.tables.length
 					})
-					yield* applyBootstrapSnapshot(snapshot)
+					yield* Effect.gen(function* () {
+						yield* clearSyncTablesInTx({ sqlClient, clientDbAdapter })
+						yield* applyBootstrapSnapshotInTx(snapshot)
+					}).pipe(sqlClient.withTransaction)
 
 					yield* Effect.logInfo("hardResync.done", {
 						resyncId,

@@ -6,6 +6,7 @@ In progress (partial)
 
 - Implemented: explicit resync primitives + tests (`SyncService.hardResync()` + `SyncService.rebase()`)
 - Implemented: typed `SendLocalActions*` failures over RPC + bounded `BehindHead` retry in `performSync()`
+- Implemented: lightweight “sync doctor” check at start of `performSync()` (orphan cleanup + applied-cursor invariant detection + auto-recovery)
 - Remaining: discontinuity detection + unsyncable local work recovery + other “stuck” tests
 
 ## Goal
@@ -192,13 +193,13 @@ If a pending action cannot be replayed (missing action creator, non-pure action,
 
 ### E) Local invariants / self-healing (“sync doctor”)
 
-Add a cheap check (run at start of `performSync()` or on error) to detect:
+Implemented: `performSync()` runs a cheap check at start to detect and self-heal:
 
-- cursor/state mismatch (e.g. watermark > 0 but no local base data)
-- orphaned `action_modified_rows` / missing patches
-- invalid clock shapes per dialect
+- orphan rows in sync metadata tables (e.g. `local_applied_action_ids`, `action_modified_rows`, `local_quarantined_actions`)
+- applied-cursor mismatch: a remote action that is `synced=true` but missing from `local_applied_action_ids` at or before `client_sync_status.last_seen_server_ingest_id`
+- cursor lag: advances `last_seen_server_ingest_id` to the applied-remote watermark when it lags
 
-If violated, recommend or trigger hard resync.
+If violated, trigger a single automatic `hardResync()` / `rebase()` + retry (subject to quarantine rules).
 
 ## Test plan
 

@@ -203,11 +203,11 @@ With `server_ingest_id` as the fetch cursor (`0002`), it’s explicitly possible
 
 Resolved: the client and server both handle late-arriving actions by rewinding + replaying so patch application order matches canonical replay order.
 
-### M) Reconcile is not a single atomic transaction (crash-consistency risk)
+### M) Reconcile atomicity (crash-consistency)
 
-The docs describe reconciliation as one transaction: rollback → insert rollback marker → replay → commit. In code, rollback (`rollbackToCommonAncestor`) and replay (`applyActionRecords`) each run in their own `SqlClient.withTransaction`, and the rollback marker insert happens between them.
+Resolved: reconciliation is now wrapped in a single outer `SqlClient.withTransaction` so rollback + rollback-marker insert + replay commit (or roll back) together. `@effect/sql` uses `SAVEPOINT` / `ROLLBACK TO SAVEPOINT` for nested `withTransaction`, so the internal helpers remain safe to call while still guaranteeing atomicity at the orchestrator level.
 
-This is probably fine for the current test suite, but it makes crash/restart behavior harder to reason about (you can persist a “rolled back but not replayed” state mid-reconcile).
+Regression test: `packages/sync-core/test/sync/reconcile-atomicity.test.ts`.
 
 ## Concrete next steps (high leverage)
 
@@ -217,6 +217,8 @@ Completed since this audit:
 2. Client observes/merges remote clocks during apply; outgoing CORRECTION clocks are created after observing remotes.
 3. Server is an authoritative materializer (rewind + replay patches for late arrivals).
 4. Added core tests for rollback markers, late arrival reorder, server upload gating, and retry-after-rejection behavior.
+5. Reconciliation + rematerialization are atomic (rollback + marker + replay + cursor advancement).
+6. Added a lightweight “sync doctor” (orphan cleanup + cursor/applied invariant detection + auto `hardResync`/`rebase` + retry) and made `hardResync` + post-upload bookkeeping fully transactional.
 
 Remaining high-leverage next steps:
 
@@ -225,10 +227,9 @@ Remaining high-leverage next steps:
    - define purity diagnostics (and an optional dev/test “replay twice” check),
    - add optional `delta_hash`/`basis_hash` for observability + optional compaction.
 2. **Unify ingress/apply responsibilities** (Electric vs RPC) to avoid double-apply pressure and clarify which component advances `last_seen_server_ingest_id`.
-3. **Crash-consistency**: make reconcile atomic (single transaction) or define a restart-safe recovery protocol.
-4. **Patch apply coverage**: broaden server patch applier type support beyond the current demo-friendly set.
+3. **Patch apply coverage**: broaden server patch applier type support beyond the current demo-friendly set.
 
-5. **Additional edge-case tests (need a bit more design work)**:
+4. **Additional edge-case tests (need a bit more design work)**:
    - **CORRECTION duplicates / compaction:** two clients emit the _same_ CORRECTION delta for the same applied batch → assert idempotent apply (safe duplicates) and (optionally) compaction keyed by `(basis_hash, delta_hash)`.
      - **CORRECTION purity violation is loud:** craft a nondeterministic action that produces different results on two runs against the same snapshot → assert we surface a diagnostic (and optionally suppress emitting an additional overwriting CORRECTION delta for that apply pass).
    - **CORRECTION stabilization after rebase:** client B emits a CORRECTION delta, then client A later reconciles with local pending actions that interleave and produces a new delta that supersedes B’s CORRECTION; after B fetches again and replays the full history, it should reach a fixed point (no further CORRECTION).

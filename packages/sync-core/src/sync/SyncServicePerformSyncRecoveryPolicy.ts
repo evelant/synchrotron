@@ -14,6 +14,7 @@ import {
 } from "../SyncNetworkService"
 import { SyncError } from "../SyncServiceErrors"
 import { getQuarantinedActionCount } from "./SyncServicePerformSyncQuarantine"
+import { SyncDoctorCorruption } from "./SyncServicePerformSyncDoctor"
 
 export type PerformSyncResult = readonly ActionRecord[]
 
@@ -24,6 +25,7 @@ export type PerformSyncError =
 	| FetchRemoteActionsCompacted
 	| RemoteActionFetchError
 	| SyncHistoryEpochMismatch
+	| SyncDoctorCorruption
 	| SyncError
 
 const toPerformSyncError = (message: string, error: unknown): PerformSyncError => {
@@ -34,6 +36,7 @@ const toPerformSyncError = (message: string, error: unknown): PerformSyncError =
 		error instanceof RemoteActionFetchError ||
 		error instanceof FetchRemoteActionsCompacted ||
 		error instanceof SyncHistoryEpochMismatch ||
+		error instanceof SyncDoctorCorruption ||
 		error instanceof SyncError
 	) {
 		return error
@@ -214,10 +217,70 @@ export const makePerformSyncRecoveryPolicy = (deps: {
 			)
 	}
 
+	const handleSyncDoctorCorruption = (
+		allowInvalidRebase: boolean,
+		allowDiscontinuityRecovery: boolean
+	) => {
+		return (
+			error: SyncDoctorCorruption
+		): Effect.Effect<PerformSyncResult, PerformSyncError, never> =>
+			Effect.gen(function* () {
+				const quarantinedCount = yield* getQuarantinedActionCount(sqlClient)
+				if (quarantinedCount > 0) {
+					return yield* Effect.fail(
+						new SyncError({
+							message:
+								"Sync doctor detected corruption while local actions are quarantined; app must resolve (discard or hard resync)",
+							cause: error
+						})
+					)
+				}
+
+				if (!allowDiscontinuityRecovery) {
+					return yield* Effect.fail(
+						new SyncError({
+							message:
+								"Sync doctor corruption persists after recovery attempt; app must hard resync",
+							cause: error
+						})
+					)
+				}
+
+				const pending = yield* actionRecordRepo.allUnsyncedActive()
+				if (pending.length === 0) {
+					yield* Effect.logWarning("performSync.syncDoctor.hardResync", {
+						clientId,
+						lastSeenServerIngestId: error.lastSeenServerIngestId,
+						firstUnappliedActionId: error.firstUnappliedActionId ?? null,
+						firstUnappliedServerIngestId: error.firstUnappliedServerIngestId ?? null
+					})
+					yield* hardResync()
+				} else {
+					yield* Effect.logWarning("performSync.syncDoctor.rebase", {
+						clientId,
+						pendingCount: pending.length,
+						lastSeenServerIngestId: error.lastSeenServerIngestId,
+						firstUnappliedActionId: error.firstUnappliedActionId ?? null,
+						firstUnappliedServerIngestId: error.firstUnappliedServerIngestId ?? null
+					})
+					yield* rebase()
+				}
+
+				return yield* retryPerformSync(allowInvalidRebase, false)
+			}).pipe(
+				Effect.catchAll((unknownError) =>
+					Effect.fail(
+						toPerformSyncError("Failed while handling sync doctor corruption", unknownError)
+					)
+				)
+			)
+	}
+
 	return {
 		handleDenied,
 		handleInvalid,
 		handleSyncHistoryEpochMismatch,
-		handleFetchRemoteActionsCompacted
+		handleFetchRemoteActionsCompacted,
+		handleSyncDoctorCorruption
 	} as const
 }

@@ -207,6 +207,10 @@ This caused problems (especially on the server: rollback patches could reference
 - Remote ingress is transport-specific (Electric stream, RPC fetch, polling, etc). Transports deliver remote sync-log rows; `sync-core` persists them into local `action_records` / `action_modified_rows` via a shared ingestion helper. Applying those remotes is DB-driven: the client applies actions discovered in the local DB (`synced=true` and not present in `local_applied_action_ids`), not by trusting the transient fetch return value.
 - By default, the fetch/RPC path excludes actions authored by the requesting client (avoid echo). `includeSelf=true` is primarily a fallback for action-log restore (see below).
 - `last_seen_server_ingest_id` is treated as an **applied** watermark (not merely ingested) for remote (other-client) actions: it is advanced only after those actions have been incorporated into the client’s materialized state (apply/reconcile). It is also used as `basisServerIngestId` for upload head-gating.
+- `performSync()` begins with a lightweight “sync doctor” step to keep local sync metadata self-consistent:
+  - deletes obvious orphan rows from sync metadata tables (e.g. `local_applied_action_ids`, `action_modified_rows`, `local_quarantined_actions`)
+  - advances `last_seen_server_ingest_id` to the applied-remote watermark when it lags
+  - detects cursor/applied-set corruption (a remote action that is `synced=true` but missing from `local_applied_action_ids` at or before `last_seen_server_ingest_id`) and triggers a single automatic `hardResync()` / `rebase()` + retry (subject to quarantine rules)
 - Use up-to-date signals to ensure the complete set of `action_modified_rows` for a transaction has arrived before applying. The sync loop will not apply remote actions until their patches are present, to preserve rollback correctness and avoid spurious outgoing CORRECTION deltas.
 - This may use Electric's experimental `multishapestream` / `transactionmultishapestream` APIs, depending on how you stream the shapes.
 - Bootstrap / restore options:
@@ -291,6 +295,7 @@ Complex types are stored as JSON. Relationships are represented by normal primar
   - If a client already has quarantined local actions, discontinuity recovery requires app/user intervention (discard quarantined work or hard resync), to avoid silently losing blocked local work.
 - Upload rejection policy:
   - `SendLocalActionsBehindHead` is treated as transient and retried (fetch → reconcile → resend).
+  - Sync-metadata corruption triggers a single automatic `hardResync()` / `rebase()` + retry, using the same “no quarantined local actions” rule as discontinuity recovery.
   - `SendLocalActionsInvalid` triggers a single automatic `rebase()` + retry. If it still fails, the client quarantines all local unsynced actions.
   - `SendLocalActionsDenied` quarantines all local unsynced actions immediately (rebase will not fix authorization).
   - While quarantined (`local_quarantined_actions` non-empty), uploads are suspended but remote ingestion continues; the app must resolve by either discarding local unsynced work (rollback + drop) or running a hard resync.

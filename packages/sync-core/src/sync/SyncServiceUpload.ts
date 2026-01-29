@@ -122,23 +122,25 @@ export const makeUpload = (deps: {
 						actionTags
 					})
 
-					for (const action of actionsToSend) {
-						yield* actionRecordRepo.markAsSynced(action.id)
-						yield* Effect.logDebug("sendLocalActions.markedSynced", {
-							sendBatchId,
-							actionId: action.id,
-							actionTag: action._tag
-						})
-					}
-					yield* clockState.updateLastSyncedClock().pipe(
-						Effect.mapError(
-							(error) =>
-								new SyncError({
-									message: "Failed to update last_synced_clock",
-									cause: error
-								})
+					yield* Effect.gen(function* () {
+						for (const action of actionsToSend) {
+							yield* actionRecordRepo.markAsSynced(action.id)
+							yield* Effect.logDebug("sendLocalActions.markedSynced", {
+								sendBatchId,
+								actionId: action.id,
+								actionTag: action._tag
+							})
+						}
+						yield* clockState.updateLastSyncedClock().pipe(
+							Effect.mapError(
+								(error) =>
+									new SyncError({
+										message: "Failed to update last_synced_clock",
+										cause: error
+									})
+							)
 						)
-					)
+					}).pipe(sqlClient.withTransaction)
 
 					return actionsToSend // Return the actions that were handled
 				}).pipe(

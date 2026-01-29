@@ -35,6 +35,7 @@ import type { BootstrapSnapshot } from "./SyncServiceBootstrap"
 import { makeAppliedRemoteCursor } from "./SyncServicePerformSyncAppliedCursor"
 import { bootstrapFromSnapshotIfNeeded } from "./SyncServicePerformSyncBootstrap"
 import { makePerformSyncCases } from "./SyncServicePerformSyncCases"
+import { runSyncDoctor, SyncDoctorCorruption } from "./SyncServicePerformSyncDoctor"
 import { getQuarantinedActionCount } from "./SyncServicePerformSyncQuarantine"
 import {
 	makePerformSyncRecoveryPolicy,
@@ -148,10 +149,22 @@ export const makePerformSync = (deps: {
 							lastSeenServerIngestIdBeforeBootstrap,
 							applyBootstrapSnapshot
 						})
-						const lastSeenServerIngestId = yield* clockState.getLastSeenServerIngestId
+						const lastSeenServerIngestIdAfterBootstrap = yield* clockState.getLastSeenServerIngestId
 						yield* Effect.logDebug("performSync.cursor.afterBootstrap", {
-							lastSeenServerIngestId
+							lastSeenServerIngestId: lastSeenServerIngestIdAfterBootstrap
 						})
+
+						yield* runSyncDoctor({
+							sqlClient,
+							clockState,
+							actionRecordRepo,
+							clientId,
+							syncSessionId,
+							advanceAppliedRemoteServerIngestCursor
+						})
+
+						const lastSeenServerIngestId = yield* clockState.getLastSeenServerIngestId
+						yield* Effect.logDebug("performSync.cursor.afterDoctor", { lastSeenServerIngestId })
 						// 1. Get pending local actions
 						const pendingActions = uploadsDisabled
 							? ([] as const)
@@ -229,6 +242,7 @@ export const makePerformSync = (deps: {
 								error instanceof FetchRemoteActionsCompacted ||
 								error instanceof RemoteActionFetchError ||
 								error instanceof SyncHistoryEpochMismatch ||
+								error instanceof SyncDoctorCorruption ||
 								error instanceof SyncError
 							) {
 								return Effect.fail(error)
@@ -264,6 +278,10 @@ export const makePerformSync = (deps: {
 						allowInvalidRebase,
 						allowDiscontinuityRecovery
 					)
+				),
+				Effect.catchTag(
+					"SyncDoctorCorruption",
+					recoveryPolicy.handleSyncDoctorCorruption(allowInvalidRebase, allowDiscontinuityRecovery)
 				)
 			)
 	}

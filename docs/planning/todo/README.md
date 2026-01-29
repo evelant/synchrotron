@@ -31,6 +31,7 @@ This folder contains **internal planning docs** for Synchrotron. These are not u
 | `0002` | Reliable fetch cursor (`server_ingest_id`)          | Implemented |
 | `0001` | Indexable HLC sort key                              | Implemented |
 | `0016` | Architecture + maintainability review               | Implemented |
+| `0017` | Reconcile atomicity (crash-consistency)             | Implemented |
 
 ## Conventions
 

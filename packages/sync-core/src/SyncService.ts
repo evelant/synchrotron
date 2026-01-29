@@ -131,7 +131,6 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 			actionRegistry,
 			deterministicId,
 			newTraceId,
-			applyBootstrapSnapshot,
 			applyBootstrapSnapshotInTx
 		})
 
