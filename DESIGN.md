@@ -92,7 +92,7 @@ Backend state:
   - if capture context is missing, triggers raise an error (prevents untracked writes to synced tables)
   - SQLite triggers are generated from the current table schema; call `ClientDbAdapter.installPatchCapture` after schema migrations that change tracked table columns
   - patch capture can be disabled transaction-locally (`sync.disable_trigger`) during rollback / patch-apply phases
-- Clock/identity: `HLC.ts` + `ClockOrder.ts` are pure (merge + canonical ordering by `(clock_time_ms, clock_counter, client_id, id)`); client runtimes provide `ClientIdentity` (stable `clientId`) and `ClientClockState` (persists HLC + cursors in `client_sync_status`); the server derives `server_epoch` / `serverClock` via `ServerMetaService`.
+- Clock/identity: `HLC.ts` + `ClockOrder.ts` are pure (merge + canonical ordering by `(clock_time_ms, clock_counter, client_id, id)`); `ActionLogOrder.ts` provides the same ordering at the DB layer (order columns + predecessor queries) so client/server rollback+replay planning can share one implementation; client runtimes provide `ClientIdentity` (stable `clientId`) and `ClientClockState` (persists HLC + cursors in `client_sync_status`); the server derives `server_epoch` / `serverClock` via `ServerMetaService`.
 - Electric SQL integration: streams `action_records` and `action_modified_rows` using a reliable receipt cursor (`server_ingest_id`) and up-to-date signals so a transaction's full set of patches arrives before applying.
 
 ## Observability

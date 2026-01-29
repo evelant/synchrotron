@@ -19,6 +19,7 @@ import {
 	SyncHistoryEpochMismatch,
 	type SyncNetworkService
 } from "../SyncNetworkService"
+import { RollbackActionTag } from "../SyncActionTags"
 
 export type RemoteApplyReadiness =
 	| { readonly _tag: "RemoteReady"; readonly remoteActions: readonly ActionRecord[] }
@@ -111,7 +112,7 @@ export const fetchIngestAndListRemoteActions = (deps: {
 		// If ingress is mid-flight (e.g. action_records arrived before action_modified_rows),
 		// bail out and retry later rather than creating spurious outgoing CORRECTION deltas.
 		const remoteIdsNeedingPatches = remoteActions
-			.filter((a) => a._tag !== "RollbackAction")
+			.filter((a) => a._tag !== RollbackActionTag)
 			.map((a) => a.id)
 		if (remoteIdsNeedingPatches.length > 0) {
 			const idsWithPatches = yield* sqlClient<{ readonly action_record_id: string }>`
