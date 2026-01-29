@@ -1,9 +1,6 @@
-import { SqlClient } from "@effect/sql"
-import type { HLC } from "@synchrotron/sync-core/HLC"
+import type { HLC } from "./HLC"
+import type { ActionModifiedRow, ActionRecord } from "./models"
 import { Effect, Schema } from "effect"
-import type { ActionModifiedRow, ActionRecord } from "./models" // Import ActionModifiedRow
-import type { BadArgument } from "@effect/platform/Error"
-import { ClientClockState } from "./ClientClockState"
 
 export class RemoteActionFetchError extends Schema.TaggedError<RemoteActionFetchError>()(
 	"RemoteActionFetchError",
@@ -130,86 +127,37 @@ export interface BootstrapSnapshot {
 	}>
 }
 
-export interface TestNetworkState {
-	/** Simulated network delay in milliseconds */
-	networkDelay: number
-	/** Whether network operations should fail */
-	shouldFail: boolean
+export interface SyncNetworkServiceService {
+	readonly fetchBootstrapSnapshot: () => Effect.Effect<BootstrapSnapshot, RemoteActionFetchError>
+	readonly fetchRemoteActions: () => Effect.Effect<FetchResult, FetchRemoteActionsFailure>
+	readonly sendLocalActions: (
+		actions: readonly ActionRecord[],
+		amrs: readonly ActionModifiedRow[],
+		basisServerIngestId: number
+	) => Effect.Effect<boolean, SendLocalActionsFailure | NetworkRequestError>
 }
 
+const MissingSyncNetworkServiceMessage =
+	"No SyncNetworkService implementation installed (provide SyncNetworkServiceLive from @synchrotron/sync-client)"
+
+const MissingSyncNetworkService: SyncNetworkServiceService = {
+	fetchBootstrapSnapshot: () =>
+		Effect.fail(new RemoteActionFetchError({ message: MissingSyncNetworkServiceMessage })),
+	fetchRemoteActions: () =>
+		Effect.fail(new RemoteActionFetchError({ message: MissingSyncNetworkServiceMessage })),
+	sendLocalActions: (
+		_actions: readonly ActionRecord[],
+		_amrs: readonly ActionModifiedRow[],
+		_basisServerIngestId: number
+	) => Effect.fail(new NetworkRequestError({ message: MissingSyncNetworkServiceMessage }))
+}
+
+/**
+ * SyncNetworkService is a transport abstraction.
+ *
+ * `sync-core` defines the contract, but does not provide a live implementation.
+ * Client runtimes (e.g. `@synchrotron/sync-client`) provide concrete layers (RPC, Electric ingress, tests).
+ */
 export class SyncNetworkService extends Effect.Service<SyncNetworkService>()("SyncNetworkService", {
-	/**
-	 * Live implementation using actual network requests
-	 */
-	effect: Effect.gen(function* () {
-		yield* SqlClient.SqlClient
-		const clockState = yield* ClientClockState
-		const clientId = yield* clockState.getClientId
-
-		return {
-			fetchBootstrapSnapshot: (): Effect.Effect<
-				BootstrapSnapshot,
-				RemoteActionFetchError | BadArgument
-			> =>
-				Effect.fail(
-					new RemoteActionFetchError({
-						message: "Bootstrap snapshot is not implemented for this transport"
-					})
-				),
-			fetchRemoteActions: (): Effect.Effect<FetchResult, FetchRemoteActionsFailure | BadArgument> =>
-				Effect.gen(function* () {
-					const sinceServerIngestId = yield* clockState.getLastSeenServerIngestId
-					// TODO: Implement actual network request to fetch remote actions
-					// This would use fetch or another HTTP client to contact the sync server
-					yield* Effect.logInfo(
-						`Fetching remote actions since server_ingest_id=${sinceServerIngestId} for client ${clientId}`
-					)
-
-					// For now return empty array as placeholder
-					// Need to return both actions and modifiedRows
-					return {
-						serverEpoch: "unknown",
-						minRetainedServerIngestId: 0,
-						actions: [],
-						modifiedRows: []
-					} satisfies FetchResult
-				}).pipe(
-					Effect.catchAll((error) =>
-						Effect.fail(
-							new RemoteActionFetchError({
-								message: "Failed to fetch remote actions",
-								cause: error
-							})
-						)
-					)
-				),
-
-			sendLocalActions: (
-				actions: readonly ActionRecord[],
-				amrs: readonly ActionModifiedRow[],
-				basisServerIngestId: number
-			): Effect.Effect<
-				boolean,
-				SendLocalActionsFailure | NetworkRequestError | BadArgument,
-				never
-			> =>
-				Effect.gen(function* () {
-					// TODO: Implement actual network request to send actions to remote server
-					yield* Effect.logInfo(`Sending ${actions.length} local actions to server`)
-					yield* Effect.logDebug(`basisServerIngestId=${basisServerIngestId}`)
-
-					// For now just return true as placeholder
-					return true
-				}).pipe(
-					Effect.catchAll((error) =>
-						Effect.fail(
-							new NetworkRequestError({
-								message: "Failed to send local actions",
-								cause: error
-							})
-						)
-					)
-				)
-		}
-	})
+	effect: Effect.succeed(MissingSyncNetworkService)
 }) {}

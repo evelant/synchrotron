@@ -68,10 +68,17 @@ const mapRemoteFetchErrors = <A>(effect: Effect.Effect<A, RemoteFetchTaggedError
 	effect.pipe(
 		Effect.catchAll((error) => {
 			switch (error._tag) {
-				case "BadArgument":
 				case "FetchRemoteActionsCompacted":
 				case "RemoteActionFetchError": {
 					return Effect.fail(error)
+				}
+				case "BadArgument": {
+					return Effect.fail(
+						new RemoteActionFetchError({
+							message: error.message,
+							cause: error
+						})
+					)
 				}
 				case "RpcClientError": {
 					return Effect.fail(
@@ -99,9 +106,16 @@ const mapBootstrapSnapshotErrors = <A>(
 	effect.pipe(
 		Effect.catchAll((error) => {
 			switch (error._tag) {
-				case "BadArgument":
 				case "RemoteActionFetchError": {
 					return Effect.fail(error)
+				}
+				case "BadArgument": {
+					return Effect.fail(
+						new RemoteActionFetchError({
+							message: error.message,
+							cause: error
+						})
+					)
 				}
 				case "RpcClientError": {
 					return Effect.fail(

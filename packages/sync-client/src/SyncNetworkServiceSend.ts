@@ -140,6 +140,14 @@ export const makeSendLocalActions = (deps: {
 						cause: error.cause ?? error
 					})
 				)
+			),
+			Effect.catchTag("BadArgument", (error: BadArgument) =>
+				Effect.fail(
+					new NetworkRequestError({
+						message: error.message,
+						cause: error
+					})
+				)
 			)
 		)
 }

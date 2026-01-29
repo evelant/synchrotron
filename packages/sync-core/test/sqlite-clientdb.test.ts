@@ -11,6 +11,7 @@ import {
 	ClientIdentity,
 	DeterministicId,
 	SqliteClientDbAdapter,
+	RemoteActionFetchError,
 	SyncNetworkService,
 	SyncService
 } from "@synchrotron/sync-core"
@@ -51,7 +52,25 @@ const makeSqliteTestLayers = (clientId: string) => {
 	).pipe(Layer.provideMerge(layer4))
 
 	const layer6 = ClientClockState.Default.pipe(Layer.provideMerge(layer5))
-	const layer7 = SyncNetworkService.Default.pipe(Layer.provideMerge(layer6))
+	const layer7 = Layer.succeed(
+		SyncNetworkService,
+		SyncNetworkService.of({
+			fetchBootstrapSnapshot: () =>
+				Effect.fail(
+					new RemoteActionFetchError({
+						message: "fetchBootstrapSnapshot is not used in sqlite-clientdb.test"
+					})
+				),
+			fetchRemoteActions: () =>
+				Effect.succeed({
+					serverEpoch: "test",
+					minRetainedServerIngestId: 0,
+					actions: [],
+					modifiedRows: []
+				}),
+			sendLocalActions: () => Effect.succeed(true)
+		})
+	).pipe(Layer.provideMerge(layer6))
 
 	return SyncService.DefaultWithoutDependencies.pipe(Layer.provideMerge(layer7))
 }

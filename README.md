@@ -103,7 +103,7 @@ Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlit
 
 ## Networking
 
-`SyncService` depends on a `SyncNetworkService` implementation. The default client implementation is `SyncNetworkServiceLive` (HTTP RPC via `@effect/rpc`).
+`SyncService` depends on a `SyncNetworkService` implementation (the contract lives in `sync-core`; client runtimes provide live layers). The default client implementation is `SyncNetworkServiceLive` (HTTP RPC via `@effect/rpc`).
 
 - Configure the RPC endpoint with `makeSynchrotronClientLayer({ syncRpcUrl: "http://..." })` or `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
 - In RPC polling mode, `fetchRemoteActions()` is fetch-only; `SyncService.performSync()` ingests the returned rows into the local sync tables (core-owned) before applying.
