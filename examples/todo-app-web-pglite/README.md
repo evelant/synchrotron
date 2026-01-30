@@ -34,6 +34,11 @@ If you want to run it manually, use:
 pnpm dev:backend
 ```
 
+The backend compose also includes a local OpenTelemetry dev stack (`grafana/otel-lgtm`):
+
+- Grafana: http://localhost:3001
+- OTLP HTTP (traces): http://localhost:4318/v1/traces
+
 ## Run the web app
 
 Then:
@@ -90,3 +95,7 @@ Variables:
 - `VITE_SYNC_RPC_AUTH_TOKEN_A` / `VITE_SYNC_RPC_AUTH_TOKEN_B`: JWTs for the two demo users (required for RPC auth).
 - `VITE_SYNC_USER_ID_A` / `VITE_SYNC_USER_ID_B`: override demo user ids (defaults: `user1` / `user2`).
 - `VITE_TODO_PROJECT_ID`: override demo project id (default: `project-demo`).
+- OpenTelemetry:
+  - `VITE_OTEL_ENABLED` (default: `true`)
+  - `VITE_OTEL_SERVICE_NAME` (default: `synchrotron-example-web`)
+  - `VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (default: `http://localhost:4318/v1/traces`)

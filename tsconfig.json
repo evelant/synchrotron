@@ -12,6 +12,9 @@
 			"path": "packages/sync-client/tsconfig.json"
 		},
 		{
+			"path": "packages/observability/tsconfig.json"
+		},
+		{
 			"path": "packages/sql-pglite/tsconfig.json"
 		},
 		{

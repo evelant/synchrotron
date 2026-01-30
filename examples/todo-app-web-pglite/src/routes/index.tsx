@@ -25,6 +25,7 @@ import {
 	type ActionExecutionError
 } from "@synchrotron/sync-core"
 import { ElectricSyncService } from "@synchrotron/sync-client/electric/ElectricSyncService"
+import { makeOtelWebOtlpLoggerLayer, makeOtelWebSdkLayer } from "@synchrotron/observability/web"
 import { TodoActions } from "../actions"
 import logo from "../assets/logo.svg"
 import { setupClientDatabase } from "../db/setup"
@@ -111,6 +112,46 @@ const viteSyncRpcAuthTokenBFromProcessEnv = (() => {
 	}
 })()
 
+const viteOtelEnabledFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_OTEL_ENABLED
+	} catch {
+		return undefined
+	}
+})()
+
+const viteOtelLogsEnabledFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_OTEL_LOGS_ENABLED
+	} catch {
+		return undefined
+	}
+})()
+
+const viteOtelServiceNameFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_OTEL_SERVICE_NAME
+	} catch {
+		return undefined
+	}
+})()
+
+const viteOtelTracesEndpointFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+	} catch {
+		return undefined
+	}
+})()
+
+const viteOtelLogsEndpointFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+	} catch {
+		return undefined
+	}
+})()
+
 const defaults = {
 	serverUrl: metaEnv?.VITE_SERVER_URL ?? viteServerUrlFromProcessEnv ?? "http://localhost:3010",
 	syncRpcAuthTokenA:
@@ -134,8 +175,23 @@ const defaults = {
 	userIdB: metaEnv?.VITE_SYNC_USER_ID_B ?? viteSyncUserIdBFromProcessEnv ?? "user2",
 	projectId: metaEnv?.VITE_TODO_PROJECT_ID ?? viteTodoProjectIdFromProcessEnv ?? "project-demo",
 	electricUrl:
-		metaEnv?.VITE_ELECTRIC_URL ?? viteElectricUrlFromProcessEnv ?? "http://localhost:5133"
+		metaEnv?.VITE_ELECTRIC_URL ?? viteElectricUrlFromProcessEnv ?? "http://localhost:5133",
+	otelEnabled: metaEnv?.VITE_OTEL_ENABLED ?? viteOtelEnabledFromProcessEnv ?? "true",
+	otelLogsEnabled: metaEnv?.VITE_OTEL_LOGS_ENABLED ?? viteOtelLogsEnabledFromProcessEnv ?? "false",
+	otelServiceName:
+		metaEnv?.VITE_OTEL_SERVICE_NAME ?? viteOtelServiceNameFromProcessEnv ?? "synchrotron-example-web",
+	otelTracesEndpoint:
+		metaEnv?.VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ?? viteOtelTracesEndpointFromProcessEnv ?? "",
+	otelLogsEndpoint:
+		metaEnv?.VITE_OTEL_EXPORTER_OTLP_LOGS_ENDPOINT ?? viteOtelLogsEndpointFromProcessEnv ?? ""
 } as const
+
+const parseBooleanEnv = (value: string, fallback: boolean) => {
+	const normalized = value.trim().toLowerCase()
+	if (normalized === "true" || normalized === "1" || normalized === "yes") return true
+	if (normalized === "false" || normalized === "0" || normalized === "no") return false
+	return fallback
+}
 
 const normalizeRpcUrl = (serverUrl: string) => {
 	if (serverUrl.endsWith("/rpc")) return serverUrl
@@ -378,6 +434,20 @@ const makeClientLayer = (options: {
 			)
 		),
 		Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Info)),
+		Layer.provideMerge(
+			makeOtelWebSdkLayer({
+				defaultServiceName: defaults.otelServiceName,
+				tracesEndpoint: defaults.otelTracesEndpoint,
+				enabled: parseBooleanEnv(defaults.otelEnabled, true)
+			})
+		),
+		Layer.provideMerge(
+			makeOtelWebOtlpLoggerLayer({
+				defaultServiceName: defaults.otelServiceName,
+				logsEndpoint: defaults.otelLogsEndpoint,
+				enabled: parseBooleanEnv(defaults.otelLogsEnabled, false)
+			})
+		),
 		Layer.provideMerge(Layer.scope)
 	)
 

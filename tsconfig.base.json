@@ -47,6 +47,8 @@
 			"@synchrotron/sync-core/*": ["packages/sync-core/src/*"],
 			"@synchrotron/sync-client": ["packages/sync-client/src/index"],
 			"@synchrotron/sync-client/*": ["packages/sync-client/src/*"],
+			"@synchrotron/observability": ["packages/observability/src/index"],
+			"@synchrotron/observability/*": ["packages/observability/src/*"],
 			"@effect/sql-pglite": ["packages/sql-pglite/src/index"],
 			"@effect/sql-pglite/*": ["packages/sql-pglite/src/*"],
 			"@synchrotron/sync-server": ["packages/sync-server/src/index"],

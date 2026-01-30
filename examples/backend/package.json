@@ -24,6 +24,7 @@
 		"@effect/rpc": "~0.73.0",
 		"@effect/sql": "~0.49.0",
 		"@effect/sql-pg": "0.34.21",
+		"@synchrotron/observability": "workspace:*",
 		"@synchrotron/sync-core": "workspace:*",
 		"@synchrotron/sync-server": "workspace:*",
 		"effect": "~3.19.14"

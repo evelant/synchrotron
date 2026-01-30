@@ -6,6 +6,7 @@ This folder contains **internal planning docs** for Synchrotron. These are not u
 
 | ID     | Topic                                       | Status              | Next                                                                                                                                          |
 | ------ | ------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0018` | OpenTelemetry observability                 | In progress         | Validate end-to-end traces (web/RN → backend) in Grafana; handle any OTLP HTTP CORS issues; define initial metrics set.                       |
 | `0015` | Failure modes + recovery (no stuck clients) | In progress         | Add discontinuity detection + unsyncable local work recovery; typed `SendLocalActions*` failures + bounded behind-head retry are implemented. |
 | `0014` | Dev/test action purity check                | Proposed (optional) | Add an opt-in “replay twice” purity check (diagnostics only), likely for CI/dev.                                                              |
 | `0013` | Transport abstraction (remote ingress)      | In progress         | Decide ingestion-only transport interface + wiring (upload stays RPC).                                                                        |

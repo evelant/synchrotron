@@ -14,15 +14,7 @@
 	"references": [
 		{
 			"path": "./tsconfig.src.json"
-		},
-		{
-			"path": "../../packages/observability/tsconfig.json"
-		},
-		{
-			"path": "../../packages/sync-core/tsconfig.json"
-		},
-		{
-			"path": "../../packages/sync-server/tsconfig.json"
 		}
 	]
 }
+

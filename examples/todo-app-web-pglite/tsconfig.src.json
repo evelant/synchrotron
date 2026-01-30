@@ -12,6 +12,9 @@
 			"path": "../../packages/sync-client/tsconfig.src.json"
 		},
 		{
+			"path": "../../packages/observability/tsconfig.src.json"
+		},
+		{
 			"path": "../../packages/sync-server/tsconfig.src.json"
 		}
 	],

@@ -2,6 +2,11 @@
 	"extends": "expo/tsconfig.base",
 	"compilerOptions": {
 		"strict": true,
-		"types": ["node", "react"]
+		"types": ["node", "react"],
+		"baseUrl": ".",
+		"paths": {
+			"@synchrotron/observability": ["../../packages/observability/src/index"],
+			"@synchrotron/observability/*": ["../../packages/observability/src/*"]
+		}
 	}
 }

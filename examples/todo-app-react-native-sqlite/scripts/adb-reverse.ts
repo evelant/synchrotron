@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process"
 
-const DEFAULT_PORTS = [3010, 5133, 8081, 19000, 19001, 19002] as const
+const DEFAULT_PORTS = [3010, 5133, 4318, 8081, 19000, 19001, 19002] as const
 
 const parsePorts = (value: string): number[] =>
 	value

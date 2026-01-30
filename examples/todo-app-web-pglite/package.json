@@ -14,6 +14,7 @@
 		"@electric-sql/pglite": "catalog:",
 		"@fontsource/alegreya-sans": "~5.2.8",
 		"@radix-ui/themes": "~3.2.1",
+		"@synchrotron/observability": "workspace:*",
 		"@synchrotron/sync-client": "workspace:*",
 		"@synchrotron/sync-core": "workspace:*",
 		"effect": "catalog:",

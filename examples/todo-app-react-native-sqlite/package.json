@@ -25,6 +25,7 @@
 		"@effect/sql-sqlite-react-native": "catalog:",
 		"@expo/metro-runtime": "~6.1.2",
 		"@op-engineering/op-sqlite": "15.2.2",
+		"@synchrotron/observability": "workspace:*",
 		"@synchrotron/sync-client": "workspace:*",
 		"@synchrotron/sync-core": "workspace:*",
 		"effect": "catalog:",

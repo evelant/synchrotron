@@ -1,4 +1,5 @@
 import { makeSynchrotronSqliteReactNativeClientLayer } from "@synchrotron/sync-client/react-native"
+import { makeOtelWebOtlpLoggerLayer, makeOtelWebSdkLayer } from "@synchrotron/observability/web"
 import { Effect, Layer, Logger, LogLevel, ManagedRuntime, type Context } from "effect"
 import React, {
 	createContext,
@@ -43,6 +44,22 @@ const syncRpcAuthToken = process.env.EXPO_PUBLIC_SYNC_RPC_AUTH_TOKEN
 
 const userId = process.env.EXPO_PUBLIC_SYNC_USER_ID ?? "user1"
 
+const otelEnabled = process.env.EXPO_PUBLIC_OTEL_ENABLED ?? "true"
+const otelServiceName = process.env.EXPO_PUBLIC_OTEL_SERVICE_NAME ?? "synchrotron-example-react-native"
+const otelTracesEndpoint =
+	process.env.EXPO_PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ?? "http://localhost:4318/v1/traces"
+
+const otelLogsEnabled = process.env.EXPO_PUBLIC_OTEL_LOGS_ENABLED ?? "false"
+const otelLogsEndpoint =
+	process.env.EXPO_PUBLIC_OTEL_EXPORTER_OTLP_LOGS_ENDPOINT ?? "http://localhost:4318/v1/logs"
+
+const parseBooleanEnv = (value: string, fallback: boolean) => {
+	const normalized = value.trim().toLowerCase()
+	if (normalized === "true" || normalized === "1" || normalized === "yes") return true
+	if (normalized === "false" || normalized === "0" || normalized === "no") return false
+	return fallback
+}
+
 const AppLive = TodoRepo.Default.pipe(
 	Layer.provideMerge(
 		Layer.effectDiscard(
@@ -70,6 +87,20 @@ const AppLive = TodoRepo.Default.pipe(
 		Logger.replace(Logger.defaultLogger, Logger.prettyLoggerDefault.pipe(Logger.withLeveledConsole))
 	),
 	Layer.provideMerge(Logger.minimumLogLevel(LogLevel.Trace)),
+	Layer.provideMerge(
+		makeOtelWebSdkLayer({
+			defaultServiceName: otelServiceName,
+			tracesEndpoint: otelTracesEndpoint,
+			enabled: parseBooleanEnv(otelEnabled, true)
+		})
+	),
+	Layer.provideMerge(
+		makeOtelWebOtlpLoggerLayer({
+			defaultServiceName: otelServiceName,
+			logsEndpoint: otelLogsEndpoint,
+			enabled: parseBooleanEnv(otelLogsEnabled, false)
+		})
+	),
 	Layer.provideMerge(Layer.scope)
 )
 
