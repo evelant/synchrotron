@@ -15,10 +15,11 @@
  * - `SyncServicePerformSyncRecoveryPolicy` (policy for invalid/quarantine/discontinuity recovery)
  */
 import type { SqlClient } from "@effect/sql"
-import { Effect, Schedule } from "effect"
+import { Effect, Metric, Schedule } from "effect"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
 import type { ClientClockState } from "../ClientClockState"
 import type { ActionRecord } from "../models"
+import * as SyncMetrics from "../observability/metrics"
 import {
 	FetchRemoteActionsCompacted,
 	NetworkRequestError,
@@ -129,6 +130,8 @@ export const makePerformSync = (deps: {
 						yield* Effect.logInfo("performSync.start", { syncSessionId })
 						const quarantinedCount = yield* getQuarantinedActionCount(sqlClient)
 						const uploadsDisabled = quarantinedCount > 0
+						yield* Metric.update(SyncMetrics.quarantinedActionsGauge, quarantinedCount)
+						yield* Effect.annotateCurrentSpan({ uploadsDisabled, quarantinedCount })
 						if (uploadsDisabled) {
 							yield* Effect.logWarning("performSync.uploadsDisabled.quarantined", {
 								syncSessionId,
@@ -146,6 +149,7 @@ export const makePerformSync = (deps: {
 							sqlClient,
 							syncNetworkService,
 							clientId,
+							syncSessionId,
 							lastSeenServerIngestIdBeforeBootstrap,
 							applyBootstrapSnapshot
 						})
@@ -169,6 +173,8 @@ export const makePerformSync = (deps: {
 						const pendingActions = uploadsDisabled
 							? ([] as const)
 							: yield* actionRecordRepo.findBySynced(false)
+						yield* Metric.update(SyncMetrics.localUnsyncedActionsGauge, pendingActions.length)
+						yield* Effect.annotateCurrentSpan({ pendingActionCount: pendingActions.length })
 						yield* Effect.logDebug("performSync.pendingActions", {
 							count: pendingActions.length,
 							actions: pendingActions.map((a) => ({
@@ -190,6 +196,9 @@ export const makePerformSync = (deps: {
 						if (remoteReadiness._tag === "RemoteNotReady") {
 							return [] as const
 						}
+						yield* Effect.annotateCurrentSpan({
+							remoteUnappliedActionCount: remoteReadiness.remoteActions.length
+						})
 
 						const { run } = makePerformSyncCases({
 							sqlClient,
@@ -208,13 +217,19 @@ export const makePerformSync = (deps: {
 					}).pipe(
 						Effect.tapError((error) => {
 							if (error instanceof SendLocalActionsBehindHead) {
-								return Effect.logWarning("performSync.behindHead", {
-									syncSessionId,
-									clientId,
-									basisServerIngestId: error.basisServerIngestId,
-									firstUnseenServerIngestId: error.firstUnseenServerIngestId,
-									firstUnseenActionId: error.firstUnseenActionId ?? null
-								})
+								return Effect.all(
+									[
+										Effect.logWarning("performSync.behindHead", {
+											syncSessionId,
+											clientId,
+											basisServerIngestId: error.basisServerIngestId,
+											firstUnseenServerIngestId: error.firstUnseenServerIngestId,
+											firstUnseenActionId: error.firstUnseenActionId ?? null
+										}),
+										Metric.increment(SyncMetrics.syncRetriesTotalFor("behind_head"))
+									],
+									{ concurrency: "unbounded", discard: true }
+								)
 							}
 							const errorTag =
 								typeof error === "object" && error !== null
@@ -283,6 +298,10 @@ export const makePerformSync = (deps: {
 					"SyncDoctorCorruption",
 					recoveryPolicy.handleSyncDoctorCorruption(allowInvalidRebase, allowDiscontinuityRecovery)
 				)
+			).pipe(
+				Metric.trackDuration(SyncMetrics.syncDurationMs),
+				Effect.tap(() => Metric.increment(SyncMetrics.syncAttemptsTotalFor("success"))),
+				Effect.tapError(() => Metric.increment(SyncMetrics.syncAttemptsTotalFor("failure")))
 			)
 	}
 

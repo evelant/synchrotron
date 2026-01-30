@@ -38,6 +38,8 @@ The backend compose also includes a local OpenTelemetry dev stack (`grafana/otel
 
 - Grafana: http://localhost:3001
 - OTLP HTTP (traces): http://localhost:4318/v1/traces
+- OTLP HTTP (logs): http://localhost:4318/v1/logs
+- OTLP HTTP (metrics): http://localhost:4318/v1/metrics
 
 ## Run the web app
 
@@ -99,3 +101,7 @@ Variables:
   - `VITE_OTEL_ENABLED` (default: `true`)
   - `VITE_OTEL_SERVICE_NAME` (default: `synchrotron-example-web`)
   - `VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (default: `http://localhost:4318/v1/traces`)
+  - `VITE_OTEL_LOGS_ENABLED` (default: `false`)
+  - `VITE_OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` (default: `http://localhost:4318/v1/logs`)
+  - `VITE_OTEL_METRICS_ENABLED` (default: `false`)
+  - `VITE_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` (default: `http://localhost:4318/v1/metrics`)

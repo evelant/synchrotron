@@ -15,8 +15,9 @@
  * to the injected functions so the case logic stays readable and testable.
  */
 import type { SqlClient } from "@effect/sql"
-import { Effect, Option } from "effect"
+import { Effect, Metric, Option } from "effect"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
+import * as SyncMetrics from "../observability/metrics"
 import {
 	actionLogOrderKeyFromRow,
 	compareActionLogOrderKey,
@@ -111,6 +112,8 @@ export const makePerformSyncCases = (deps: {
 
 	const handleNoop = () =>
 		Effect.gen(function* () {
+			yield* Effect.annotateCurrentSpan({ syncCase: "noop" })
+			yield* Metric.increment(SyncMetrics.syncCaseTotalFor("noop"))
 			yield* Effect.logInfo("performSync.noop")
 			yield* advanceAppliedRemoteServerIngestCursor()
 			return [] as const
@@ -226,6 +229,8 @@ export const makePerformSyncCases = (deps: {
 			const { rollbackActions, unappliedNonRollback, rollbackTarget, lateArrival } = plan
 
 			if (rollbackTarget !== undefined) {
+				yield* Effect.annotateCurrentSpan({ syncCase: "remote_only_rematerialize" })
+				yield* Metric.increment(SyncMetrics.syncCaseTotalFor("remote_only_rematerialize"))
 				yield* Effect.logInfo("performSync.case1.rematerialize", {
 					remoteCount: remoteActions.length,
 					rollbackTarget: rollbackTarget ?? null,
@@ -254,6 +259,8 @@ export const makePerformSyncCases = (deps: {
 				return remoteActions
 			}
 
+			yield* Effect.annotateCurrentSpan({ syncCase: "remote_only_fast_forward" })
+			yield* Metric.increment(SyncMetrics.syncCaseTotalFor("remote_only_fast_forward"))
 			yield* Effect.gen(function* () {
 				if (unappliedNonRollback.length > 0) {
 					yield* applyActionRecords(unappliedNonRollback)
@@ -275,6 +282,8 @@ export const makePerformSyncCases = (deps: {
 
 	const handlePendingOnly = (pendingActions: readonly ActionRecord[]) =>
 		Effect.gen(function* () {
+			yield* Effect.annotateCurrentSpan({ syncCase: "pending_only" })
+			yield* Metric.increment(SyncMetrics.syncCaseTotalFor("pending_only"))
 			yield* Effect.logInfo("performSync.case2.sendPending", {
 				pendingCount: pendingActions.length
 			})
@@ -326,8 +335,10 @@ export const makePerformSyncCases = (deps: {
 						clientId: earliestRemoteAction.client_id,
 						id: earliestRemoteAction.id
 					}
-				) < 0
+			) < 0
 			) {
+				yield* Effect.annotateCurrentSpan({ syncCase: "apply_remote_then_send_pending" })
+				yield* Metric.increment(SyncMetrics.syncCaseTotalFor("apply_remote_then_send_pending"))
 				yield* Effect.logInfo("performSync.case4.applyRemoteThenSendPending", {
 					latestPendingActionId: latestPendingAction.id,
 					earliestRemoteActionId: earliestRemoteAction.id,
@@ -348,6 +359,8 @@ export const makePerformSyncCases = (deps: {
 				return appliedRemotes
 			}
 
+			yield* Effect.annotateCurrentSpan({ syncCase: "reconcile_then_send_pending" })
+			yield* Metric.increment(SyncMetrics.syncCaseTotalFor("reconcile_then_send_pending"))
 			yield* Effect.logInfo("performSync.case3.reconcileThenSendPending", {
 				pendingCount: pendingActions.length,
 				remoteCount: remoteActions.length

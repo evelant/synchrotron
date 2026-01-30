@@ -1,9 +1,10 @@
 import * as FetchHttpClient from "@effect/platform/FetchHttpClient"
 import * as NodeSdk from "@effect/opentelemetry/NodeSdk"
 import * as OtlpLogger from "@effect/opentelemetry/OtlpLogger"
+import * as OtlpMetrics from "@effect/opentelemetry/OtlpMetrics"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
-import { Config, Effect, Layer } from "effect"
+import { Config, Duration, Effect, Layer } from "effect"
 
 export interface OtelNodeSdkOptions {
 	/**
@@ -77,6 +78,46 @@ export const makeOtelNodeOtlpLoggerLayer = (options: OtelNodeSdkOptions) =>
 			)
 
 			return OtlpLogger.layer({ url, resource: { serviceName } }).pipe(
+				Layer.provide(FetchHttpClient.layer)
+			)
+		})
+	)
+
+/**
+ * Exports Effect metrics to OTLP/HTTP, so they show up in Prometheus / Grafana.
+ *
+ * Defaults:
+ * - Enable/disable: `OTEL_METRICS_ENABLED=true` enables the layer
+ * - Service name override: `OTEL_SERVICE_NAME`
+ * - Collector metrics endpoint: `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` (default `http://localhost:4318/v1/metrics`)
+ * - Export interval: `OTEL_METRICS_EXPORT_INTERVAL` (default `10 seconds`)
+ */
+export const makeOtelNodeOtlpMetricsLayer = (options: OtelNodeSdkOptions) =>
+	Layer.unwrapEffect(
+		Effect.gen(function* () {
+			const disabled = yield* Config.boolean("OTEL_SDK_DISABLED").pipe(Config.withDefault(false))
+			if (disabled) {
+				return Layer.empty
+			}
+
+			const enabled = yield* Config.boolean("OTEL_METRICS_ENABLED").pipe(Config.withDefault(false))
+			if (!enabled) {
+				return Layer.empty
+			}
+
+			const serviceName = yield* Config.string("OTEL_SERVICE_NAME").pipe(
+				Config.withDefault(options.defaultServiceName)
+			)
+
+			const url = yield* Config.string("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT").pipe(
+				Config.withDefault("http://localhost:4318/v1/metrics")
+			)
+
+			const exportInterval = yield* Config.duration("OTEL_METRICS_EXPORT_INTERVAL").pipe(
+				Config.withDefault(Duration.seconds(10))
+			)
+
+			return OtlpMetrics.layer({ url, resource: { serviceName }, exportInterval }).pipe(
 				Layer.provide(FetchHttpClient.layer)
 			)
 		})

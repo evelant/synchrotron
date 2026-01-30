@@ -32,7 +32,7 @@ Synchrotron moves the merge boundary up a level:
   - **Shared backend**: `examples/backend` (Postgres + Electric + Bun RPC server).
     - `pnpm docker:up` (requires Docker)
     - `pnpm dev:backend` (starts docker + server)
-    - Includes a local OpenTelemetry dev stack (`grafana/otel-lgtm`) on http://localhost:3001 (backend + example clients export traces; view in Grafana Explore/Tempo; backend + clients can also export logs to Loki).
+    - Includes a local OpenTelemetry dev stack (`grafana/otel-lgtm`) on http://localhost:3001 (backend + example clients export traces; view in Grafana Explore/Tempo; backend + clients can also export logs to Loki and metrics to Prometheus/Mimir).
   - **Web + PGlite**: `examples/todo-app-web-pglite` (Bun build --watch + Bun static server; works online/offline; does not yet handle multiple tabs in the same window).
     - Includes a built-in “two clients” harness (Client A / Client B) with transport toggle (RPC polling vs Electric ingress) and a per-client debug panel.
     - `pnpm dev:web`
@@ -118,7 +118,7 @@ Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlit
 Synchrotron uses Effect's built-in logging + tracing.
 
 - `SyncService` wraps key sync phases in `Effect.withSpan(...)` and annotates logs with correlation IDs like `syncSessionId`, `applyBatchId`, and `sendBatchId`.
-- Example apps can export traces (and optionally logs) via OpenTelemetry using `@synchrotron/observability`.
+- Example apps can export traces + metrics (and optionally logs) via OpenTelemetry using `@synchrotron/observability`.
 - `@effect/sql-pglite` logs every executed SQL statement at `TRACE` as `pglite.statement.start` / `pglite.statement.end` / `pglite.statement.error` (statement text is truncated to keep logs readable).
 - The client/server RPC path logs structured `sync.network.*` / `rpc.*` events with action + patch counts (plus extra detail for `_InternalCorrectionApply` / CORRECTION deltas).
 

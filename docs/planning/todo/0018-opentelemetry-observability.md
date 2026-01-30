@@ -9,7 +9,12 @@ Implemented so far:
 - Local dev backend container: `grafana/otel-lgtm` in `examples/backend/docker-compose.yml`
 - Backend trace export: `examples/backend/src/server.ts` installs `@effect/opentelemetry` via `@synchrotron/observability`
 - Backend + clients optional OTLP log export (Loki): enable with `*_OTEL_LOGS_ENABLED=true` in the example `.env` files
+- Backend + clients optional OTLP metrics export (Prometheus/Mimir): enable with `*_OTEL_METRICS_ENABLED=true` in the example `.env` files
 - Web + React Native trace export: example runtimes install tracing via `@synchrotron/observability/web`
+- Initial domain metrics + improved span semantics:
+  - sync-core metrics: `packages/sync-core/src/observability/metrics.ts`
+  - RPC spans are `kind=client/server` and carry `rpc.*` attributes
+  - PGlite statement spans are `kind=client` and carry `db.*` attributes; PGlite also emits basic DB statement metrics
 
 ## Summary
 

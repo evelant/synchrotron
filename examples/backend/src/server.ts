@@ -1,7 +1,11 @@
 import { HttpMiddleware, HttpRouter } from "@effect/platform"
 import { BunHttpServer, BunRuntime } from "@effect/platform-bun"
 import { RpcSerialization, RpcServer } from "@effect/rpc"
-import { makeOtelNodeOtlpLoggerLayer, makeOtelNodeSdkLayer } from "@synchrotron/observability/node"
+import {
+	makeOtelNodeOtlpLoggerLayer,
+	makeOtelNodeOtlpMetricsLayer,
+	makeOtelNodeSdkLayer
+} from "@synchrotron/observability/node"
 import { SyncNetworkRpcGroup } from "@synchrotron/sync-core/SyncNetworkRpc"
 import { createSyncSnapshotConfig } from "@synchrotron/sync-server/SyncSnapshotConfig"
 import { PgClientLive } from "@synchrotron/sync-server/db/connection"
@@ -36,12 +40,17 @@ const OtelLogsLive = makeOtelNodeOtlpLoggerLayer({
 	defaultServiceName: "synchrotron-example-backend"
 })
 
+const OtelMetricsLive = makeOtelNodeOtlpMetricsLayer({
+	defaultServiceName: "synchrotron-example-backend"
+})
+
 const Main = HttpRouter.Default.serve(middlewares).pipe(
 	Layer.provide(RpcLayer),
 	Layer.provide(PgClientLive),
 	Layer.provide(BunHttpServer.layer({ port: 3010 })),
 	Layer.provide(OtelTracesLive),
-	Layer.provide(OtelLogsLive)
+	Layer.provide(OtelLogsLive),
+	Layer.provide(OtelMetricsLive)
 )
 
 BunRuntime.runMain(Layer.launch(Main).pipe(Effect.scoped))

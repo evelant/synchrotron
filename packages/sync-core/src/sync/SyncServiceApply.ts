@@ -13,7 +13,7 @@
  * - `SyncServiceApplyCorrectionPlaceholder` (placeholder lifecycle + pruning/clock update)
  */
 import type { SqlClient } from "@effect/sql"
-import { Effect } from "effect"
+import { Effect, Metric } from "effect"
 import type { ActionRecord } from "../models"
 import type { ActionModifiedRowRepo } from "../ActionModifiedRowRepo"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
@@ -22,6 +22,7 @@ import type { ClientClockState } from "../ClientClockState"
 import type { ClientDbAdapterService } from "../ClientDbAdapter"
 import { sortClocks } from "../ClockOrder"
 import type { DeterministicId } from "../DeterministicId"
+import * as SyncMetrics from "../observability/metrics"
 import { CorrectionActionTag, RollbackActionTag } from "../SyncActionTags"
 import { SyncError } from "../SyncServiceErrors"
 import { makeCorrectionPlaceholderManager } from "./SyncServiceApplyCorrectionPlaceholder"
@@ -79,6 +80,14 @@ export const makeApplyActionRecords = (deps: {
 	 * patches, and compares them against original patches to detect divergence.
 	 */
 	const applyActionRecords = (remoteActions: readonly ActionRecord[]) =>
+		Effect.sync(() => {
+			const replayCount = remoteActions.filter((a) => a.synced === false).length
+			return {
+				remoteCount: remoteActions.length - replayCount,
+				replayCount
+			} as const
+		}).pipe(
+			Effect.flatMap(({ remoteCount, replayCount }) =>
 		newTraceId.pipe(
 			Effect.flatMap((applyBatchId) =>
 				Effect.gen(function* () {
@@ -172,7 +181,22 @@ export const makeApplyActionRecords = (deps: {
 						`CORRECTION delta check (generated - known): delta rows=${deltaRowKeys.length}, covered rows=${coveredRowKeys.length}`
 					)
 
+					yield* Effect.annotateCurrentSpan({
+						remoteCount,
+						replayCount,
+						hasCorrectionDelta,
+						deltaRowCount: deltaRowKeys.length,
+						coveredRowCount: coveredRowKeys.length,
+						hasOverwrites,
+						overwriteRowCount,
+						missingOnlyRowCount
+					})
+
 					if (hasCorrectionDelta) {
+						yield* Metric.increment(
+							SyncMetrics.correctionDeltasTotalFor(hasOverwrites ? "overwrite" : "missing_only")
+						)
+
 						// Missing-only deltas are the expected RLS/private-data divergence case.
 						// Overwrites are a distinct severity class: they can indicate shared-field divergence or action impurity.
 						const logDelta = hasOverwrites ? Effect.logError : Effect.logWarning
@@ -213,8 +237,13 @@ export const makeApplyActionRecords = (deps: {
 					Effect.annotateLogs({ clientId, applyBatchId, operation: "applyActionRecords" }),
 					Effect.withSpan("SyncService.applyActionRecords", {
 						attributes: { clientId, applyBatchId, remoteActionCount: remoteActions.length }
-					})
+					}),
+					Metric.trackDuration(SyncMetrics.applyBatchDurationMs),
+					Effect.tap(() => Metric.incrementBy(SyncMetrics.actionsAppliedTotalFor("remote"), remoteCount)),
+					Effect.tap(() => Metric.incrementBy(SyncMetrics.actionsAppliedTotalFor("replay"), replayCount))
 				)
+			)
+		)
 			)
 		)
 

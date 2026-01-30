@@ -1,5 +1,6 @@
 import type { SqlClient } from "@effect/sql"
-import { Effect } from "effect"
+import { Effect, Metric } from "effect"
+import * as SyncMetrics from "../observability/metrics"
 import type { SyncNetworkService } from "../SyncNetworkService"
 import type { BootstrapSnapshot } from "./SyncServiceBootstrap"
 
@@ -16,13 +17,15 @@ export const bootstrapFromSnapshotIfNeeded = (deps: {
 	readonly sqlClient: SqlClient.SqlClient
 	readonly syncNetworkService: SyncNetworkService
 	readonly clientId: string
+	readonly syncSessionId: string
 	readonly lastSeenServerIngestIdBeforeBootstrap: number
 	readonly applyBootstrapSnapshot: (
 		snapshot: BootstrapSnapshot
 	) => Effect.Effect<void, unknown, never>
 }) =>
 	Effect.gen(function* () {
-		const { sqlClient, syncNetworkService, clientId, lastSeenServerIngestIdBeforeBootstrap } = deps
+		const { sqlClient, syncNetworkService, clientId, syncSessionId, lastSeenServerIngestIdBeforeBootstrap } =
+			deps
 
 		if (lastSeenServerIngestIdBeforeBootstrap > 0) return false
 
@@ -37,8 +40,40 @@ export const bootstrapFromSnapshotIfNeeded = (deps: {
 				: localState?.has_any_action_records === 1
 		if (hasAnyActionRecords) return false
 
-		yield* Effect.logInfo("performSync.bootstrap.start", { clientId })
-		const snapshot = yield* syncNetworkService.fetchBootstrapSnapshot()
+		yield* Effect.logInfo("performSync.bootstrap.start", { clientId, syncSessionId })
+		const snapshot = yield* syncNetworkService.fetchBootstrapSnapshot().pipe(
+			Metric.trackDuration(
+				SyncMetrics.rpcDurationMsFor({ method: "FetchBootstrapSnapshot", side: "client" })
+			),
+			Effect.tap(() =>
+				Metric.increment(
+					SyncMetrics.rpcRequestsTotalFor({
+						method: "FetchBootstrapSnapshot",
+						side: "client",
+						outcome: "success"
+					})
+				)
+			),
+			Effect.tapError(() =>
+				Metric.increment(
+					SyncMetrics.rpcRequestsTotalFor({
+						method: "FetchBootstrapSnapshot",
+						side: "client",
+						outcome: "error"
+					})
+				)
+			),
+			Effect.withSpan("SyncNetworkService.fetchBootstrapSnapshot", {
+				kind: "client",
+				attributes: {
+					clientId,
+					syncSessionId,
+					"rpc.system": "synchrotron",
+					"rpc.service": "SyncNetworkRpc",
+					"rpc.method": "FetchBootstrapSnapshot"
+				}
+			})
+		)
 		yield* Effect.logInfo("performSync.bootstrap.received", {
 			clientId,
 			serverIngestId: snapshot.serverIngestId,
@@ -50,6 +85,7 @@ export const bootstrapFromSnapshotIfNeeded = (deps: {
 		})
 
 		yield* deps.applyBootstrapSnapshot(snapshot)
+		yield* Metric.increment(SyncMetrics.bootstrapEmptyTotal)
 
 		yield* Effect.logInfo("performSync.bootstrap.done", {
 			clientId,

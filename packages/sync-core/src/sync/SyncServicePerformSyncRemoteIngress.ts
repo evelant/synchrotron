@@ -9,10 +9,11 @@
  * - ensure required patches exist before declaring "RemoteReady" (avoid spurious CORRECTION deltas)
  */
 import type { SqlClient } from "@effect/sql"
-import { Effect } from "effect"
+import { Effect, Metric } from "effect"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
 import type { ClientClockState } from "../ClientClockState"
 import type { ActionRecord } from "../models"
+import * as SyncMetrics from "../observability/metrics"
 import { ingestRemoteSyncLogBatch } from "../SyncLogIngest"
 import {
 	FetchRemoteActionsCompacted,
@@ -53,10 +54,42 @@ export const fetchIngestAndListRemoteActions = (deps: {
 		// Electric-enabled clients typically return no action rows here (metadata-only) because
 		// their authoritative ingress is the Electric stream.
 		const fetched = yield* syncNetworkService.fetchRemoteActions().pipe(
+			Metric.trackDuration(
+				SyncMetrics.rpcDurationMsFor({ method: "FetchRemoteActions", side: "client" })
+			),
+			Effect.tap(() =>
+				Metric.increment(
+					SyncMetrics.rpcRequestsTotalFor({
+						method: "FetchRemoteActions",
+						side: "client",
+						outcome: "success"
+					})
+				)
+			),
+			Effect.tapError(() =>
+				Metric.increment(
+					SyncMetrics.rpcRequestsTotalFor({
+						method: "FetchRemoteActions",
+						side: "client",
+						outcome: "error"
+					})
+				)
+			),
 			Effect.withSpan("SyncNetworkService.fetchRemoteActions", {
-				attributes: { clientId, syncSessionId }
+				kind: "client",
+				attributes: {
+					clientId,
+					syncSessionId,
+					sinceServerIngestId: lastSeenServerIngestId,
+					"rpc.system": "synchrotron",
+					"rpc.service": "SyncNetworkRpc",
+					"rpc.method": "FetchRemoteActions"
+				}
 			})
 		)
+
+		yield* Metric.incrementBy(SyncMetrics.actionsDownloadedTotal, fetched.actions.length)
+		yield* Metric.incrementBy(SyncMetrics.amrsDownloadedTotal, fetched.modifiedRows.length)
 
 		// 2) Validate epoch + retained history window before ingesting.
 		const localEpoch = yield* clockState.getServerEpoch
@@ -96,6 +129,7 @@ export const fetchIngestAndListRemoteActions = (deps: {
 
 		// 4) Apply is DB-driven: treat `action_records` as the authoritative ingress queue.
 		const remoteActions = yield* actionRecordRepo.findSyncedButUnapplied()
+		yield* Metric.update(SyncMetrics.remoteUnappliedActionsGauge, remoteActions.length)
 		yield* Effect.logInfo("performSync.remoteUnapplied", {
 			count: remoteActions.length,
 			actions: remoteActions.map((a) => ({
@@ -129,6 +163,9 @@ export const fetchIngestAndListRemoteActions = (deps: {
 					missingPatchActionCount: missingPatchActionIds.length,
 					missingPatchActionIds: missingPatchActionIds.slice(0, 20)
 				})
+				yield* Metric.increment(
+					SyncMetrics.remoteNotReadyTotalFor("missing_patches")
+				)
 				return { _tag: "RemoteNotReady" } as const
 			}
 		}

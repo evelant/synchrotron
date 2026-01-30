@@ -32,7 +32,7 @@ pnpm dev:react-native
 
 For Android devices connected over USB, `pnpm dev` runs `adb reverse` so the app can use `http://localhost:3010/rpc`.
 
-The dev stack also exposes OpenTelemetry OTLP HTTP on `http://localhost:4318/v1/traces`. `pnpm dev` now includes that port in the default `adb reverse` set so Android devices can export traces to the host collector.
+The dev stack also exposes OpenTelemetry OTLP HTTP on `http://localhost:4318` (for example: `/v1/traces`, `/v1/logs`, `/v1/metrics`). `pnpm dev` includes that port in the default `adb reverse` set so Android devices can export telemetry to the host collector.
 
 ## Run on web
 
@@ -72,3 +72,7 @@ Optional:
   - `EXPO_PUBLIC_OTEL_ENABLED` (default: `true`)
   - `EXPO_PUBLIC_OTEL_SERVICE_NAME` (default: `synchrotron-example-react-native`)
   - `EXPO_PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (default: `http://localhost:4318/v1/traces`)
+  - `EXPO_PUBLIC_OTEL_LOGS_ENABLED` (default: `false`)
+  - `EXPO_PUBLIC_OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` (default: `http://localhost:4318/v1/logs`)
+  - `EXPO_PUBLIC_OTEL_METRICS_ENABLED` (default: `false`)
+  - `EXPO_PUBLIC_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` (default: `http://localhost:4318/v1/metrics`)

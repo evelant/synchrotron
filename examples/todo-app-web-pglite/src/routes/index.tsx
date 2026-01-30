@@ -25,7 +25,11 @@ import {
 	type ActionExecutionError
 } from "@synchrotron/sync-core"
 import { ElectricSyncService } from "@synchrotron/sync-client/electric/ElectricSyncService"
-import { makeOtelWebOtlpLoggerLayer, makeOtelWebSdkLayer } from "@synchrotron/observability/web"
+import {
+	makeOtelWebOtlpLoggerLayer,
+	makeOtelWebOtlpMetricsLayer,
+	makeOtelWebSdkLayer
+} from "@synchrotron/observability/web"
 import { TodoActions } from "../actions"
 import logo from "../assets/logo.svg"
 import { setupClientDatabase } from "../db/setup"
@@ -152,6 +156,22 @@ const viteOtelLogsEndpointFromProcessEnv = (() => {
 	}
 })()
 
+const viteOtelMetricsEnabledFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_OTEL_METRICS_ENABLED
+	} catch {
+		return undefined
+	}
+})()
+
+const viteOtelMetricsEndpointFromProcessEnv = (() => {
+	try {
+		return process.env.VITE_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+	} catch {
+		return undefined
+	}
+})()
+
 const defaults = {
 	serverUrl: metaEnv?.VITE_SERVER_URL ?? viteServerUrlFromProcessEnv ?? "http://localhost:3010",
 	syncRpcAuthTokenA:
@@ -183,7 +203,13 @@ const defaults = {
 	otelTracesEndpoint:
 		metaEnv?.VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ?? viteOtelTracesEndpointFromProcessEnv ?? "",
 	otelLogsEndpoint:
-		metaEnv?.VITE_OTEL_EXPORTER_OTLP_LOGS_ENDPOINT ?? viteOtelLogsEndpointFromProcessEnv ?? ""
+		metaEnv?.VITE_OTEL_EXPORTER_OTLP_LOGS_ENDPOINT ?? viteOtelLogsEndpointFromProcessEnv ?? "",
+	otelMetricsEnabled:
+		metaEnv?.VITE_OTEL_METRICS_ENABLED ?? viteOtelMetricsEnabledFromProcessEnv ?? "false",
+	otelMetricsEndpoint:
+		metaEnv?.VITE_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT ??
+		viteOtelMetricsEndpointFromProcessEnv ??
+		""
 } as const
 
 const parseBooleanEnv = (value: string, fallback: boolean) => {
@@ -446,6 +472,13 @@ const makeClientLayer = (options: {
 				defaultServiceName: defaults.otelServiceName,
 				logsEndpoint: defaults.otelLogsEndpoint,
 				enabled: parseBooleanEnv(defaults.otelLogsEnabled, false)
+			})
+		),
+		Layer.provideMerge(
+			makeOtelWebOtlpMetricsLayer({
+				defaultServiceName: defaults.otelServiceName,
+				metricsEndpoint: defaults.otelMetricsEndpoint,
+				enabled: parseBooleanEnv(defaults.otelMetricsEnabled, false)
 			})
 		),
 		Layer.provideMerge(Layer.scope)

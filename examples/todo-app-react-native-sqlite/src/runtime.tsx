@@ -1,5 +1,9 @@
 import { makeSynchrotronSqliteReactNativeClientLayer } from "@synchrotron/sync-client/react-native"
-import { makeOtelWebOtlpLoggerLayer, makeOtelWebSdkLayer } from "@synchrotron/observability/web"
+import {
+	makeOtelWebOtlpLoggerLayer,
+	makeOtelWebOtlpMetricsLayer,
+	makeOtelWebSdkLayer
+} from "@synchrotron/observability/web"
 import { Effect, Layer, Logger, LogLevel, ManagedRuntime, type Context } from "effect"
 import React, {
 	createContext,
@@ -53,6 +57,10 @@ const otelLogsEnabled = process.env.EXPO_PUBLIC_OTEL_LOGS_ENABLED ?? "false"
 const otelLogsEndpoint =
 	process.env.EXPO_PUBLIC_OTEL_EXPORTER_OTLP_LOGS_ENDPOINT ?? "http://localhost:4318/v1/logs"
 
+const otelMetricsEnabled = process.env.EXPO_PUBLIC_OTEL_METRICS_ENABLED ?? "false"
+const otelMetricsEndpoint =
+	process.env.EXPO_PUBLIC_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT ?? "http://localhost:4318/v1/metrics"
+
 const parseBooleanEnv = (value: string, fallback: boolean) => {
 	const normalized = value.trim().toLowerCase()
 	if (normalized === "true" || normalized === "1" || normalized === "yes") return true
@@ -99,6 +107,13 @@ const AppLive = TodoRepo.Default.pipe(
 			defaultServiceName: otelServiceName,
 			logsEndpoint: otelLogsEndpoint,
 			enabled: parseBooleanEnv(otelLogsEnabled, false)
+		})
+	),
+	Layer.provideMerge(
+		makeOtelWebOtlpMetricsLayer({
+			defaultServiceName: otelServiceName,
+			metricsEndpoint: otelMetricsEndpoint,
+			enabled: parseBooleanEnv(otelMetricsEnabled, false)
 		})
 	),
 	Layer.provideMerge(Layer.scope)

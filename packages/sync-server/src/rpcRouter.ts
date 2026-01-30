@@ -25,7 +25,8 @@ import {
 	type SendLocalActionsFailure,
 	SendLocalActionsDenied
 } from "@synchrotron/sync-core/SyncNetworkService"
-import { Cause, Effect, Layer } from "effect"
+import * as SyncMetrics from "@synchrotron/sync-core/observability/metrics"
+import { Cause, Effect, Layer, Metric } from "effect"
 import { SyncAuthService } from "./SyncAuthService"
 import type { ServerInternalError } from "./SyncServerService"
 import { SyncServerService } from "./SyncServerService"
@@ -71,6 +72,11 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					.getActionsSince(clientId, payload.sinceServerIngestId, payload.includeSelf ?? false)
 					.pipe(Effect.provideService(SyncUserId, userId))
 
+				yield* Effect.annotateCurrentSpan({
+					actionCount: result.actions.length,
+					amrCount: result.modifiedRows.length
+				})
+
 				yield* Effect.logDebug("rpc.FetchRemoteActions.result", {
 					userId,
 					clientId,
@@ -90,6 +96,39 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					modifiedRows: result.modifiedRows
 				}
 			}).pipe(
+				Metric.trackDuration(
+					SyncMetrics.rpcDurationMsFor({ method: "FetchRemoteActions", side: "server" })
+				),
+				Effect.tap(() =>
+					Metric.increment(
+						SyncMetrics.rpcRequestsTotalFor({
+							method: "FetchRemoteActions",
+							side: "server",
+							outcome: "success"
+						})
+					)
+				),
+				Effect.tap((result) =>
+					Metric.incrementBy(
+						SyncMetrics.serverActionsServedTotalFor("FetchRemoteActions"),
+						result.actions.length
+					)
+				),
+				Effect.tap((result) =>
+					Metric.incrementBy(
+						SyncMetrics.serverAmrsServedTotalFor("FetchRemoteActions"),
+						result.modifiedRows.length
+					)
+				),
+				Effect.tapError(() =>
+					Metric.increment(
+						SyncMetrics.rpcRequestsTotalFor({
+							method: "FetchRemoteActions",
+							side: "server",
+							outcome: "error"
+						})
+					)
+				),
 				Effect.tapErrorCause((c) =>
 					Effect.logError("rpc.FetchRemoteActions.error", { cause: Cause.pretty(c) })
 				),
@@ -102,7 +141,17 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					)
 				),
 				Effect.annotateLogs({ rpcMethod: "FetchRemoteActions", clientId: payload.clientId }),
-				Effect.withSpan("RpcHandler.FetchRemoteActions")
+				Effect.withSpan("RpcHandler.FetchRemoteActions", {
+					kind: "server",
+					attributes: {
+						clientId: payload.clientId,
+						sinceServerIngestId: payload.sinceServerIngestId,
+						includeSelf: payload.includeSelf ?? false,
+						"rpc.system": "synchrotron",
+						"rpc.service": "SyncNetworkRpc",
+						"rpc.method": "FetchRemoteActions"
+					}
+				})
 			)
 
 		const FetchBootstrapSnapshotHandler = (
@@ -140,6 +189,10 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					.getBootstrapSnapshot(clientId)
 					.pipe(Effect.provideService(SyncUserId, userId))
 
+				yield* Effect.annotateCurrentSpan({
+					tableCount: snapshot.tables.length
+				})
+
 				yield* Effect.logDebug("rpc.FetchBootstrapSnapshot.result", {
 					userId,
 					clientId,
@@ -157,6 +210,27 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					tables: snapshot.tables
 				}
 			}).pipe(
+				Metric.trackDuration(
+					SyncMetrics.rpcDurationMsFor({ method: "FetchBootstrapSnapshot", side: "server" })
+				),
+				Effect.tap(() =>
+					Metric.increment(
+						SyncMetrics.rpcRequestsTotalFor({
+							method: "FetchBootstrapSnapshot",
+							side: "server",
+							outcome: "success"
+						})
+					)
+				),
+				Effect.tapError(() =>
+					Metric.increment(
+						SyncMetrics.rpcRequestsTotalFor({
+							method: "FetchBootstrapSnapshot",
+							side: "server",
+							outcome: "error"
+						})
+					)
+				),
 				Effect.tapErrorCause((c) =>
 					Effect.logError("rpc.FetchBootstrapSnapshot.error", { cause: Cause.pretty(c) })
 				),
@@ -169,7 +243,15 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					)
 				),
 				Effect.annotateLogs({ rpcMethod: "FetchBootstrapSnapshot", clientId: payload.clientId }),
-				Effect.withSpan("RpcHandler.FetchBootstrapSnapshot")
+				Effect.withSpan("RpcHandler.FetchBootstrapSnapshot", {
+					kind: "server",
+					attributes: {
+						clientId: payload.clientId,
+						"rpc.system": "synchrotron",
+						"rpc.service": "SyncNetworkRpc",
+						"rpc.method": "FetchBootstrapSnapshot"
+					}
+				})
 			)
 
 		const SendLocalActionsHandler = (
@@ -204,6 +286,15 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					.receiveActions(clientId, payload.basisServerIngestId, payload.actions, payload.amrs)
 					.pipe(Effect.provideService(SyncUserId, userId))
 
+				yield* Metric.incrementBy(
+					SyncMetrics.serverActionsReceivedTotalFor("SendLocalActions"),
+					payload.actions.length
+				)
+				yield* Metric.incrementBy(
+					SyncMetrics.serverAmrsReceivedTotalFor("SendLocalActions"),
+					payload.amrs.length
+				)
+
 				yield* Effect.logInfo("rpc.SendLocalActions.success", {
 					userId,
 					clientId,
@@ -214,11 +305,43 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 
 				return true
 			}).pipe(
+				Metric.trackDuration(
+					SyncMetrics.rpcDurationMsFor({ method: "SendLocalActions", side: "server" })
+				),
+				Effect.tap(() =>
+					Metric.increment(
+						SyncMetrics.rpcRequestsTotalFor({
+							method: "SendLocalActions",
+							side: "server",
+							outcome: "success"
+						})
+					)
+				),
+				Effect.tapError(() =>
+					Metric.increment(
+						SyncMetrics.rpcRequestsTotalFor({
+							method: "SendLocalActions",
+							side: "server",
+							outcome: "error"
+						})
+					)
+				),
 				Effect.tapErrorCause((c) =>
 					Effect.logError("rpc.SendLocalActions.error", { cause: Cause.pretty(c) })
 				),
 				Effect.annotateLogs({ rpcMethod: "SendLocalActions", clientId: payload.clientId }),
-				Effect.withSpan("RpcHandler.SendLocalActions")
+				Effect.withSpan("RpcHandler.SendLocalActions", {
+					kind: "server",
+					attributes: {
+						clientId: payload.clientId,
+						basisServerIngestId: payload.basisServerIngestId,
+						actionCount: payload.actions.length,
+						amrCount: payload.amrs.length,
+						"rpc.system": "synchrotron",
+						"rpc.service": "SyncNetworkRpc",
+						"rpc.method": "SendLocalActions"
+					}
+				})
 			)
 
 		return {

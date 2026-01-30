@@ -1,9 +1,11 @@
 import * as FetchHttpClient from "@effect/platform/FetchHttpClient"
 import * as OtlpLogger from "@effect/opentelemetry/OtlpLogger"
+import * as OtlpMetrics from "@effect/opentelemetry/OtlpMetrics"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { BasicTracerProvider, BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
 import * as Resource from "@effect/opentelemetry/Resource"
 import * as Tracer from "@effect/opentelemetry/Tracer"
+import type * as Duration from "effect/Duration"
 import { Effect, Layer } from "effect"
 
 export interface OtelWebSdkOptions {
@@ -46,6 +48,33 @@ export interface OtelWebOtlpLoggerOptions {
 	 * If omitted, defaults to `http://localhost:4318/v1/logs`.
 	 */
 	readonly logsEndpoint?: string
+	/**
+	 * Disable the layer (no-op).
+	 */
+	readonly enabled?: boolean
+}
+
+export interface OtelWebOtlpMetricsOptions {
+	/**
+	 * Used when `serviceName` is not set.
+	 *
+	 * This should be the consumer app's name (not `synchrotron`).
+	 */
+	readonly defaultServiceName: string
+	/**
+	 * Override the OpenTelemetry `service.name`.
+	 */
+	readonly serviceName?: string
+	/**
+	 * Optional OTLP HTTP metrics endpoint.
+	 *
+	 * If omitted, defaults to `http://localhost:4318/v1/metrics`.
+	 */
+	readonly metricsEndpoint?: string
+	/**
+	 * Optional export interval.
+	 */
+	readonly exportInterval?: Duration.DurationInput
 	/**
 	 * Disable the layer (no-op).
 	 */
@@ -110,4 +139,26 @@ export const makeOtelWebOtlpLoggerLayer = (options: OtelWebOtlpLoggerOptions) =>
 	const serviceName = options.serviceName ?? options.defaultServiceName
 
 	return OtlpLogger.layer({ url, resource: { serviceName } }).pipe(Layer.provide(FetchHttpClient.layer))
+}
+
+/**
+ * Exports Effect metrics to OTLP/HTTP, so they show up in Prometheus / Grafana.
+ */
+export const makeOtelWebOtlpMetricsLayer = (options: OtelWebOtlpMetricsOptions) => {
+	if (options.enabled === false) {
+		return Layer.empty
+	}
+
+	const url =
+		typeof options.metricsEndpoint === "string" && options.metricsEndpoint.length > 0
+			? options.metricsEndpoint
+			: "http://localhost:4318/v1/metrics"
+
+	const serviceName = options.serviceName ?? options.defaultServiceName
+
+	return OtlpMetrics.layer({
+		url,
+		resource: { serviceName },
+		exportInterval: options.exportInterval
+	}).pipe(Layer.provide(FetchHttpClient.layer))
 }

@@ -14,14 +14,23 @@ The OpenTelemetry dev stack also exposes:
 
 ## Viewing telemetry (Grafana / Tempo / Loki)
 
-This repo currently exports **traces** (spans). We have not yet added app-level OTLP **metrics** export (you may still see **span-metrics** derived from traces).
+This repo exports:
+
+- **Traces** (Tempo) via `@effect/opentelemetry` (Node SDK)
+- **Logs** (Loki) via `@effect/opentelemetry/OtlpLogger` (optional)
+- **Metrics** (Prometheus/Mimir) via `@effect/opentelemetry/OtlpMetrics` (optional)
 
 - Open Grafana: `http://localhost:3001` (or whatever `OTEL_LGTM_GRAFANA_PORT` is set to).
 - To view **traces**:
   - Go to **Explore**
   - Select the **Tempo** data source
   - Use the **Search** tab and filter by `service.name` (e.g. `synchrotron-example-web` / `synchrotron-example-backend`)
-- If you’re seeing **raw counters** like “`sql.execute`” / “`PgliteClient.statement`”, you’re likely looking at **span-metrics** (aggregates derived from traces) in the Metrics data source — those are not the trace trees themselves.
+- To view **metrics**:
+  - Ensure metrics export is enabled (`OTEL_METRICS_ENABLED=true` for the backend; `VITE_OTEL_METRICS_ENABLED=true` for the web example; `EXPO_PUBLIC_OTEL_METRICS_ENABLED=true` for the RN example)
+  - Go to **Explore**
+  - Select the **Prometheus** data source
+  - Search for metrics starting with `synchrotron_` (for example: `synchrotron_sync_duration_ms`, `synchrotron_rpc_duration_ms`)
+- Note: you may also see **span-metrics** (aggregates derived from spans) in the Metrics data source — those are not the trace trees themselves.
 - To view **logs**:
   - Set `OTEL_LOGS_ENABLED=true` (enabled by default in `examples/backend/.env.example`)
   - Go to **Explore**

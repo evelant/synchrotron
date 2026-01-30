@@ -15,11 +15,50 @@ import type { ConfigError } from "effect/ConfigError"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Metric from "effect/Metric"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 
 const truncateForLog = (value: string, maxLength = 2000) =>
 	value.length <= maxLength ? value : `${value.slice(0, maxLength)}…`
+
+const dbStatementDurationMs = Metric.timer(
+	"synchrotron_db_statement_duration_ms",
+	"Duration of client DB statements."
+)
+
+const dbStatementsTotal = Metric.counter("synchrotron_db_statements_total", {
+	description: "Total number of client DB statements.",
+	incremental: true
+})
+
+const classifySqlOperation = (statement: string) => {
+	let remaining = statement.trimStart()
+
+	// Strip leading line/block comments (best-effort).
+	while (remaining.startsWith("--") || remaining.startsWith("/*")) {
+		if (remaining.startsWith("--")) {
+			const newlineIndex = remaining.indexOf("\n")
+			remaining = newlineIndex >= 0 ? remaining.slice(newlineIndex + 1).trimStart() : ""
+			continue
+		}
+		// block comment
+		const endIndex = remaining.indexOf("*/")
+		remaining = endIndex >= 0 ? remaining.slice(endIndex + 2).trimStart() : ""
+	}
+
+	const match = remaining.match(/^[a-zA-Z]+/)
+	const op = (match?.[0] ?? "OTHER").toUpperCase()
+
+	const tag =
+		op === "SELECT" || op === "INSERT" || op === "UPDATE" || op === "DELETE"
+			? op.toLowerCase()
+			: op === "CREATE" || op === "ALTER" || op === "DROP" || op === "TRUNCATE"
+				? "ddl"
+				: "other"
+
+	return { operationName: op, operationTag: tag } as const
+}
 
 const isBrowserRuntime = () =>
 	typeof window !== "undefined" && typeof document !== "undefined" && typeof fetch === "function"
@@ -202,29 +241,55 @@ export const make = <TExtensions extends Extensions = Extensions>(
 			) {
 				const statementId = crypto.randomUUID()
 				const statementPreview = truncateForLog(statement)
+				const { operationName, operationTag } = classifySqlOperation(statement)
 				const base = {
 					statementId,
 					dialect: "pglite",
 					method,
+					operation: operationName,
 					statement: statementPreview,
 					params
 				} as const
 
+				const instrumented = effect.pipe(
+					Effect.tagMetrics("db_dialect", "pglite"),
+					Effect.tagMetrics("db_method", method),
+					Effect.tagMetrics("db_operation", operationTag),
+					Metric.trackDuration(dbStatementDurationMs),
+					Effect.tap(() =>
+						Metric.increment(dbStatementsTotal).pipe(Effect.tagMetrics("result", "success"))
+					),
+					Effect.tapError(() =>
+						Metric.increment(dbStatementsTotal).pipe(Effect.tagMetrics("result", "error"))
+					)
+				)
+
 				return Effect.logTrace("pglite.statement.start", base).pipe(
-					Effect.zipRight(effect),
+					Effect.zipRight(instrumented),
 					Effect.tap((rows) =>
 						Effect.logTrace("pglite.statement.end", { ...base, rowCount: rows.length })
 					),
 					Effect.tapError((error) => Effect.logError("pglite.statement.error", { ...base, error })),
 					Effect.tap(() =>
-						Effect.annotateCurrentSpan(OtelSemConv.ATTR_DB_QUERY_TEXT, statementPreview)
+						Effect.all(
+							[
+								Effect.annotateCurrentSpan(OtelSemConv.ATTR_DB_QUERY_TEXT, statementPreview),
+								Effect.annotateCurrentSpan(OtelSemConv.ATTR_DB_OPERATION_NAME, operationName),
+								Effect.annotateCurrentSpan("synchrotron.db.method", method)
+							],
+							{ concurrency: "unbounded", discard: true }
+						)
 					),
 					Effect.annotateLogs({ statementId, dbDialect: "pglite", dbMethod: method }),
 					Effect.withSpan("PgliteClient.statement", {
+						kind: "client",
 						attributes: {
 							statementId,
+							[OtelSemConv.ATTR_DB_SYSTEM_NAME]: OtelSemConv.DB_SYSTEM_NAME_VALUE_POSTGRESQL,
 							[OtelSemConv.ATTR_DB_QUERY_TEXT]: statementPreview,
-							[OtelSemConv.ATTR_DB_OPERATION_NAME]: method
+							[OtelSemConv.ATTR_DB_OPERATION_NAME]: operationName,
+							"synchrotron.db.method": method,
+							"synchrotron.db.dialect": "pglite"
 						}
 					})
 				)

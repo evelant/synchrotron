@@ -3,8 +3,9 @@
  *
  * This keeps `SyncServiceUpload` focused on orchestration (what to send and what to do after).
  */
-import { Effect } from "effect"
+import { Effect, Metric } from "effect"
 import type { ActionModifiedRow, ActionRecord } from "../models"
+import * as SyncMetrics from "../observability/metrics"
 import type { SyncNetworkService } from "../SyncNetworkService"
 
 export const sendUploadBatch = (args: {
@@ -34,12 +35,40 @@ export const sendUploadBatch = (args: {
 				basisServerIngestId
 			)
 			.pipe(
+				Metric.trackDuration(
+					SyncMetrics.rpcDurationMsFor({ method: "SendLocalActions", side: "client" })
+				),
+				Effect.tap(() =>
+					Metric.increment(
+						SyncMetrics.rpcRequestsTotalFor({
+							method: "SendLocalActions",
+							side: "client",
+							outcome: "success"
+						})
+					)
+				),
+				Effect.tap(() => Metric.incrementBy(SyncMetrics.actionsUploadedTotal, actionsToSend.length)),
+				Effect.tap(() => Metric.incrementBy(SyncMetrics.amrsUploadedTotal, amrs.length)),
+				Effect.tapError(() =>
+					Metric.increment(
+						SyncMetrics.rpcRequestsTotalFor({
+							method: "SendLocalActions",
+							side: "client",
+							outcome: "error"
+						})
+					)
+				),
 				Effect.withSpan("SyncNetworkService.sendLocalActions", {
+					kind: "client",
 					attributes: {
 						clientId,
 						sendBatchId,
 						actionCount: actionsToSend.length,
-						amrCount: amrs.length
+						amrCount: amrs.length,
+						basisServerIngestId,
+						"rpc.system": "synchrotron",
+						"rpc.service": "SyncNetworkRpc",
+						"rpc.method": "SendLocalActions"
 					}
 				}),
 				Effect.tapError((error) => {

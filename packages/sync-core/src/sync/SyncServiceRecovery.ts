@@ -11,13 +11,14 @@
  * - `SyncServiceRecoveryRebaseReplay` (reinsert + replay pending actions deterministically)
  */
 import type { SqlClient } from "@effect/sql"
-import { Effect } from "effect"
+import { Effect, Metric } from "effect"
 import type { ActionModifiedRowRepo } from "../ActionModifiedRowRepo"
 import type { ActionRecordRepo } from "../ActionRecordRepo"
 import type { ActionRegistry } from "../ActionRegistry"
 import type { ClientClockState } from "../ClientClockState"
 import type { ClientDbAdapterService } from "../ClientDbAdapter"
 import type { DeterministicId } from "../DeterministicId"
+import * as SyncMetrics from "../observability/metrics"
 import type { SyncNetworkService } from "../SyncNetworkService"
 import type { BootstrapSnapshot } from "./SyncServiceBootstrap"
 import { clearSyncTablesInTx } from "./SyncServiceRecoveryClearSyncTables"
@@ -68,6 +69,7 @@ export const makeRecovery = (deps: {
 		newTraceId.pipe(
 			Effect.flatMap((resyncId) =>
 				Effect.gen(function* () {
+					yield* Metric.increment(SyncMetrics.hardResyncTotal)
 					yield* Effect.logInfo("hardResync.start", { resyncId, clientId })
 
 					const snapshot = yield* fetchBootstrapSnapshotOrFail(syncNetworkService)
@@ -89,6 +91,7 @@ export const makeRecovery = (deps: {
 						serverIngestId: snapshot.serverIngestId
 					})
 				}).pipe(
+					Metric.trackDuration(SyncMetrics.hardResyncDurationMs),
 					Effect.annotateLogs({ clientId, resyncId, operation: "hardResync" }),
 					Effect.withSpan("SyncService.hardResync", { attributes: { clientId, resyncId } })
 				)
@@ -99,6 +102,7 @@ export const makeRecovery = (deps: {
 		newTraceId.pipe(
 			Effect.flatMap((rebaseId) =>
 				Effect.gen(function* () {
+					yield* Metric.increment(SyncMetrics.rebaseTotal)
 					yield* Effect.logInfo("rebase.start", { rebaseId, clientId })
 
 					const snapshot = yield* fetchBootstrapSnapshotOrFail(syncNetworkService)
@@ -142,6 +146,7 @@ export const makeRecovery = (deps: {
 						serverIngestId: snapshot.serverIngestId
 					})
 				}).pipe(
+					Metric.trackDuration(SyncMetrics.rebaseDurationMs),
 					Effect.annotateLogs({ clientId, rebaseId, operation: "rebase" }),
 					Effect.withSpan("SyncService.rebase", { attributes: { clientId, rebaseId } })
 				)
