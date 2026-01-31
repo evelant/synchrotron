@@ -97,7 +97,7 @@ Backend state:
 
 ## Observability
 
-- Sync phases are instrumented with `Effect.withSpan(...)` and log annotations (for example: `clientId`, `syncSessionId`, `applyBatchId`, `sendBatchId`) so logs can be correlated across fetch/apply/send/reconcile. In development, these spans can be exported via OpenTelemetry (see `@synchrotron/observability` + the example backend).
+- Sync phases are instrumented with `Effect.withSpan(...)` and log annotations (for example: `clientId`, `syncSessionId`, `applyBatchId`, `sendBatchId`) so logs can be correlated across fetch/apply/send/reconcile. In development, these spans can be exported via OpenTelemetry (see `@synchrotron/observability` + the example backend’s local backends: Grafana/LGTM or OpenObserve).
 - Example apps can also export Effect logs to Loki via OTLP (enable with `*_OTEL_LOGS_ENABLED=true`).
 - Sync-core records low-cardinality Effect metrics (counters/timers/gauges) for sync + RPC health. Example apps can export these metrics via OTLP (enable with `*_OTEL_METRICS_ENABLED=true`).
 - The PGlite `@effect/sql` adapter logs all executed SQL statements at `TRACE` (`pglite.statement.*`) to make it easier to follow replay and patch application.

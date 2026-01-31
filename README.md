@@ -31,8 +31,9 @@ Synchrotron moves the merge boundary up a level:
   - There are example apps demonstrating basic functionality:
   - **Shared backend**: `examples/backend` (Postgres + Electric + Bun RPC server).
     - `pnpm docker:up` (requires Docker)
+    - `pnpm docker:up:openobserve` (alternative OpenTelemetry backend)
     - `pnpm dev:backend` (starts docker + server)
-    - Includes a local OpenTelemetry dev stack (`grafana/otel-lgtm`) on http://localhost:3001 (backend + example clients export traces; view in Grafana Explore/Tempo; backend + clients can also export logs to Loki and metrics to Prometheus/Mimir).
+    - Includes a local OpenTelemetry dev backend: Grafana LGTM stack (default) on http://localhost:3001, or OpenObserve on http://localhost:5080.
   - **Web + PGlite**: `examples/todo-app-web-pglite` (Bun build --watch + Bun static server; works online/offline; does not yet handle multiple tabs in the same window).
     - Includes a built-in “two clients” harness (Client A / Client B) with transport toggle (RPC polling vs Electric ingress) and a per-client debug panel.
     - `pnpm dev:web`
