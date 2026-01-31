@@ -39,6 +39,7 @@ This repo exports:
   - Go to **Explore**
   - Select the **Loki** data source
   - Query e.g. `{service_name="synchrotron-example-backend"}`
+  - Structured fields: Synchrotron uses `Effect.logInfo("eventName", { ... })` heavily. When exporting via `@synchrotron/observability` OTLP loggers, the `{ ... }` object is moved into OTLP log attributes so it’s filterable/searchable in Grafana (instead of showing up as an escaped JSON string in the log line).
   - Note: Effect logs can also show up as *span events* inside traces.
 
 Client logs:

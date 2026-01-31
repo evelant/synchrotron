@@ -4,7 +4,49 @@ import * as OtlpLogger from "@effect/opentelemetry/OtlpLogger"
 import * as OtlpMetrics from "@effect/opentelemetry/OtlpMetrics"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
-import { Config, Duration, Effect, Layer } from "effect"
+import { Config, Duration, Effect, Layer, Logger } from "effect"
+
+type AnnotationEntry = readonly [string, unknown]
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+	if (typeof value !== "object" || value === null) return false
+	if (Array.isArray(value)) return false
+	const proto = Object.getPrototypeOf(value)
+	return proto === Object.prototype || proto === null
+}
+
+const normalizeMessage = (message: unknown): ReadonlyArray<unknown> =>
+	Array.isArray(message) ? message : [message]
+
+const normalizeAnnotations = (annotations: unknown): ReadonlyArray<AnnotationEntry> => {
+	if (Array.isArray(annotations)) return annotations as ReadonlyArray<AnnotationEntry>
+	const iterator = (annotations as any)?.[Symbol.iterator]
+	if (typeof iterator === "function") {
+		try {
+			return Array.from(annotations as Iterable<AnnotationEntry>)
+		} catch {
+			return []
+		}
+	}
+	return []
+}
+
+const moveLogDataToAnnotations = (options: any): any => {
+	const parts = normalizeMessage(options.message)
+	if (parts.length !== 2 || typeof parts[0] !== "string" || !isPlainObject(parts[1])) {
+		return options
+	}
+
+	const annotations = normalizeAnnotations(options.annotations)
+	const existingKeys = new Set(annotations.map(([k]) => k))
+	const dataEntries = Object.entries(parts[1]).filter(([k]) => existingKeys.has(k) === false)
+
+	return {
+		...options,
+		message: parts[0],
+		annotations: [...annotations, ...dataEntries]
+	}
+}
 
 export interface OtelNodeSdkOptions {
 	/**
@@ -77,9 +119,13 @@ export const makeOtelNodeOtlpLoggerLayer = (options: OtelNodeSdkOptions) =>
 				Config.withDefault("http://localhost:4318/v1/logs")
 			)
 
-			return OtlpLogger.layer({ url, resource: { serviceName } }).pipe(
-				Layer.provide(FetchHttpClient.layer)
-			)
+			return Logger.addScoped(
+				OtlpLogger.make({ url, resource: { serviceName } }).pipe(
+					Effect.map((base) =>
+						Logger.mapInputOptions(base, moveLogDataToAnnotations)
+					)
+				)
+			).pipe(Layer.provide(FetchHttpClient.layer))
 		})
 	)
 
