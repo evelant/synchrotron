@@ -14,6 +14,15 @@ import type * as MetricT from "effect/Metric"
 export type RpcMethod = "FetchRemoteActions" | "SendLocalActions" | "FetchBootstrapSnapshot"
 export type RpcSide = "client" | "server"
 export type Outcome = "success" | "error"
+export type RpcFailureReason =
+	| "network"
+	| "behind_head"
+	| "denied"
+	| "invalid"
+	| "internal"
+	| "compacted"
+	| "remote_fetch_error"
+	| "unknown"
 
 export const rpcRequestsTotal = Metric.counter("synchrotron_rpc_requests_total", {
 	description: "Total number of Synchrotron RPC calls.",
@@ -29,6 +38,22 @@ export const rpcRequestsTotalFor = (args: {
 		Metric.tagged("rpc_method", args.method),
 		Metric.tagged("rpc_side", args.side),
 		Metric.tagged("result", args.outcome)
+	)
+
+export const rpcFailuresTotal = Metric.counter("synchrotron_rpc_failures_total", {
+	description: "Total number of failed Synchrotron RPC calls (low-cardinality reasons).",
+	incremental: true
+})
+
+export const rpcFailuresTotalFor = (args: {
+	readonly method: RpcMethod
+	readonly side: RpcSide
+	readonly reason: RpcFailureReason
+}): MetricT.Metric.Counter<number> =>
+	rpcFailuresTotal.pipe(
+		Metric.tagged("rpc_method", args.method),
+		Metric.tagged("rpc_side", args.side),
+		Metric.tagged("reason", args.reason)
 	)
 
 export const rpcDurationMs = Metric.timer(
@@ -217,3 +242,33 @@ export const serverAmrsReceivedTotal = Metric.counter("synchrotron_server_amrs_r
 
 export const serverAmrsReceivedTotalFor = (method: "SendLocalActions"): MetricT.Metric.Counter<number> =>
 	serverAmrsReceivedTotal.pipe(Metric.tagged("rpc_method", method))
+
+const getErrorTag = (error: unknown): string | null =>
+	typeof error === "object" && error !== null
+		? typeof (error as { readonly _tag?: unknown })._tag === "string"
+			? (error as { readonly _tag: string })._tag
+			: null
+		: null
+
+export const rpcFailureReasonFromError = (error: unknown): RpcFailureReason => {
+	const tag = getErrorTag(error)
+	switch (tag) {
+		case "NetworkRequestError":
+			return "network"
+		case "SendLocalActionsBehindHead":
+			return "behind_head"
+		case "SendLocalActionsDenied":
+			return "denied"
+		case "SendLocalActionsInvalid":
+			return "invalid"
+		case "SendLocalActionsInternal":
+		case "ServerInternalError":
+			return "internal"
+		case "FetchRemoteActionsCompacted":
+			return "compacted"
+		case "RemoteActionFetchError":
+			return "remote_fetch_error"
+		default:
+			return "unknown"
+	}
+}

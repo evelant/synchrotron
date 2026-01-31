@@ -129,6 +129,15 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 						})
 					)
 				),
+				Effect.tapError((error) =>
+					Metric.increment(
+						SyncMetrics.rpcFailuresTotalFor({
+							method: "FetchRemoteActions",
+							side: "server",
+							reason: SyncMetrics.rpcFailureReasonFromError(error)
+						})
+					)
+				),
 				Effect.tapErrorCause((c) =>
 					Effect.logError("rpc.FetchRemoteActions.error", { cause: Cause.pretty(c) })
 				),
@@ -231,6 +240,15 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 						})
 					)
 				),
+				Effect.tapError((error) =>
+					Metric.increment(
+						SyncMetrics.rpcFailuresTotalFor({
+							method: "FetchBootstrapSnapshot",
+							side: "server",
+							reason: SyncMetrics.rpcFailureReasonFromError(error)
+						})
+					)
+				),
 				Effect.tapErrorCause((c) =>
 					Effect.logError("rpc.FetchBootstrapSnapshot.error", { cause: Cause.pretty(c) })
 				),
@@ -323,6 +341,15 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 							method: "SendLocalActions",
 							side: "server",
 							outcome: "error"
+						})
+					)
+				),
+				Effect.tapError((error) =>
+					Metric.increment(
+						SyncMetrics.rpcFailuresTotalFor({
+							method: "SendLocalActions",
+							side: "server",
+							reason: SyncMetrics.rpcFailureReasonFromError(error)
 						})
 					)
 				),

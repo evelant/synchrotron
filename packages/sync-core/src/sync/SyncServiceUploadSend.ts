@@ -58,6 +58,15 @@ export const sendUploadBatch = (args: {
 						})
 					)
 				),
+				Effect.tapError((error) =>
+					Metric.increment(
+						SyncMetrics.rpcFailuresTotalFor({
+							method: "SendLocalActions",
+							side: "client",
+							reason: SyncMetrics.rpcFailureReasonFromError(error)
+						})
+					)
+				),
 				Effect.withSpan("SyncNetworkService.sendLocalActions", {
 					kind: "client",
 					attributes: {

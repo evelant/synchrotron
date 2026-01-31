@@ -16,6 +16,7 @@ Implemented so far:
   - sync-core metrics: `packages/sync-core/src/observability/metrics.ts`
   - RPC spans are `kind=client/server` and carry `rpc.*` attributes
   - PGlite statement spans are `kind=client` and carry `db.*` attributes; PGlite also emits basic DB statement metrics
+  - low-cardinality RPC failure reasons: `synchrotron_rpc_failures_total{rpc_method,rpc_side,reason}`
 
 ## Summary
 
@@ -170,16 +171,25 @@ Proposed initial set:
 
 - **Counters**
   - `synchrotron_sync_attempts_total{result}` (`result=success|failure`)
+  - `synchrotron_sync_retries_total{reason}` (bounded retry inside `performSync`)
+  - `synchrotron_remote_not_ready_total{reason}` (remote action patches not fully ingested yet)
+  - `synchrotron_rpc_requests_total{rpc_method,rpc_side,result}`
+  - `synchrotron_rpc_failures_total{rpc_method,rpc_side,reason}` (failure breakdown; low-cardinality reasons)
   - `synchrotron_sync_reconciles_total`
   - `synchrotron_actions_applied_total{source}` (`source=remote|local_replay|correction`)
   - `synchrotron_actions_uploaded_total`
   - `synchrotron_actions_downloaded_total`
+  - `synchrotron_bootstrap_empty_total`
+  - `synchrotron_hard_resync_total`
+  - `synchrotron_rebase_total`
   - `synchrotron_quarantine_total{reason}` (keep `reason` low-cardinality)
 - **Timers / histograms**
   - `synchrotron_sync_duration_ms`
   - `synchrotron_apply_batch_duration_ms`
-  - `synchrotron_rpc_duration_ms{method}`
+  - `synchrotron_rpc_duration_ms{rpc_method,rpc_side}`
   - `synchrotron_db_statement_duration_ms{dialect,op}` (keep `op` coarse)
+  - `synchrotron_hard_resync_duration_ms`
+  - `synchrotron_rebase_duration_ms`
 - **Gauges**
   - `synchrotron_local_unsynced_actions` (count)
   - `synchrotron_remote_unapplied_actions` (count)

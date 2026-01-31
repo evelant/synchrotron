@@ -22,6 +22,8 @@ This repo exports:
 
 - Open Grafana: `http://localhost:3001` (or whatever `OTEL_LGTM_GRAFANA_PORT` is set to).
 - Dashboards: go to **Dashboards → Browse → Synchrotron** for an overview (sync + RPC + DB + errors) and a server dashboard (Prometheus-backed).
+  - The queue-depth panels (**Unsynced local actions**, **Remote unapplied actions**, **Quarantined actions**) are *gauges sampled during sync loops*. If a client is fully offline from the telemetry backend, it cannot export data, so these may show **no data** until the client can report again.
+  - The error panels use `synchrotron_rpc_requests_total{result="error"}` plus `synchrotron_rpc_failures_total{reason}` for a low-cardinality breakdown (e.g. `behind_head`, `network`, `compacted`).
 - To view **traces**:
   - Go to **Explore**
   - Select the **Tempo** data source

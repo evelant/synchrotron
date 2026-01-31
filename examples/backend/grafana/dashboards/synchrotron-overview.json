@@ -271,6 +271,7 @@
 		},
 		{
 			"datasource": "Prometheus",
+			"description": "Gauge (queue depth) sampled during sync loops. It can be useful even when uploads fail (e.g. transient network), but if a client is fully offline from the telemetry backend it cannot export data (so this may show no data).",
 			"fieldConfig": {
 				"defaults": {
 					"unit": "none"
@@ -310,6 +311,7 @@
 		},
 		{
 			"datasource": "Prometheus",
+			"description": "Gauge (queue depth) of remote actions that have been ingested into local tables but are still waiting to be applied. Sampled during sync loops.",
 			"fieldConfig": {
 				"defaults": {
 					"unit": "none"
@@ -349,6 +351,7 @@
 		},
 		{
 			"datasource": "Prometheus",
+			"description": "Gauge (queue depth) of quarantined local actions (upload-gated). Sampled during sync loops.",
 			"fieldConfig": {
 				"defaults": {
 					"unit": "none"
@@ -785,6 +788,117 @@
 			],
 			"title": "RPC errors / s (top methods)",
 			"type": "timeseries"
+		},
+		{
+			"datasource": "Prometheus",
+			"fieldConfig": {
+				"defaults": {
+					"min": 0,
+					"unit": "ops"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 12,
+				"x": 0,
+				"y": 78
+			},
+			"id": 20,
+			"options": {
+				"legend": {
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "single"
+				}
+			},
+			"targets": [
+				{
+					"editorMode": "code",
+					"expr": "sum by (service_name, reason) (rate(synchrotron_sync_retries_total{service_name=~\"$service\"}[$__rate_interval]))",
+					"legendFormat": "{{service_name}} / {{reason}}",
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Sync retries / s",
+			"type": "timeseries"
+		},
+		{
+			"datasource": "Prometheus",
+			"fieldConfig": {
+				"defaults": {
+					"min": 0,
+					"unit": "ops"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 12,
+				"x": 12,
+				"y": 78
+			},
+			"id": 21,
+			"options": {
+				"legend": {
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "single"
+				}
+			},
+			"targets": [
+				{
+					"editorMode": "code",
+					"expr": "sum by (service_name, reason) (rate(synchrotron_remote_not_ready_total{service_name=~\"$service\"}[$__rate_interval]))",
+					"legendFormat": "{{service_name}} / {{reason}}",
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Remote not-ready / s",
+			"type": "timeseries"
+		},
+		{
+			"datasource": "Prometheus",
+			"fieldConfig": {
+				"defaults": {
+					"min": 0,
+					"unit": "ops"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 24,
+				"x": 0,
+				"y": 86
+			},
+			"id": 22,
+			"options": {
+				"legend": {
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "single"
+				}
+			},
+			"targets": [
+				{
+					"editorMode": "code",
+					"expr": "sum by (rpc_side, rpc_method, reason) (rate(synchrotron_rpc_failures_total{service_name=~\"$service\"}[$__rate_interval]))",
+					"legendFormat": "{{rpc_side}} / {{rpc_method}} / {{reason}}",
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "RPC failures by reason / s",
+			"type": "timeseries"
 		}
 	],
 	"refresh": "10s",
@@ -824,6 +938,6 @@
 	"timezone": "",
 	"title": "Synchrotron / Overview",
 	"uid": "synchrotron-overview",
-	"version": 1,
+	"version": 2,
 	"weekStart": ""
 }

@@ -63,6 +63,15 @@ export const bootstrapFromSnapshotIfNeeded = (deps: {
 					})
 				)
 			),
+			Effect.tapError((error) =>
+				Metric.increment(
+					SyncMetrics.rpcFailuresTotalFor({
+						method: "FetchBootstrapSnapshot",
+						side: "client",
+						reason: SyncMetrics.rpcFailureReasonFromError(error)
+					})
+				)
+			),
 			Effect.withSpan("SyncNetworkService.fetchBootstrapSnapshot", {
 				kind: "client",
 				attributes: {

@@ -75,6 +75,15 @@ export const fetchIngestAndListRemoteActions = (deps: {
 					})
 				)
 			),
+			Effect.tapError((error) =>
+				Metric.increment(
+					SyncMetrics.rpcFailuresTotalFor({
+						method: "FetchRemoteActions",
+						side: "client",
+						reason: SyncMetrics.rpcFailureReasonFromError(error)
+					})
+				)
+			),
 			Effect.withSpan("SyncNetworkService.fetchRemoteActions", {
 				kind: "client",
 				attributes: {
