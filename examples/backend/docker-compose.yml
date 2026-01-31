@@ -38,36 +38,6 @@ services:
       - "${OTEL_LGTM_GRAFANA_PORT:-3001}:3000" # Grafana UI
       - 4317:4317 # OTLP gRPC
       - 4318:4318 # OTLP HTTP
-
-  # Alternative observability backend (OpenObserve):
-  #
-  # - UI/API: http://localhost:5080
-  # - OTLP ingest is provided via `otel-collector-openobserve` (ports 4317/4318).
-  openobserve:
-    image: public.ecr.aws/zinclabs/openobserve:latest
-    environment:
-      ZO_ROOT_USER_EMAIL: "${OPENOBSERVE_ROOT_USER_EMAIL:-root@example.com}"
-      ZO_ROOT_USER_PASSWORD: "${OPENOBSERVE_ROOT_USER_PASSWORD:-password}"
-    ports:
-      - "${OPENOBSERVE_PORT:-5080}:5080"
     volumes:
-      - openobserve-data:/data
-
-  otel-collector-openobserve:
-    image: otel/opentelemetry-collector-contrib:latest
-    command:
-      - --config=/etc/otelcol/config.yaml
-    environment:
-      OPENOBSERVE_ORG: "${OPENOBSERVE_ORG:-default}"
-      # Default auth header is for `root@example.com:password`.
-      OPENOBSERVE_AUTHORIZATION: "${OPENOBSERVE_AUTHORIZATION:-Basic cm9vdEBleGFtcGxlLmNvbTpwYXNzd29yZA==}"
-    ports:
-      - 4317:4317 # OTLP gRPC
-      - 4318:4318 # OTLP HTTP
-    volumes:
-      - ./otelcol-openobserve.yaml:/etc/otelcol/config.yaml:ro
-    depends_on:
-      - openobserve
-
-volumes:
-  openobserve-data:
+      - ./grafana/dashboards:/otel-lgtm/dashboards/synchrotron:ro
+      - ./grafana/provisioning/dashboards/synchrotron.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/synchrotron.yaml:ro

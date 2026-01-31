@@ -1,0 +1,10 @@
+apiVersion: 1
+
+providers:
+  - name: Synchrotron
+    type: file
+    folder: Synchrotron
+    disableDeletion: false
+    editable: true
+    options:
+      path: /otel-lgtm/dashboards/synchrotron

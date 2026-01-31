@@ -4,9 +4,7 @@ Shared backend for Synchrotron examples:
 
 - Postgres (Docker)
 - Electric (Docker) on `http://localhost:5133`
-- Local OpenTelemetry backend (Docker):
-  - Grafana LGTM stack on `http://localhost:3001` (override with `OTEL_LGTM_GRAFANA_PORT`)
-  - OpenObserve on `http://localhost:5080` (override with `OPENOBSERVE_PORT`)
+- Local OpenTelemetry backend (Docker): Grafana LGTM stack on `http://localhost:3001` (override with `OTEL_LGTM_GRAFANA_PORT`)
 - Synchrotron RPC server (Bun) on `http://localhost:3010/rpc`
 
 The OpenTelemetry dev stack also exposes:
@@ -23,6 +21,7 @@ This repo exports:
 - **Metrics** (Prometheus/Mimir) via `@effect/opentelemetry/OtlpMetrics` (optional)
 
 - Open Grafana: `http://localhost:3001` (or whatever `OTEL_LGTM_GRAFANA_PORT` is set to).
+- Dashboards: go to **Dashboards → Browse → Synchrotron** for an overview (sync + RPC + DB + errors) and a server dashboard (Prometheus-backed).
 - To view **traces**:
   - Go to **Explore**
   - Select the **Tempo** data source
@@ -40,24 +39,13 @@ This repo exports:
   - Query e.g. `{service_name="synchrotron-example-backend"}`
   - Note: Effect logs can also show up as *span events* inside traces.
 
-## Viewing telemetry (OpenObserve)
-
-- Open OpenObserve: `http://localhost:5080`
-- Login defaults (override via `OPENOBSERVE_ROOT_USER_EMAIL` / `OPENOBSERVE_ROOT_USER_PASSWORD`):
-  - Email: `root@example.com`
-  - Password: `password`
-- Streams created by the local collector:
-  - `synchrotron_traces`
-  - `synchrotron_logs`
-  - `synchrotron_metrics`
-
 Client logs:
 
 - The web + React Native examples can also export OTLP logs to Loki (see their `.env.example` files for `*_OTEL_LOGS_ENABLED` + `*_OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`).
 
 Troubleshooting backend traces:
 
-- Ensure an OTel backend is running (`pnpm docker:up` for LGTM/Grafana, or `pnpm docker:up:openobserve` for OpenObserve).
+- Ensure `pnpm docker:up` is running (includes `grafana/otel-lgtm`).
 - Ensure `OTEL_SDK_DISABLED` is not set to `true`.
 - If you suspect `localhost` resolution issues, set `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318` in `examples/backend/.env`.
 
@@ -90,13 +78,6 @@ From repo root:
 pnpm run -r build
 # Start backend (docker + dev server)
 pnpm dev:backend
-```
-
-Use OpenObserve instead of Grafana/LGTM:
-
-```sh
-pnpm docker:up:openobserve
-pnpm --filter @synchrotron-examples/backend run server:dev
 ```
 
 Stop Docker services:

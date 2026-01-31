@@ -7,7 +7,7 @@ In progress (Jan 2026)
 Implemented so far:
 
 - Local dev backend container: `grafana/otel-lgtm` in `examples/backend/docker-compose.yml`
-- Alternative local dev backend: OpenObserve (`openobserve` + `otel-collector-openobserve`) in `examples/backend/docker-compose.yml`
+- Minimal Grafana dashboards (Prometheus): `examples/backend/grafana/dashboards/`
 - Backend trace export: `examples/backend/src/server.ts` installs `@effect/opentelemetry` via `@synchrotron/observability`
 - Backend + clients optional OTLP log export (Loki): enable with `*_OTEL_LOGS_ENABLED=true` in the example `.env` files
 - Backend + clients optional OTLP metrics export (Prometheus/Mimir): enable with `*_OTEL_METRICS_ENABLED=true` in the example `.env` files
@@ -134,13 +134,6 @@ Effect’s docs recommend Grafana’s “LGTM” OpenTelemetry dev image:
 - Configure the backend process to export to `http://localhost:4318` (OTLP HTTP).
 
 Implementation choice: **compose integration** — extend `examples/backend/docker-compose.yml` to include an `otel-lgtm` service, exposing `3001` (Grafana UI; configurable via `OTEL_LGTM_GRAFANA_PORT`), `4317` (OTLP gRPC), and `4318` (OTLP HTTP).
-
-### Alternative dev backend: OpenObserve
-
-For developer UX, it can also be useful to run OpenObserve as the local backend. OpenObserve’s OTLP HTTP ingestion expects additional headers (auth + stream name), so the docker compose setup runs a small OpenTelemetry Collector (`otel-collector-openobserve`) that:
-
-- receives OTLP on the standard local ports (`4317` / `4318`)
-- exports to OpenObserve with the required headers applied
 
 ## What we’ll measure
 

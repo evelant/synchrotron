@@ -1,0 +1,284 @@
+{
+	"annotations": {
+		"list": [
+			{
+				"builtIn": 1,
+				"datasource": "-- Grafana --",
+				"enable": true,
+				"hide": true,
+				"iconColor": "rgba(0, 211, 255, 1)",
+				"name": "Annotations & Alerts",
+				"type": "dashboard"
+			}
+		]
+	},
+	"editable": true,
+	"fiscalYearStartMonth": 0,
+	"graphTooltip": 0,
+	"id": null,
+	"links": [],
+	"liveNow": false,
+	"panels": [
+		{
+			"datasource": "Prometheus",
+			"fieldConfig": {
+				"defaults": {
+					"min": 0,
+					"unit": "ops"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 12,
+				"x": 0,
+				"y": 0
+			},
+			"id": 1,
+			"options": {
+				"legend": {
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "single"
+				}
+			},
+			"targets": [
+				{
+					"editorMode": "code",
+					"expr": "sum by (service_name, rpc_method) (rate(synchrotron_server_actions_served_total{service_name=~\"$service\"}[$__rate_interval]))",
+					"legendFormat": "{{service_name}} / {{rpc_method}}",
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Server actions served / s",
+			"type": "timeseries"
+		},
+		{
+			"datasource": "Prometheus",
+			"fieldConfig": {
+				"defaults": {
+					"min": 0,
+					"unit": "ops"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 12,
+				"x": 12,
+				"y": 0
+			},
+			"id": 2,
+			"options": {
+				"legend": {
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "single"
+				}
+			},
+			"targets": [
+				{
+					"editorMode": "code",
+					"expr": "sum by (service_name, rpc_method) (rate(synchrotron_server_amrs_served_total{service_name=~\"$service\"}[$__rate_interval]))",
+					"legendFormat": "{{service_name}} / {{rpc_method}}",
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Server AMRs served / s",
+			"type": "timeseries"
+		},
+		{
+			"datasource": "Prometheus",
+			"fieldConfig": {
+				"defaults": {
+					"min": 0,
+					"unit": "ops"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 12,
+				"x": 0,
+				"y": 8
+			},
+			"id": 3,
+			"options": {
+				"legend": {
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "single"
+				}
+			},
+			"targets": [
+				{
+					"editorMode": "code",
+					"expr": "sum by (service_name, rpc_method) (rate(synchrotron_server_actions_received_total{service_name=~\"$service\"}[$__rate_interval]))",
+					"legendFormat": "{{service_name}} / {{rpc_method}}",
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Server actions received / s",
+			"type": "timeseries"
+		},
+		{
+			"datasource": "Prometheus",
+			"fieldConfig": {
+				"defaults": {
+					"min": 0,
+					"unit": "ops"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 12,
+				"x": 12,
+				"y": 8
+			},
+			"id": 4,
+			"options": {
+				"legend": {
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "single"
+				}
+			},
+			"targets": [
+				{
+					"editorMode": "code",
+					"expr": "sum by (service_name, rpc_method) (rate(synchrotron_server_amrs_received_total{service_name=~\"$service\"}[$__rate_interval]))",
+					"legendFormat": "{{service_name}} / {{rpc_method}}",
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Server AMRs received / s",
+			"type": "timeseries"
+		},
+		{
+			"datasource": "Prometheus",
+			"fieldConfig": {
+				"defaults": {
+					"min": 0,
+					"unit": "ops"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 24,
+				"x": 0,
+				"y": 16
+			},
+			"id": 5,
+			"options": {
+				"legend": {
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "single"
+				}
+			},
+			"targets": [
+				{
+					"editorMode": "code",
+					"expr": "sum by (service_name, reason) (rate(synchrotron_remote_not_ready_total{service_name=~\"$service\"}[$__rate_interval]))",
+					"legendFormat": "{{service_name}} / {{reason}}",
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Remote ingress not-ready / s",
+			"type": "timeseries"
+		},
+		{
+			"datasource": "Prometheus",
+			"fieldConfig": {
+				"defaults": {
+					"min": 0,
+					"unit": "ops"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 24,
+				"x": 0,
+				"y": 24
+			},
+			"id": 6,
+			"options": {
+				"legend": {
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "single"
+				}
+			},
+			"targets": [
+				{
+					"editorMode": "code",
+					"expr": "sum by (rpc_method, result) (rate(synchrotron_rpc_requests_total{service_name=~\"$service\",rpc_side=\"server\"}[$__rate_interval]))",
+					"legendFormat": "{{rpc_method}} / {{result}}",
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "RPC server requests / s",
+			"type": "timeseries"
+		}
+	],
+	"refresh": "10s",
+	"schemaVersion": 39,
+	"style": "dark",
+	"tags": ["synchrotron"],
+	"templating": {
+		"list": [
+			{
+				"allValue": ".*",
+				"current": {
+					"selected": true,
+					"text": "All",
+					"value": "$__all"
+				},
+				"datasource": "Prometheus",
+				"definition": "label_values(synchrotron_server_actions_served_total, service_name)",
+				"hide": 0,
+				"includeAll": true,
+				"multi": true,
+				"name": "service",
+				"options": [],
+				"query": "label_values(synchrotron_server_actions_served_total, service_name)",
+				"refresh": 1,
+				"regex": "",
+				"skipUrlSync": false,
+				"sort": 1,
+				"type": "query"
+			}
+		]
+	},
+	"time": {
+		"from": "now-15m",
+		"to": "now"
+	},
+	"timepicker": {},
+	"timezone": "",
+	"title": "Synchrotron / Server",
+	"uid": "synchrotron-server",
+	"version": 1,
+	"weekStart": ""
+}
