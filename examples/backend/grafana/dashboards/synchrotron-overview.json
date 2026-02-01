@@ -899,6 +899,64 @@
 			],
 			"title": "RPC failures by reason / s",
 			"type": "timeseries"
+		},
+		{
+			"datasource": "Prometheus",
+			"fieldConfig": {
+				"defaults": {
+					"min": 0,
+					"unit": "ms"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 24,
+				"x": 0,
+				"y": 94
+			},
+			"id": 23,
+			"options": {
+				"legend": {
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "single"
+				}
+			},
+			"targets": [
+				{
+					"editorMode": "code",
+					"expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(synchrotron_hard_resync_duration_ms_milliseconds_bucket{service_name=~\"$service\"}[$__rate_interval])))",
+					"legendFormat": "{{service_name}} / hardResync p95",
+					"range": true,
+					"refId": "A"
+				},
+				{
+					"editorMode": "code",
+					"expr": "histogram_quantile(0.5, sum by (le, service_name) (rate(synchrotron_hard_resync_duration_ms_milliseconds_bucket{service_name=~\"$service\"}[$__rate_interval])))",
+					"legendFormat": "{{service_name}} / hardResync p50",
+					"range": true,
+					"refId": "B"
+				},
+				{
+					"editorMode": "code",
+					"expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(synchrotron_rebase_duration_ms_milliseconds_bucket{service_name=~\"$service\"}[$__rate_interval])))",
+					"legendFormat": "{{service_name}} / rebase p95",
+					"range": true,
+					"refId": "C"
+				},
+				{
+					"editorMode": "code",
+					"expr": "histogram_quantile(0.5, sum by (le, service_name) (rate(synchrotron_rebase_duration_ms_milliseconds_bucket{service_name=~\"$service\"}[$__rate_interval])))",
+					"legendFormat": "{{service_name}} / rebase p50",
+					"range": true,
+					"refId": "D"
+				}
+			],
+			"title": "Hard resync / rebase duration (p50/p95)",
+			"type": "timeseries"
 		}
 	],
 	"refresh": "10s",
@@ -938,6 +996,6 @@
 	"timezone": "",
 	"title": "Synchrotron / Overview",
 	"uid": "synchrotron-overview",
-	"version": 2,
+	"version": 3,
 	"weekStart": ""
 }
