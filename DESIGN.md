@@ -110,9 +110,14 @@ Synced tables require app-provided `id`s. To keep replay deterministic across cl
 - `SyncService` wraps action execution/replay in `deterministicId.withActionContext(actionRecord.id, ...)` (where `const deterministicId = yield* DeterministicId`).
 - Actions call `deterministicId.forRow(tableName, row)` to compute a UUIDv5 from:
   - the table name
-  - a canonical JSON representation of the row content (excluding `id`)
-  - a per-action collision counter (so identical inserts within one action remain unique)
-- The collision counter is maintained in-memory per action replay/execute, not in the database.
+  - a canonical JSON representation of a **seed** (excluding `id`)
+- The recommended seed is a **stable identity key**, not full row content. Configure identity once per table via `DeterministicIdIdentityConfig`:
+  - `identityByTable[tableName] = ["audience_key", "note_key"]` (stable identity columns), or
+  - `identityByTable[tableName] = (row) => ({ ... })` (custom identity projection).
+  - `forRow` hashes only the configured identity seed.
+- `forRow` fails if a table has no configured identity strategy.
+- `ClientDbAdapter.installPatchCapture([...])` fails fast if any tracked table is missing identity config (guardrail for stable replay IDs).
+- `forRow` is a pure function of `(actionId, tableName, identitySeed)`. If you need to create multiple rows in one action, include an explicit stable disambiguator in the identity seed (e.g. a `<table>_key` column passed in args).
 
 Result: replaying the same action record on different clients produces the same inserted row IDs.
 
@@ -140,6 +145,8 @@ Result: replaying the same action record on different clients produces the same 
 2. Client applies incoming actions in HLC order.
 3. A placeholder CORRECTION action captures the patches produced by local replay of the incoming batch.
 4. The client computes a CORRECTION delta: `P_replay(batch) − P_known(batch)` where `P_known` includes the received base patches plus any received CORRECTION patches.
+   - Outgoing CORRECTION patches are normalized to be well-defined deltas relative to `P_known`. In particular, if replay generates an `INSERT` for a row that already exists in `P_known`, the outgoing CORRECTION uses an `UPDATE` (and aligns `reverse_patches`) so apply/rollback semantics are correct.
+   - Guardrail for “subtractive” divergence: if a row key exists in the received **base** patch set but replay produces no patches for that row key, Synchrotron treats `P_known` as authoritative for that row key and patch-applies the known patch sequence with patch tracking disabled (so base tables still converge, without emitting an outgoing CORRECTION).
 5. If the delta is empty, the placeholder is deleted (no outgoing CORRECTION). If non-empty, the placeholder is kept as a new local CORRECTION action to be uploaded (clocked after all observed remote actions in that apply pass).
 
 ### CORRECTION actions (private data / conditional logic)

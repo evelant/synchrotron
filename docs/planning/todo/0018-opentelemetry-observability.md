@@ -78,7 +78,7 @@ Effect’s docs show a `NodeSdk.layer(() => ({ ... }))` pattern using an OTLP ex
 Baseline configuration (dev):
 
 - resource attributes:
-  - `service.name` (should identify the *app/service*, not Synchrotron-the-library)
+  - `service.name` (should identify the _app/service_, not Synchrotron-the-library)
   - `service.version` (from package.json, optional)
   - `deployment.environment` (`development` by default)
 - span processor:

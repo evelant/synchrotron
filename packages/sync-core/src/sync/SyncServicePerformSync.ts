@@ -298,7 +298,8 @@ export const makePerformSync = (deps: {
 					"SyncDoctorCorruption",
 					recoveryPolicy.handleSyncDoctorCorruption(allowInvalidRebase, allowDiscontinuityRecovery)
 				)
-			).pipe(
+			)
+			.pipe(
 				Metric.trackDuration(SyncMetrics.syncDurationMs),
 				Effect.tap(() => Metric.increment(SyncMetrics.syncAttemptsTotalFor("success"))),
 				Effect.tapError(() => Metric.increment(SyncMetrics.syncAttemptsTotalFor("failure")))

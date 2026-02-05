@@ -232,7 +232,7 @@ Where:
 Then:
 
 - `contentHash = sha256(S)` (or blake3) as hex/base64.
-- `name = contentHash` for the first insert of that content in the action; append `_<n>` for collisions within the same action.
+- `name = contentHash` (no automatic collision disambiguation; include an explicit stable disambiguator in the seed if multiple rows are required).
 - `id = uuidv5(namespace = actionRecordId, name = name)` OR `id = sha256(actionRecordId + ":" + name)` truncated to 16 bytes.
 
 ### Implementation approach
@@ -241,7 +241,7 @@ To keep actions unrestricted:
 
 - Implement id generation in triggers for each synced table.
 - Pass `actionRecordId` (namespace) via adapter context.
-- Maintain a per-transaction collision counter keyed by `contentHash`.
+- Do not maintain an implicit collision counter; repeated seeds should map to the same id.
 
 Backends:
 
@@ -369,9 +369,16 @@ Pseudo-wiring:
 
 ```ts
 // sync-client
-export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConfigData>) => {
-	const configLayer = createSynchrotronConfig(config)
-	const keyValueStoreLayer = BrowserKeyValueStore.layerLocalStorage
+export const makeSynchrotronClientLayer = (params: {
+	rowIdentityByTable: RowIdentityByTable
+	config?: Partial<SynchrotronClientConfigData>
+	keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore>
+}) => {
+	const configLayer = createSynchrotronConfig(params.config ?? {})
+	const keyValueStoreLayer = params.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
+	const deterministicIdIdentityLayer = Layer.succeed(DeterministicIdIdentityConfig, {
+		identityByTable: params.rowIdentityByTable
+	})
 
 	const dbLayer = Layer.unwrapEffect(
 		Effect.gen(function* () {
@@ -389,7 +396,8 @@ export const makeSynchrotronClientLayer = (config: Partial<SynchrotronClientConf
 		Layer.provideMerge(ClientClockState.Default),
 		Layer.provideMerge(ClientIdentityLive),
 		Layer.provideMerge(keyValueStoreLayer),
-		Layer.provideMerge(configLayer)
+		Layer.provideMerge(configLayer),
+		Layer.provideMerge(deterministicIdIdentityLayer)
 	)
 }
 ```

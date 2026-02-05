@@ -47,7 +47,9 @@ export const sendUploadBatch = (args: {
 						})
 					)
 				),
-				Effect.tap(() => Metric.incrementBy(SyncMetrics.actionsUploadedTotal, actionsToSend.length)),
+				Effect.tap(() =>
+					Metric.incrementBy(SyncMetrics.actionsUploadedTotal, actionsToSend.length)
+				),
 				Effect.tap(() => Metric.incrementBy(SyncMetrics.amrsUploadedTotal, amrs.length)),
 				Effect.tapError(() =>
 					Metric.increment(

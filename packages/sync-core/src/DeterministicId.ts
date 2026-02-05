@@ -1,4 +1,4 @@
-import { Effect, FiberRef, Schema } from "effect"
+import { Context, Effect, FiberRef, Schema } from "effect"
 import { NIL, validate as validateUuid, v5 as uuidv5 } from "uuid"
 
 export class DeterministicIdError extends Schema.TaggedError<DeterministicIdError>()(
@@ -8,9 +8,21 @@ export class DeterministicIdError extends Schema.TaggedError<DeterministicIdErro
 	}
 ) {}
 
+export interface DeterministicIdIdentityConfigService {
+	readonly identityByTable: Readonly<Record<string, DeterministicIdIdentityStrategy>>
+}
+
+export class DeterministicIdIdentityConfig extends Context.Tag("DeterministicIdIdentityConfig")<
+	DeterministicIdIdentityConfig,
+	DeterministicIdIdentityConfigService
+>() {}
+
+export type DeterministicIdIdentityStrategy =
+	| ReadonlyArray<string>
+	| ((row: Readonly<Record<string, unknown>>) => Readonly<Record<string, unknown>>)
+
 type State = Readonly<{
 	actionId: string | null
-	collisionByKey: ReadonlyMap<string, number>
 }>
 
 const normalizeForJson = (value: unknown): unknown => {
@@ -46,16 +58,16 @@ const canonicalJson = (value: unknown): string => JSON.stringify(normalizeForJso
  */
 export class DeterministicId extends Effect.Service<DeterministicId>()("DeterministicId", {
 	scoped: Effect.gen(function* () {
+		const identityConfig = yield* DeterministicIdIdentityConfig
+
 		const stateRef = yield* FiberRef.make<State>({
-			actionId: null,
-			collisionByKey: new Map()
+			actionId: null
 		})
 
 		const withActionContext = <A, E, R>(actionId: string, effect: Effect.Effect<A, E, R>) =>
 			effect.pipe(
 				Effect.locally(stateRef, {
-					actionId,
-					collisionByKey: new Map()
+					actionId
 				})
 			)
 
@@ -79,15 +91,59 @@ export class DeterministicId extends Effect.Service<DeterministicId>()("Determin
 					rowWithoutId[key] = value
 				}
 
-				const canonical = canonicalJson(rowWithoutId)
-				const collisionKey = `${tableName}|${canonical}`
-				const collisionIndex = state.collisionByKey.get(collisionKey) ?? 0
+				const identityStrategy = identityConfig.identityByTable[tableName]
 
-				const nextCollisionByKey = new Map(state.collisionByKey)
-				nextCollisionByKey.set(collisionKey, collisionIndex + 1)
-				yield* FiberRef.set(stateRef, { ...state, collisionByKey: nextCollisionByKey })
+				if (identityStrategy === undefined) {
+					return yield* Effect.fail(
+						new DeterministicIdError({
+							message: `No identity strategy configured for table "${tableName}"`
+						})
+					)
+				}
 
-				const name = `${tableName}|${canonical}|${collisionIndex}`
+				let seed: Record<string, unknown> = rowWithoutId
+
+				if (typeof identityStrategy === "function") {
+					const projected = identityStrategy(rowWithoutId)
+					if (projected === null || typeof projected !== "object" || Array.isArray(projected)) {
+						return yield* Effect.fail(
+							new DeterministicIdError({
+								message: `Identity projection for table "${tableName}" must return an object`
+							})
+						)
+					}
+
+					const identitySeed: Record<string, unknown> = {}
+					for (const [key, value] of Object.entries(projected)) {
+						if (key === "id") continue
+						if (value === undefined) {
+							return yield* Effect.fail(
+								new DeterministicIdError({
+									message: `Identity projection for table "${tableName}" returned undefined for key "${key}"`
+								})
+							)
+						}
+						identitySeed[key] = value
+					}
+					seed = identitySeed
+				} else {
+					const identitySeed: Record<string, unknown> = {}
+					for (const columnName of identityStrategy) {
+						const value = rowWithoutId[columnName]
+						if (value === undefined) {
+							return yield* Effect.fail(
+								new DeterministicIdError({
+									message: `Missing identity column "${columnName}" for table "${tableName}"`
+								})
+							)
+						}
+						identitySeed[columnName] = value
+					}
+					seed = identitySeed
+				}
+
+				const canonical = canonicalJson(seed)
+				const name = `${tableName}|${canonical}|0`
 				const actionId = state.actionId
 				const namespace = validateUuid(actionId) ? actionId : NIL
 				const nameForUuid = validateUuid(actionId) ? name : `${actionId}|${name}`

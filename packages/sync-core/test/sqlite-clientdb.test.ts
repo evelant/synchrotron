@@ -10,6 +10,7 @@ import {
 	ClientId,
 	ClientIdentity,
 	DeterministicId,
+	DeterministicIdIdentityConfig,
 	SqliteClientDbAdapter,
 	RemoteActionFetchError,
 	SyncNetworkService,
@@ -22,7 +23,12 @@ import { applyForwardAmrs, applyReverseAmrs } from "../src/PatchApplier"
 const makeSqliteTestLayers = (clientId: string) => {
 	const baseLayer = Layer.mergeAll(
 		SqliteClient.layer({ filename: ":memory:" }),
-		Layer.succeed(ClientIdentity, { get: Effect.succeed(ClientId.make(clientId)) })
+		Layer.succeed(ClientIdentity, { get: Effect.succeed(ClientId.make(clientId)) }),
+		Layer.succeed(DeterministicIdIdentityConfig, {
+			identityByTable: {
+				notes: (row) => row
+			}
+		})
 	)
 
 	const layer0 = SqliteClientDbAdapter.pipe(Layer.provideMerge(baseLayer))
@@ -77,6 +83,33 @@ const makeSqliteTestLayers = (clientId: string) => {
 }
 
 describe("SQLite ClientDbAdapter (sqlite-node)", () => {
+	it.scoped(
+		"fails fast when installing patch capture for a tracked table missing deterministic row identity config",
+		() =>
+			Effect.gen(function* () {
+				const sql = yield* SqlClient.SqlClient
+				const clientDbAdapter = yield* ClientDbAdapter
+
+				yield* sql`
+					CREATE TABLE todos (
+						id TEXT PRIMARY KEY,
+						title TEXT NOT NULL,
+						audience_key TEXT NOT NULL DEFAULT 'audience:todos'
+					)
+				`.raw
+
+				const installResult = yield* Effect.either(clientDbAdapter.installPatchCapture(["todos"]))
+				expect(installResult._tag).toBe("Left")
+				if (installResult._tag === "Left") {
+					expect((installResult.left as any)._tag).toBe("ClientDbAdapterError")
+					expect((installResult.left as any).tableName).toBe("todos")
+					expect((installResult.left as any).message).toContain(
+						"Missing deterministic row identity"
+					)
+				}
+			}).pipe(Effect.provide(makeSqliteTestLayers("clientA")))
+	)
+
 	it.scoped("computes clock_counter for UUID-like client_id keys", () =>
 		Effect.gen(function* () {
 			const sql = yield* SqlClient.SqlClient

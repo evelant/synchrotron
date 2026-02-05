@@ -11,7 +11,7 @@ describe("Sync Algorithm Integration (SQLite clients)", () => {
 		() =>
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
-				yield* withSqliteTestClients(["client1", "remoteClient"], serverSql, (clients) =>
+				yield* withSqliteTestClients(["client1", "remoteClient"], serverSql, undefined, (clients) =>
 					Effect.gen(function* () {
 						const client1 = clients[0]!
 						const remoteClient = clients[1]!
@@ -70,7 +70,7 @@ describe("Sync Algorithm Integration (SQLite clients)", () => {
 		() =>
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
-				yield* withSqliteTestClients(["client1", "client2"], serverSql, (clients) =>
+				yield* withSqliteTestClients(["client1", "client2"], serverSql, undefined, (clients) =>
 					Effect.gen(function* () {
 						const client1 = clients[0]!
 						const client2 = clients[1]!

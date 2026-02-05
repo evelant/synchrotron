@@ -24,8 +24,13 @@ export const bootstrapFromSnapshotIfNeeded = (deps: {
 	) => Effect.Effect<void, unknown, never>
 }) =>
 	Effect.gen(function* () {
-		const { sqlClient, syncNetworkService, clientId, syncSessionId, lastSeenServerIngestIdBeforeBootstrap } =
-			deps
+		const {
+			sqlClient,
+			syncNetworkService,
+			clientId,
+			syncSessionId,
+			lastSeenServerIngestIdBeforeBootstrap
+		} = deps
 
 		if (lastSeenServerIngestIdBeforeBootstrap > 0) return false
 

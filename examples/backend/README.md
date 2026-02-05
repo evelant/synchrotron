@@ -22,7 +22,7 @@ This repo exports:
 
 - Open Grafana: `http://localhost:3001` (or whatever `OTEL_LGTM_GRAFANA_PORT` is set to).
 - Dashboards: go to **Dashboards → Browse → Synchrotron** for an overview (sync + RPC + DB + errors) and a server dashboard (Prometheus-backed).
-  - The queue-depth panels (**Unsynced local actions**, **Remote unapplied actions**, **Quarantined actions**) are *gauges sampled during sync loops*. If a client is fully offline from the telemetry backend, it cannot export data, so these may show **no data** until the client can report again.
+  - The queue-depth panels (**Unsynced local actions**, **Remote unapplied actions**, **Quarantined actions**) are _gauges sampled during sync loops_. If a client is fully offline from the telemetry backend, it cannot export data, so these may show **no data** until the client can report again.
   - The error panels use `synchrotron_rpc_requests_total{result="error"}` plus `synchrotron_rpc_failures_total{reason}` for a low-cardinality breakdown (e.g. `behind_head`, `network`, `compacted`).
 - To view **traces**:
   - Go to **Explore**
@@ -40,7 +40,7 @@ This repo exports:
   - Select the **Loki** data source
   - Query e.g. `{service_name="synchrotron-example-backend"}`
   - Structured fields: Synchrotron uses `Effect.logInfo("eventName", { ... })` heavily. When exporting via `@synchrotron/observability` OTLP loggers, the `{ ... }` object is moved into OTLP log attributes so it’s filterable/searchable in Grafana (instead of showing up as an escaped JSON string in the log line).
-  - Note: Effect logs can also show up as *span events* inside traces.
+  - Note: Effect logs can also show up as _span events_ inside traces.
 
 Client logs:
 

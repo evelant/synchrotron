@@ -335,7 +335,7 @@ export const makePerformSyncCases = (deps: {
 						clientId: earliestRemoteAction.client_id,
 						id: earliestRemoteAction.id
 					}
-			) < 0
+				) < 0
 			) {
 				yield* Effect.annotateCurrentSpan({ syncCase: "apply_remote_then_send_pending" })
 				yield* Metric.increment(SyncMetrics.syncCaseTotalFor("apply_remote_then_send_pending"))

@@ -22,7 +22,7 @@ Historical note: before this change, reconcile could persist a “rolled back bu
 
 ### Note on nested `withTransaction`
 
-`@effect/sql` *does* support nesting: nested `SqlClient.withTransaction` reuses the outer transaction and uses `SAVEPOINT` / `ROLLBACK TO SAVEPOINT` (commit only happens at the outermost transaction boundary). This means we **can** add an outer transaction boundary around reconcile and still safely call helpers that currently use `withTransaction`.
+`@effect/sql` _does_ support nesting: nested `SqlClient.withTransaction` reuses the outer transaction and uses `SAVEPOINT` / `ROLLBACK TO SAVEPOINT` (commit only happens at the outermost transaction boundary). This means we **can** add an outer transaction boundary around reconcile and still safely call helpers that currently use `withTransaction`.
 
 This only helps if an outer `withTransaction` exists — reconcile/rematerialize now add that outer boundary so rollback + marker + replay are atomic.
 

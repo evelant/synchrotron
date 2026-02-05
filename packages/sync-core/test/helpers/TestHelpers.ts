@@ -203,6 +203,116 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 				})
 		)
 
+		const createNoteClientSpecificInsertAction = actionRegistry.defineAction(
+			"test-create-note-client-specific-insert",
+			Schema.Struct({
+				title: Schema.String,
+				baseContent: Schema.String,
+				user_id: Schema.String,
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const clientId = yield* clientIdentity.get
+					const row: {
+						title: string
+						content: string
+						user_id: string
+						updated_at: Date
+					} = {
+						title: args.title,
+						content: `${args.baseContent}-${clientId}`,
+						user_id: args.user_id,
+						updated_at: new Date(args.timestamp)
+					}
+
+					const id = yield* deterministicId.forRow("notes", {
+						...row,
+						tags: []
+					})
+
+					return yield* noteRepo.insert({ id, ...row })
+				})
+		)
+
+		const createNoteWithExtraRowOnClientBAction = actionRegistry.defineAction(
+			"test-create-note-with-extra-row-on-clientb",
+			Schema.Struct({
+				title: Schema.String,
+				content: Schema.String,
+				user_id: Schema.String,
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const noteRow = {
+						title: args.title,
+						content: args.content,
+						user_id: args.user_id,
+						updated_at: new Date(args.timestamp)
+					}
+
+					const noteId = yield* deterministicId.forRow("notes", { ...noteRow, tags: [] })
+					yield* noteRepo.insert({ id: noteId, ...noteRow })
+
+					const clientId = yield* clientIdentity.get
+					if (clientId !== "clientB") return { noteId } as const
+
+					const metaRow = {
+						note_id: noteId,
+						kind: "extra",
+						user_id: args.user_id
+					}
+					const metaId = yield* deterministicId.forRow("note_admin_meta", metaRow)
+
+					yield* sql`
+						INSERT INTO note_admin_meta (id, note_id, kind, user_id)
+						VALUES (${metaId}, ${noteId}, ${metaRow.kind}, ${metaRow.user_id})
+					`
+
+					return { noteId, metaId } as const
+				})
+		)
+
+		const createNoteWithExtraRowOnClientAAction = actionRegistry.defineAction(
+			"test-create-note-with-extra-row-on-clienta",
+			Schema.Struct({
+				title: Schema.String,
+				content: Schema.String,
+				user_id: Schema.String,
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const noteRow = {
+						title: args.title,
+						content: args.content,
+						user_id: args.user_id,
+						updated_at: new Date(args.timestamp)
+					}
+
+					const noteId = yield* deterministicId.forRow("notes", { ...noteRow, tags: [] })
+					yield* noteRepo.insert({ id: noteId, ...noteRow })
+
+					const clientId = yield* clientIdentity.get
+					if (clientId !== "clientA") return { noteId } as const
+
+					const metaRow = {
+						note_id: noteId,
+						kind: "origin-only",
+						user_id: args.user_id
+					}
+					const metaId = yield* deterministicId.forRow("note_admin_meta", metaRow)
+
+					yield* sql`
+						INSERT INTO note_admin_meta (id, note_id, kind, user_id)
+						VALUES (${metaId}, ${noteId}, ${metaRow.kind}, ${metaRow.user_id})
+					`
+
+					return { noteId, metaId } as const
+				})
+		)
+
 		const clientSpecificContentAction = actionRegistry.defineAction(
 			"test-client-specific-content",
 			Schema.Struct({
@@ -242,6 +352,9 @@ export class TestHelpers extends Effect.Service<TestHelpers>()("TestHelpers", {
 			updateTitleAction,
 			conditionalUpdateAction,
 			conditionalUpdateWithClientCExtraAction,
+			createNoteClientSpecificInsertAction,
+			createNoteWithExtraRowOnClientBAction,
+			createNoteWithExtraRowOnClientAAction,
 			clientSpecificContentAction,
 			deleteContentAction,
 			noteRepo

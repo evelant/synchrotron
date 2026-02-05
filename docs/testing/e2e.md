@@ -34,9 +34,11 @@ Note: because the harness enables RLS and `SET ROLE synchrotron_app`, any direct
 
 Each client in an E2E test uses:
 
-- `makeSynchrotronClientLayer({ syncRpcUrl, syncRpcAuthToken, pglite: { dataDir: "memory://…" } }, { keyValueStoreLayer: KeyValueStore.layerMemory })`
+- `makeSynchrotronClientLayer({ rowIdentityByTable: { notes: ["project_id"] }, config: { syncRpcUrl, syncRpcAuthToken, pglite: { dataDir: "memory://…" } }, keyValueStoreLayer: KeyValueStore.layerMemory })`
 - `ClientIdOverride` to make client identities stable/deterministic in tests
 - A tiny “app schema” (`notes` table) + `ClientDbAdapter.installPatchCapture(["notes"])` so actions generate AMRs.
+
+Note: `rowIdentityByTable` should exclude mutable/view-dependent fields (like `content`). If an action may INSERT multiple rows into the same table, include a stable disambiguator in the identity (e.g. a `<table>_key` column passed in args).
 
 ## Running E2E tests
 

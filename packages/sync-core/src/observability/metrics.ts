@@ -74,8 +74,7 @@ export const syncAttemptsTotal = Metric.counter("synchrotron_sync_attempts_total
 
 export const syncAttemptsTotalFor = (
 	result: "success" | "failure"
-): MetricT.Metric.Counter<number> =>
-	syncAttemptsTotal.pipe(Metric.tagged("result", result))
+): MetricT.Metric.Counter<number> => syncAttemptsTotal.pipe(Metric.tagged("result", result))
 
 export const syncDurationMs = Metric.timer(
 	"synchrotron_sync_duration_ms",
@@ -89,8 +88,7 @@ export const syncRetriesTotal = Metric.counter("synchrotron_sync_retries_total",
 
 export const syncRetriesTotalFor = (
 	reason: "behind_head" | "other"
-): MetricT.Metric.Counter<number> =>
-	syncRetriesTotal.pipe(Metric.tagged("reason", reason))
+): MetricT.Metric.Counter<number> => syncRetriesTotal.pipe(Metric.tagged("reason", reason))
 
 export type SyncCase =
 	| "noop"
@@ -133,8 +131,9 @@ export const actionsAppliedTotal = Metric.counter("synchrotron_actions_applied_t
 	incremental: true
 })
 
-export const actionsAppliedTotalFor = (source: "remote" | "replay"): MetricT.Metric.Counter<number> =>
-	actionsAppliedTotal.pipe(Metric.tagged("source", source))
+export const actionsAppliedTotalFor = (
+	source: "remote" | "replay"
+): MetricT.Metric.Counter<number> => actionsAppliedTotal.pipe(Metric.tagged("source", source))
 
 export const applyBatchDurationMs = Metric.timer(
 	"synchrotron_apply_batch_duration_ms",
@@ -148,15 +147,15 @@ export const correctionDeltasTotal = Metric.counter("synchrotron_correction_delt
 
 export const correctionDeltasTotalFor = (
 	severity: "missing_only" | "overwrite"
-): MetricT.Metric.Counter<number> =>
-	correctionDeltasTotal.pipe(Metric.tagged("severity", severity))
+): MetricT.Metric.Counter<number> => correctionDeltasTotal.pipe(Metric.tagged("severity", severity))
 
 export const localUnsyncedActionsGauge = Metric.gauge("synchrotron_local_unsynced_actions", {
 	description: "Current count of unsynced local actions (observed during a sync loop)."
 })
 
 export const remoteUnappliedActionsGauge = Metric.gauge("synchrotron_remote_unapplied_actions", {
-	description: "Current count of ingested-but-unapplied remote actions (observed during a sync loop)."
+	description:
+		"Current count of ingested-but-unapplied remote actions (observed during a sync loop)."
 })
 
 export const quarantinedActionsGauge = Metric.gauge("synchrotron_quarantined_actions", {
@@ -171,8 +170,7 @@ export const remoteNotReadyTotal = Metric.counter("synchrotron_remote_not_ready_
 
 export const remoteNotReadyTotalFor = (
 	reason: "missing_patches" | "other"
-): MetricT.Metric.Counter<number> =>
-	remoteNotReadyTotal.pipe(Metric.tagged("reason", reason))
+): MetricT.Metric.Counter<number> => remoteNotReadyTotal.pipe(Metric.tagged("reason", reason))
 
 export const bootstrapEmptyTotal = Metric.counter("synchrotron_bootstrap_empty_total", {
 	description: "Total number of times a client bootstrapped from a server snapshot (empty client).",
@@ -219,8 +217,7 @@ export const serverAmrsServedTotal = Metric.counter("synchrotron_server_amrs_ser
 
 export const serverAmrsServedTotalFor = (
 	method: "FetchRemoteActions" | "FetchBootstrapSnapshot"
-): MetricT.Metric.Counter<number> =>
-	serverAmrsServedTotal.pipe(Metric.tagged("rpc_method", method))
+): MetricT.Metric.Counter<number> => serverAmrsServedTotal.pipe(Metric.tagged("rpc_method", method))
 
 export const serverActionsReceivedTotal = Metric.counter(
 	"synchrotron_server_actions_received_total",
@@ -240,7 +237,9 @@ export const serverAmrsReceivedTotal = Metric.counter("synchrotron_server_amrs_r
 	incremental: true
 })
 
-export const serverAmrsReceivedTotalFor = (method: "SendLocalActions"): MetricT.Metric.Counter<number> =>
+export const serverAmrsReceivedTotalFor = (
+	method: "SendLocalActions"
+): MetricT.Metric.Counter<number> =>
 	serverAmrsReceivedTotal.pipe(Metric.tagged("rpc_method", method))
 
 const getErrorTag = (error: unknown): string | null =>

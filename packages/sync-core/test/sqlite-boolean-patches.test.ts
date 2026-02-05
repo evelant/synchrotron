@@ -11,13 +11,23 @@ describe("SQLite patch capture encodes booleans", () => {
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
 
-				yield* withSqliteTestClient("clientA", serverSql, (client) =>
-					Effect.gen(function* () {
-						const sql = client.sql
-						const registry = yield* ActionRegistry
-						const clientDbAdapter = yield* ClientDbAdapter
+				yield* withSqliteTestClient(
+					"clientA",
+					serverSql,
+					{
+						identityByTable: {
+							notes: (row: any) => row,
+							test_apply_patches: (row: any) => row,
+							todos: (row: any) => row
+						}
+					},
+					(client) =>
+						Effect.gen(function* () {
+							const sql = client.sql
+							const registry = yield* ActionRegistry
+							const clientDbAdapter = yield* ClientDbAdapter
 
-						yield* sql`
+							yield* sql`
 							CREATE TABLE IF NOT EXISTS todos (
 								id TEXT PRIMARY KEY,
 								completed BOOLEAN NOT NULL DEFAULT FALSE,
@@ -25,36 +35,36 @@ describe("SQLite patch capture encodes booleans", () => {
 							)
 						`.raw
 
-						yield* clientDbAdapter.installPatchCapture(["todos"])
+							yield* clientDbAdapter.installPatchCapture(["todos"])
 
-						const createTodo = registry.defineAction(
-							"test-create-todo-boolean",
-							Schema.Struct({
-								id: Schema.String,
-								completed: Schema.Boolean,
-								timestamp: Schema.Number
-							}),
-							(args) =>
-								sql`
+							const createTodo = registry.defineAction(
+								"test-create-todo-boolean",
+								Schema.Struct({
+									id: Schema.String,
+									completed: Schema.Boolean,
+									timestamp: Schema.Number
+								}),
+								(args) =>
+									sql`
 									INSERT INTO todos (id, completed)
 									VALUES (${args.id}, ${args.completed})
 								`.raw.pipe(Effect.asVoid)
-						)
+							)
 
-						const { actionRecord } = yield* client.syncService.executeAction(
-							createTodo({ id: crypto.randomUUID(), completed: false })
-						)
+							const { actionRecord } = yield* client.syncService.executeAction(
+								createTodo({ id: crypto.randomUUID(), completed: false })
+							)
 
-						const amrs = yield* client.actionModifiedRowRepo.findByActionRecordIds([
-							actionRecord.id
-						])
-						expect(amrs.length).toBe(1)
+							const amrs = yield* client.actionModifiedRowRepo.findByActionRecordIds([
+								actionRecord.id
+							])
+							expect(amrs.length).toBe(1)
 
-						const amr = amrs[0]
-						expect(amr?.operation).toBe("INSERT")
-						expect(amr?.forward_patches).toHaveProperty("completed", false)
-						expect(typeof (amr?.forward_patches as any).completed).toBe("boolean")
-					})
+							const amr = amrs[0]
+							expect(amr?.operation).toBe("INSERT")
+							expect(amr?.forward_patches).toHaveProperty("completed", false)
+							expect(typeof (amr?.forward_patches as any).completed).toBe("boolean")
+						})
 				)
 			}).pipe(Effect.provide(makeSqliteTestServerLayer())),
 		{ timeout: 30000 }

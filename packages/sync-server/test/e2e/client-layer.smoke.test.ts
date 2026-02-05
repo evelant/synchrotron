@@ -11,8 +11,9 @@ describe("E2E client layer (smoke)", () => {
 		"makeSynchrotronClientLayer provides SqlClient + ClientDbAdapter",
 		() =>
 			Effect.gen(function* () {
-				const layer = makeSynchrotronClientLayer(
-					{
+				const layer = makeSynchrotronClientLayer({
+					rowIdentityByTable: {},
+					config: {
 						syncRpcUrl: "http://unused/rpc",
 						electricSyncUrl: "http://unused",
 						pglite: {
@@ -21,8 +22,8 @@ describe("E2E client layer (smoke)", () => {
 							relaxedDurability: true
 						}
 					},
-					{ keyValueStoreLayer: KeyValueStore.layerMemory.pipe(Layer.fresh) }
-				).pipe(
+					keyValueStoreLayer: KeyValueStore.layerMemory.pipe(Layer.fresh)
+				}).pipe(
 					Layer.provideMerge(Layer.succeed(ClientIdOverride, "client-smoke")),
 					Layer.provideMerge(Layer.scope)
 				)

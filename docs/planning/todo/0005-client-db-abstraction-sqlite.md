@@ -72,13 +72,13 @@ Deterministic ID generation is provided as an Effect service in TypeScript (not 
 
 - `SyncService` wraps both execute and replay in `deterministicId.withActionContext(actionRecord.id, ...)` (where `const deterministicId = yield* DeterministicId`).
 - Action code calls `deterministicId.forRow(tableName, row)` to compute a deterministic UUID.
-- A per-action collision counter disambiguates identical inserts within the same action.
+- `forRow` is a pure function of `(actionId, tableName, seed)`; if you need multiple rows, include an explicit stable disambiguator in the seed (identity key).
 
 ### Deterministic ID helper (TypeScript)
 
 Introduce a helper API that action code uses to compute IDs deterministically:
 
-- Inputs: `currentActionId`, a canonical representation of the inserted row content (excluding `id`), and a per-action collision counter.
+- Inputs: `currentActionId` and a canonical representation of the seed (excluding `id`).
 - Output: deterministic UUID (or deterministic string ID) stable across clients when replaying the same action.
 
 This replaces the Postgres deterministic ID trigger and makes the rule consistent across SQLite/PGlite.

@@ -93,10 +93,10 @@ Synchrotron moves the merge boundary up a level:
 
 The client DB is selected by which `@effect/sql` driver layer you provide:
 
-- **PGlite** (browser): `makeSynchrotronClientLayer(...)` from `@synchrotron/sync-client`
-- **PGlite + Electric ingress** (browser): `makeSynchrotronElectricClientLayer(...)` from `@synchrotron/sync-client`
-- **SQLite (WASM)**: `makeSynchrotronSqliteWasmClientLayer()` from `@synchrotron/sync-client`
-- **SQLite (React Native / React Native Web)**: `makeSynchrotronSqliteReactNativeClientLayer(sqliteConfig, config?)` from `@synchrotron/sync-client/react-native` (native: `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web: `@effect/sql-sqlite-wasm` using OPFS persistence via `OpfsWorker`)
+- **PGlite** (browser): `makeSynchrotronClientLayer({ rowIdentityByTable, config?, ... })` from `@synchrotron/sync-client`
+- **PGlite + Electric ingress** (browser): `makeSynchrotronElectricClientLayer({ rowIdentityByTable, config?, ... })` from `@synchrotron/sync-client`
+- **SQLite (WASM)**: `makeSynchrotronSqliteWasmClientLayer({ rowIdentityByTable, config?, ... })` from `@synchrotron/sync-client`
+- **SQLite (React Native / React Native Web)**: `makeSynchrotronSqliteReactNativeClientLayer({ sqliteConfig, rowIdentityByTable, config? })` from `@synchrotron/sync-client/react-native` (native: `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web: `@effect/sql-sqlite-wasm` using OPFS persistence via `OpfsWorker`)
 
 Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlite-react-native` for `@op-engineering/op-sqlite@15.x` compatibility (see `patches/@effect__sql-sqlite-react-native.patch`).
 
@@ -106,7 +106,7 @@ Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlit
 
 `SyncService` depends on a `SyncNetworkService` implementation (the contract lives in `sync-core`; client runtimes provide live layers). The default client implementation is `SyncNetworkServiceLive` (HTTP RPC via `@effect/rpc`).
 
-- Configure the RPC endpoint with `makeSynchrotronClientLayer({ syncRpcUrl: "http://..." })` or `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
+- Configure the RPC endpoint with `makeSynchrotronClientLayer({ rowIdentityByTable: { ... }, config: { syncRpcUrl: "http://..." } })` or `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
 - In RPC polling mode, `fetchRemoteActions()` is fetch-only; `SyncService.performSync()` ingests the returned rows into the local sync tables (core-owned) before applying.
 - Electric-enabled clients should use `makeSynchrotronElectricClientLayer(...)` so remote ingress is owned by Electric (no redundant RPC action-log ingestion). RPC is still used for uploads + server metadata (epoch/retention).
 - Auth for RLS:
@@ -129,6 +129,7 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
 1.  **Initialize the Sync Schema:** On clients, call `ClientDbAdapter.initializeSyncSchema` (provided by either `PostgresClientDbAdapter` or `SqliteClientDbAdapter`). On the Postgres backend, run `initializeDatabaseSchema` to also install server-only SQL functions used for patch-apply / rollback.
 2.  **Install Patch Capture:** Call `ClientDbAdapter.installPatchCapture([...])` during your database initialization for _all_ tables whose changes should be tracked and synchronized by the system. This installs patch-capture triggers (AFTER INSERT/UPDATE/DELETE) that write to `action_modified_rows` (dialect-specific implementation).
     - Tracked tables must include an `audience_key` column (`TEXT`). Patch capture copies `NEW/OLD.audience_key` onto `action_modified_rows.audience_key` for fast RLS filtering (shared/collaborative rows) and strips it out of the JSON patches. Prefer a generated `audience_key`; otherwise patch-apply populates it from `action_modified_rows.audience_key` on INSERT (see `docs/shared-rows.md`).
+    - Tracked tables must have a deterministic row-identity strategy configured via `rowIdentityByTable` / `DeterministicIdIdentityConfig`. `installPatchCapture([...])` fails fast if any tracked table is missing identity config.
     - On SQLite, `installPatchCapture` should be called after any schema migrations that add/remove columns on tracked tables (it drops/recreates triggers from the current table schema).
     - On SQLite, declare boolean columns as `BOOLEAN` (not `INTEGER`) so patch capture can encode booleans as JSON `true/false` (portable to Postgres); `0/1` numeric patches can cause false divergence and server-side apply failures.
     - On SQLite, Synchrotron coerces bound boolean parameters (`true/false`) to `1/0` at execution time (SQLite driver limitation).
@@ -145,7 +146,27 @@ Synchrotron only works if you follow these rules. They're simple, but they're ha
     - `action_records.args` are replicated to any client that can read that `action_records` row (no redaction). Don’t put secrets in args; store private inputs in normal tables protected by RLS and pass only opaque references (ids) in args.
     - Design note: “purity” means repeatable on the same snapshot. If running an action twice against the same DB state produces different writes, that’s a determinism bug. Also treat “hidden/private state influencing writes to shared rows” as an application-level constraint: it can leak derived information, and competing CORRECTION overwrites on shared fields resolve via action order (last CORRECTION wins). See `DESIGN.md`.
 4.  **Mutations via Actions:** All modifications (INSERT, UPDATE, DELETE) to synchronized tables _must_ be performed exclusively through actions executed via `SyncService` (e.g. `const sync = yield* SyncService; yield* sync.executeAction(action)`). Patch-capture triggers will reject writes when no capture context is set (unless tracking is explicitly disabled for rollback / patch-apply).
-5.  **IDs are App-Provided (Required):** Inserts into synchronized tables must explicitly include `id`. Use `deterministicId.forRow(tableName, row)` (from `const deterministicId = yield* DeterministicId`) inside `SyncService`-executed actions to compute deterministic UUIDs scoped to the current action. Avoid relying on DB defaults/triggers for IDs; prefer removing `DEFAULT` clauses for `id` columns so missing IDs fail fast.
+5.  **IDs are App-Provided (Required):** Inserts into synchronized tables must explicitly include `id`. Use `deterministicId.forRow(tableName, row)` (from `const deterministicId = yield* DeterministicId`) inside `SyncService`-executed actions to compute deterministic UUIDs scoped to the current action.
+    - To keep IDs stable under RLS/private-data divergence, configure **row identity** once per table via `DeterministicIdIdentityConfig` so IDs are derived from stable identity fields (not from full row content that can legitimately differ across replicas).
+    - Every tracked table must have an identity strategy configured. `forRow(...)` fails if a table has no identity strategy.
+
+    ```ts
+    const clientLayer = makeSynchrotronClientLayer({
+    	rowIdentityByTable: {
+    		// Preferred: stable identity columns for shared rows
+    		notes: ["audience_key", "note_key"]
+
+    		// Advanced: custom projection
+    		// notes: (row) => ({ audience_key: row.audience_key, note_key: row.note_key })
+    	},
+    	config: {
+    		syncRpcUrl: "http://localhost:3010/rpc"
+    	}
+    })
+    ```
+
+    Avoid relying on DB defaults/triggers for IDs; prefer removing `DEFAULT` clauses for `id` columns so missing IDs fail fast.
+
 6.  **Client identity + clock state:** Synchrotron splits identity from clock/cursor state:
     - `ClientIdentity`: stable per-device `clientId`, persisted in Effect’s `KeyValueStore` under `sync_client_id`.
       - Browser clients use `localStorage`.

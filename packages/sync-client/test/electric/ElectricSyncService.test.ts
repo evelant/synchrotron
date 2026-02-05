@@ -10,6 +10,7 @@ import {
 	ClientIdOverride,
 	CorrectionActionTag,
 	DeterministicId,
+	DeterministicIdIdentityConfig,
 	PostgresClientDbAdapter,
 	SyncNetworkService,
 	SyncService
@@ -84,6 +85,11 @@ const baseLayer = Layer.mergeAll(
 	PgliteTest,
 	KeyValueStore.layerMemory,
 	TestConfig,
+	Layer.succeed(DeterministicIdIdentityConfig, {
+		identityByTable: {
+			notes: (row) => row
+		}
+	}),
 	Logger.minimumLogLevel(LogLevel.Error)
 )
 

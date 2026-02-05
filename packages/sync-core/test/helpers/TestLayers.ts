@@ -8,9 +8,17 @@ import { ActionModifiedRowRepo } from "@synchrotron/sync-core/ActionModifiedRowR
 import { ActionRecordRepo } from "@synchrotron/sync-core/ActionRecordRepo"
 import { ActionRegistry } from "@synchrotron/sync-core/ActionRegistry"
 import { ClientClockState } from "@synchrotron/sync-core/ClientClockState"
+import {
+	ClientDbAdapter,
+	type ClientDbAdapterService
+} from "@synchrotron/sync-core/ClientDbAdapter"
 import { ClientIdOverride } from "@synchrotron/sync-core/ClientIdOverride"
 import { PostgresClientDbAdapter } from "@synchrotron/sync-core/PostgresClientDbAdapter"
-import { DeterministicId } from "@synchrotron/sync-core/DeterministicId"
+import {
+	DeterministicId,
+	DeterministicIdIdentityConfig,
+	type DeterministicIdIdentityStrategy
+} from "@synchrotron/sync-core/DeterministicId"
 
 import {
 	applySyncTriggers,
@@ -91,6 +99,26 @@ const PgliteClientLive = PgliteClient.layer({
 }).pipe(Layer.fresh)
 
 const logger = Logger.prettyLogger({ mode: "tty", colors: true })
+const testLogLevel = (() => {
+	const raw = process.env.SYNC_TEST_LOG_LEVEL?.toLowerCase()
+	switch (raw) {
+		case "trace":
+			return LogLevel.Trace
+		case "debug":
+			return LogLevel.Debug
+		case "info":
+			return LogLevel.Info
+		case "warning":
+		case "warn":
+			return LogLevel.Warning
+		case "error":
+			return LogLevel.Error
+		case "fatal":
+			return LogLevel.Fatal
+		default:
+			return LogLevel.Info
+	}
+})()
 
 export const makeTestLayers = (
 	clientId: string,
@@ -98,14 +126,23 @@ export const makeTestLayers = (
 	config?: {
 		initialState?: Partial<TestNetworkState> | undefined
 		simulateDelay?: boolean
+		identityByTable?: Readonly<Record<string, DeterministicIdIdentityStrategy>> | undefined
 	}
 ) => {
+	const identityByTable = config?.identityByTable ?? {
+		notes: (row: any) => row,
+		test_apply_patches: (row: any) => row
+	}
+
 	const baseLayer = Layer.mergeAll(
 		PgliteClientLive,
 		KeyValueStore.layerMemory,
 		Layer.succeed(ClientIdOverride, clientId),
+		Layer.succeed(DeterministicIdIdentityConfig, {
+			identityByTable
+		}),
 		Logger.replace(Logger.defaultLogger, logger),
-		Logger.minimumLogLevel(LogLevel.Trace)
+		Logger.minimumLogLevel(testLogLevel)
 	)
 
 	const baseWithDbInit = baseLayer.pipe(
@@ -176,6 +213,8 @@ interface TestClient {
 	clockState: ClientClockState
 	actionRecordRepo: ActionRecordRepo
 	actionRegistry: ActionRegistry
+	deterministicId: DeterministicId
+	clientDbAdapter: ClientDbAdapterService
 	syncNetworkService: SyncNetworkService
 	syncNetworkServiceTestHelpers: SyncNetworkServiceTestHelpersService
 	testHelpers: TestHelpers
@@ -189,6 +228,7 @@ export const createTestClient = (
 	config?: {
 		initialState?: Partial<TestNetworkState> | undefined
 		simulateDelay?: boolean
+		identityByTable?: Readonly<Record<string, DeterministicIdIdentityStrategy>> | undefined
 	}
 ) =>
 	Effect.gen(function* () {
@@ -197,11 +237,13 @@ export const createTestClient = (
 		const clockState = yield* ClientClockState
 		const actionRecordRepo = yield* ActionRecordRepo
 		const actionModifiedRowRepo = yield* ActionModifiedRowRepo // Get AMR Repo
+		const clientDbAdapter = yield* ClientDbAdapter
 		const syncNetworkService = yield* SyncNetworkService
 		const syncNetworkServiceTestHelpers = yield* SyncNetworkServiceTestHelpers
 		const syncService = yield* SyncService
 		const testHelpers = yield* TestHelpers
 		const actionRegistry = yield* ActionRegistry
+		const deterministicId = yield* DeterministicId
 
 		// Initialize client-specific schema
 
@@ -223,6 +265,8 @@ export const createTestClient = (
 			clockState,
 			testHelpers,
 			actionRecordRepo,
+			clientDbAdapter,
+			deterministicId,
 			syncNetworkService,
 			syncNetworkServiceTestHelpers,
 			noteRepo,

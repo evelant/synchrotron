@@ -282,15 +282,19 @@ const makeClientLayer = (params: {
 	readonly syncRpcAuthToken: string
 	readonly pgliteDataDir: string
 }) =>
-	makeSynchrotronClientLayer(
-		{
+	makeSynchrotronClientLayer({
+		rowIdentityByTable: {
+			notes: (row) => row,
+			note_admin_meta: (row) => row
+		},
+		config: {
 			syncRpcUrl: params.syncRpcUrl,
 			syncRpcAuthToken: params.syncRpcAuthToken,
 			electricSyncUrl: "http://unused",
 			pglite: { dataDir: params.pgliteDataDir, debug: 0, relaxedDurability: true }
 		},
-		{ keyValueStoreLayer: KeyValueStore.layerMemory.pipe(Layer.fresh) }
-	).pipe(
+		keyValueStoreLayer: KeyValueStore.layerMemory.pipe(Layer.fresh)
+	}).pipe(
 		Layer.provideMerge(Layer.succeed(ClientIdOverride, params.clientId)),
 		Layer.provideMerge(Layer.scope)
 	)

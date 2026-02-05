@@ -199,7 +199,9 @@ const defaults = {
 	otelEnabled: metaEnv?.VITE_OTEL_ENABLED ?? viteOtelEnabledFromProcessEnv ?? "true",
 	otelLogsEnabled: metaEnv?.VITE_OTEL_LOGS_ENABLED ?? viteOtelLogsEnabledFromProcessEnv ?? "false",
 	otelServiceName:
-		metaEnv?.VITE_OTEL_SERVICE_NAME ?? viteOtelServiceNameFromProcessEnv ?? "synchrotron-example-web",
+		metaEnv?.VITE_OTEL_SERVICE_NAME ??
+		viteOtelServiceNameFromProcessEnv ??
+		"synchrotron-example-web",
 	otelTracesEndpoint:
 		metaEnv?.VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ?? viteOtelTracesEndpointFromProcessEnv ?? "",
 	otelLogsEndpoint:
@@ -207,9 +209,7 @@ const defaults = {
 	otelMetricsEnabled:
 		metaEnv?.VITE_OTEL_METRICS_ENABLED ?? viteOtelMetricsEnabledFromProcessEnv ?? "false",
 	otelMetricsEndpoint:
-		metaEnv?.VITE_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT ??
-		viteOtelMetricsEndpointFromProcessEnv ??
-		""
+		metaEnv?.VITE_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT ?? viteOtelMetricsEndpointFromProcessEnv ?? ""
 } as const
 
 const parseBooleanEnv = (value: string, fallback: boolean) => {
@@ -404,8 +404,11 @@ const makeClientLayer = (options: {
 
 	const synchrotronLayer =
 		options.transportMode === "electric"
-			? makeSynchrotronElectricClientLayer(
-					{
+			? makeSynchrotronElectricClientLayer({
+					rowIdentityByTable: {
+						todos: (row) => row
+					},
+					config: {
 						...(typeof syncRpcAuthToken === "string" ? { syncRpcAuthToken } : {}),
 						syncRpcUrl,
 						electricSyncUrl: defaults.electricUrl,
@@ -415,12 +418,13 @@ const makeClientLayer = (options: {
 							relaxedDurability: true
 						}
 					},
-					{
-						keyValueStoreLayer: makeLocalStorageKeyValueStoreLayer(kvPrefix)
-					}
-				)
-			: makeSynchrotronClientLayer(
-					{
+					keyValueStoreLayer: makeLocalStorageKeyValueStoreLayer(kvPrefix)
+				})
+			: makeSynchrotronClientLayer({
+					rowIdentityByTable: {
+						todos: (row) => row
+					},
+					config: {
 						...(typeof syncRpcAuthToken === "string" ? { syncRpcAuthToken } : {}),
 						syncRpcUrl,
 						electricSyncUrl: defaults.electricUrl,
@@ -430,10 +434,8 @@ const makeClientLayer = (options: {
 							relaxedDurability: true
 						}
 					},
-					{
-						keyValueStoreLayer: makeLocalStorageKeyValueStoreLayer(kvPrefix)
-					}
-				)
+					keyValueStoreLayer: makeLocalStorageKeyValueStoreLayer(kvPrefix)
+				})
 
 	const clientLayer = TodoRepo.Default.pipe(
 		Layer.provideMerge(TodoActions.Default),

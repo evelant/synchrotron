@@ -86,8 +86,8 @@ describe("Sync Divergence Scenarios", () => {
 					expect(correctionAmr.operation).toBe("UPDATE") // It's an update operation
 					// Forward patches reflect the state Client B calculated locally
 					expect(correctionAmr.forward_patches).toHaveProperty("content", baseContent)
-					// Reverse patches should reflect the state *before* Client B applied the logic
-					expect(correctionAmr.reverse_patches).toHaveProperty("content", initialContent)
+					// Reverse patches should reflect the *known* (remote) value this CORRECTION overwrote.
+					expect(correctionAmr.reverse_patches).toHaveProperty("content", baseContent + suffixA)
 				}
 
 				// The original remote action (actionA) should be marked as applied on Client B

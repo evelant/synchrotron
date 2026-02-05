@@ -6,6 +6,8 @@ import {
 	ActionRegistry,
 	ClientDbAdapter,
 	ClientClockState,
+	DeterministicIdIdentityConfig,
+	type DeterministicIdIdentityStrategy,
 	PostgresClientDbAdapter,
 	SqliteClientDbAdapter,
 	SyncService
@@ -47,26 +49,35 @@ export const ElectricSyncLive = Layer.unwrapEffect(
  *
  * @example
  * ```ts
- * // Create a custom configured client
- * const customClient = makeSynchrotronClientLayer({
- *   electricSyncUrl: "https://my-sync-server.com",
- *   pglite: {
- *     dataDir: "idb://my-custom-db"
+ * const clientLayer = makeSynchrotronClientLayer({
+ *   rowIdentityByTable: {
+ *     // Prefer stable identity columns for shared rows:
+ *     notes: ["audience_key", "note_key"]
+ *   },
+ *   config: {
+ *     syncRpcUrl: "https://my-sync-server.com/rpc",
+ *     pglite: { dataDir: "idb://my-custom-db" }
  *   }
  * })
  * ```
  */
-export const makeSynchrotronClientLayer = (
-	config: Partial<SynchrotronClientConfigData> = {},
-	options?: {
-		readonly keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore>
-		readonly syncNetworkServiceLayer?: typeof SyncNetworkServiceLive
-	}
-) => {
+export type RowIdentityByTable = Readonly<Record<string, DeterministicIdIdentityStrategy>>
+
+export type MakeSynchrotronClientLayerParams = Readonly<{
+	readonly rowIdentityByTable: RowIdentityByTable
+	readonly config?: Partial<SynchrotronClientConfigData> | undefined
+	readonly keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore> | undefined
+	readonly syncNetworkServiceLayer?: typeof SyncNetworkServiceLive | undefined
+}>
+
+export const makeSynchrotronClientLayer = (params: MakeSynchrotronClientLayerParams) => {
 	// Create the config layer with custom config merged with defaults
-	const configLayer = createSynchrotronConfig(config)
-	const keyValueStoreLayer = options?.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
-	const syncNetworkServiceLayer = options?.syncNetworkServiceLayer ?? SyncNetworkServiceLive
+	const configLayer = createSynchrotronConfig(params.config ?? {})
+	const keyValueStoreLayer = params.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
+	const syncNetworkServiceLayer = params.syncNetworkServiceLayer ?? SyncNetworkServiceLive
+	const deterministicIdIdentityLayer = Layer.succeed(DeterministicIdIdentityConfig, {
+		identityByTable: params.rowIdentityByTable
+	})
 
 	// Note: Electric is intentionally optional. Do not start Electric replication
 	// unless the consumer explicitly adds `ElectricSyncLive` (preferred) to their app layer.
@@ -100,6 +111,7 @@ export const makeSynchrotronClientLayer = (
 			)
 		),
 		Layer.provideMerge(configLayer),
+		Layer.provideMerge(deterministicIdIdentityLayer),
 		Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
 	)
 }
@@ -109,16 +121,13 @@ export const makeSynchrotronClientLayer = (
  *
  * Intended for environments where PGlite is unavailable (or undesirable) and a stable SQLite engine is preferred.
  */
-export const makeSynchrotronSqliteWasmClientLayer = (
-	config: Partial<SynchrotronClientConfigData> = {},
-	options?: {
-		readonly keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore>
-		readonly syncNetworkServiceLayer?: typeof SyncNetworkServiceLive
-	}
-) => {
-	const configLayer = createSynchrotronConfig(config)
-	const keyValueStoreLayer = options?.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
-	const syncNetworkServiceLayer = options?.syncNetworkServiceLayer ?? SyncNetworkServiceLive
+export const makeSynchrotronSqliteWasmClientLayer = (params: MakeSynchrotronClientLayerParams) => {
+	const configLayer = createSynchrotronConfig(params.config ?? {})
+	const keyValueStoreLayer = params.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
+	const syncNetworkServiceLayer = params.syncNetworkServiceLayer ?? SyncNetworkServiceLive
+	const deterministicIdIdentityLayer = Layer.succeed(DeterministicIdIdentityConfig, {
+		identityByTable: params.rowIdentityByTable
+	})
 
 	return SyncService.Default.pipe(
 		Layer.provideMerge(syncNetworkServiceLayer),
@@ -144,14 +153,10 @@ export const makeSynchrotronSqliteWasmClientLayer = (
 			)
 		),
 		Layer.provideMerge(configLayer),
+		Layer.provideMerge(deterministicIdIdentityLayer),
 		Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
 	)
 }
-
-/**
- * Default Synchrotron client layer with standard configuration
- */
-export const SynchrotronClientLive = makeSynchrotronClientLayer()
 
 /**
  * PGlite client with Electric ingress enabled.
@@ -164,15 +169,12 @@ export const SynchrotronClientLive = makeSynchrotronClientLayer()
  * avoiding the “two ingress writers” pitfall. Remote apply remains DB-driven via `SyncService.performSync()`.
  */
 export const makeSynchrotronElectricClientLayer = (
-	config: Partial<SynchrotronClientConfigData> = {},
-	options?: {
-		readonly keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore>
-	}
+	params: Omit<MakeSynchrotronClientLayerParams, "syncNetworkServiceLayer">
 ) =>
 	ElectricSyncLive.pipe(
 		Layer.provideMerge(
-			makeSynchrotronClientLayer(config, {
-				...options,
+			makeSynchrotronClientLayer({
+				...params,
 				syncNetworkServiceLayer: SyncNetworkServiceElectricLive
 			})
 		)

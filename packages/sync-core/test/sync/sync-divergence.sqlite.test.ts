@@ -11,7 +11,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
 
-				yield* withSqliteTestClients(["clientA", "clientB"], serverSql, (clients) =>
+				yield* withSqliteTestClients(["clientA", "clientB"], serverSql, undefined, (clients) =>
 					Effect.gen(function* () {
 						const clientA = clients[0]!
 						const clientB = clients[1]!
@@ -76,7 +76,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 							expect(correctionAmr.row_id).toBe(noteId)
 							expect(correctionAmr.operation).toBe("UPDATE")
 							expect(correctionAmr.forward_patches).toHaveProperty("content", baseContent)
-							expect(correctionAmr.reverse_patches).toHaveProperty("content", initialContent)
+							expect(correctionAmr.reverse_patches).toHaveProperty("content", baseContent + suffixA)
 						}
 
 						const isOriginalActionAppliedB = yield* clientB.actionRecordRepo.isLocallyApplied(
@@ -101,87 +101,93 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
 
-				yield* withSqliteTestClients(["clientA", "clientB", "clientC"], serverSql, (clients) =>
-					Effect.gen(function* () {
-						const clientA = clients[0]!
-						const clientB = clients[1]!
-						const clientC = clients[2]!
-						const baseContent = "Base Apply"
-						const suffixA = " Suffix Apply A"
-						const initialContent = "Initial Apply"
+				yield* withSqliteTestClients(
+					["clientA", "clientB", "clientC"],
+					serverSql,
+					undefined,
+					(clients) =>
+						Effect.gen(function* () {
+							const clientA = clients[0]!
+							const clientB = clients[1]!
+							const clientC = clients[2]!
+							const baseContent = "Base Apply"
+							const suffixA = " Suffix Apply A"
+							const initialContent = "Initial Apply"
 
-						const { result } = yield* clientA.syncService.executeAction(
-							clientA.testHelpers.createNoteAction({
-								title: "CORRECTION Apply Test",
-								content: initialContent,
-								user_id: "user1"
-							})
-						)
-						const noteId = result.id
-
-						yield* clientA.syncService.performSync()
-						yield* clientB.syncService.performSync()
-
-						const { actionRecord: actionA } = yield* clientA.syncService.executeAction(
-							clientA.testHelpers.conditionalUpdateAction({
-								id: noteId,
-								baseContent,
-								conditionalSuffix: suffixA
-							})
-						)
-
-						yield* clientA.syncService.performSync()
-
-						yield* clientB.syncService.performSync()
-						const correctionActionsB =
-							yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
-						expect(correctionActionsB.length).toBe(1)
-						const correctionActionBRecord = correctionActionsB[0]
-						expect(correctionActionBRecord).toBeDefined()
-						if (!correctionActionBRecord) return
-
-						yield* Effect.log("--- Client B Syncing (Sending CORRECTION Action) ---")
-						yield* clientB.syncService.performSync()
-
-						yield* Effect.log("--- Client C Syncing (Applying CORRECTION Action) ---")
-						yield* clientC.syncService.performSync()
-
-						const noteC_final = yield* clientC.noteRepo.findById(noteId)
-						expect(noteC_final._tag).toBe("Some")
-						if (noteC_final._tag === "Some") {
-							expect(noteC_final.value.content).toBe(baseContent)
-						}
-
-						const correctionActionsC =
-							yield* clientC.actionRecordRepo.findByTag(CorrectionActionTag)
-						expect(correctionActionsC.length).toBe(1)
-						const correctionActionOnC = correctionActionsC[0]
-						expect(correctionActionOnC).toBeDefined()
-						if (correctionActionOnC) {
-							expect(correctionActionOnC.id).toBe(correctionActionBRecord.id)
-							const isCorrectionAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
-								correctionActionOnC.id
+							const { result } = yield* clientA.syncService.executeAction(
+								clientA.testHelpers.createNoteAction({
+									title: "CORRECTION Apply Test",
+									content: initialContent,
+									user_id: "user1"
+								})
 							)
-							expect(isCorrectionAppliedC).toBe(true)
-							expect(correctionActionOnC.synced).toBe(true)
-						}
+							const noteId = result.id
 
-						const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
-						expect(isOriginalAppliedC).toBe(true)
+							yield* clientA.syncService.performSync()
+							yield* clientB.syncService.performSync()
 
-						const isCorrectionBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
-							correctionActionBRecord.id
-						)
-						expect(isCorrectionBAppliedC).toBe(true)
+							const { actionRecord: actionA } = yield* clientA.syncService.executeAction(
+								clientA.testHelpers.conditionalUpdateAction({
+									id: noteId,
+									baseContent,
+									conditionalSuffix: suffixA
+								})
+							)
 
-						const correctionActionOnCOption = yield* clientC.actionRecordRepo.findById(
-							correctionActionBRecord.id
-						)
-						expect(correctionActionOnCOption._tag).toBe("Some")
-						if (correctionActionOnCOption._tag === "Some") {
-							expect(correctionActionOnCOption.value.synced).toBe(true)
-						}
-					})
+							yield* clientA.syncService.performSync()
+
+							yield* clientB.syncService.performSync()
+							const correctionActionsB =
+								yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+							expect(correctionActionsB.length).toBe(1)
+							const correctionActionBRecord = correctionActionsB[0]
+							expect(correctionActionBRecord).toBeDefined()
+							if (!correctionActionBRecord) return
+
+							yield* Effect.log("--- Client B Syncing (Sending CORRECTION Action) ---")
+							yield* clientB.syncService.performSync()
+
+							yield* Effect.log("--- Client C Syncing (Applying CORRECTION Action) ---")
+							yield* clientC.syncService.performSync()
+
+							const noteC_final = yield* clientC.noteRepo.findById(noteId)
+							expect(noteC_final._tag).toBe("Some")
+							if (noteC_final._tag === "Some") {
+								expect(noteC_final.value.content).toBe(baseContent)
+							}
+
+							const correctionActionsC =
+								yield* clientC.actionRecordRepo.findByTag(CorrectionActionTag)
+							expect(correctionActionsC.length).toBe(1)
+							const correctionActionOnC = correctionActionsC[0]
+							expect(correctionActionOnC).toBeDefined()
+							if (correctionActionOnC) {
+								expect(correctionActionOnC.id).toBe(correctionActionBRecord.id)
+								const isCorrectionAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+									correctionActionOnC.id
+								)
+								expect(isCorrectionAppliedC).toBe(true)
+								expect(correctionActionOnC.synced).toBe(true)
+							}
+
+							const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+								actionA.id
+							)
+							expect(isOriginalAppliedC).toBe(true)
+
+							const isCorrectionBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+								correctionActionBRecord.id
+							)
+							expect(isCorrectionBAppliedC).toBe(true)
+
+							const correctionActionOnCOption = yield* clientC.actionRecordRepo.findById(
+								correctionActionBRecord.id
+							)
+							expect(correctionActionOnCOption._tag).toBe("Some")
+							if (correctionActionOnCOption._tag === "Some") {
+								expect(correctionActionOnCOption.value.synced).toBe(true)
+							}
+						})
 				)
 			}).pipe(Effect.provide(makeSqliteTestServerLayer())),
 		{ timeout: 30000 }
@@ -193,95 +199,100 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
 
-				yield* withSqliteTestClients(["clientA", "clientB", "clientC"], serverSql, (clients) =>
-					Effect.gen(function* () {
-						const clientA = clients[0]!
-						const clientB = clients[1]!
-						const clientC = clients[2]!
-						const baseContent = "Base Apply + Extra"
-						const suffixA = " Suffix Apply A"
-						const initialContent = "Initial Apply"
-						const clientCTags = ["clientC"]
+				yield* withSqliteTestClients(
+					["clientA", "clientB", "clientC"],
+					serverSql,
+					undefined,
+					(clients) =>
+						Effect.gen(function* () {
+							const clientA = clients[0]!
+							const clientB = clients[1]!
+							const clientC = clients[2]!
+							const baseContent = "Base Apply + Extra"
+							const suffixA = " Suffix Apply A"
+							const initialContent = "Initial Apply"
+							const clientCTags = ["clientC"]
 
-						const { result } = yield* clientA.syncService.executeAction(
-							clientA.testHelpers.createNoteAction({
-								title: "CORRECTION Apply Extra Divergence Test",
-								content: initialContent,
-								user_id: "user1"
-							})
-						)
-						const noteId = result.id
+							const { result } = yield* clientA.syncService.executeAction(
+								clientA.testHelpers.createNoteAction({
+									title: "CORRECTION Apply Extra Divergence Test",
+									content: initialContent,
+									user_id: "user1"
+								})
+							)
+							const noteId = result.id
 
-						yield* clientA.syncService.performSync()
-						yield* clientB.syncService.performSync()
-						yield* clientC.syncService.performSync()
+							yield* clientA.syncService.performSync()
+							yield* clientB.syncService.performSync()
+							yield* clientC.syncService.performSync()
 
-						const { actionRecord: actionA } = yield* clientA.syncService.executeAction(
-							clientA.testHelpers.conditionalUpdateWithClientCExtraAction({
-								id: noteId,
-								baseContent,
-								conditionalSuffix: suffixA,
-								clientCTags
-							})
-						)
+							const { actionRecord: actionA } = yield* clientA.syncService.executeAction(
+								clientA.testHelpers.conditionalUpdateWithClientCExtraAction({
+									id: noteId,
+									baseContent,
+									conditionalSuffix: suffixA,
+									clientCTags
+								})
+							)
 
-						yield* clientA.syncService.performSync()
+							yield* clientA.syncService.performSync()
 
-						yield* clientB.syncService.performSync()
-						const correctionActionsB =
-							yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
-						expect(correctionActionsB.length).toBe(1)
-						const correctionActionBRecord = correctionActionsB[0]
-						expect(correctionActionBRecord).toBeDefined()
-						if (!correctionActionBRecord) return
+							yield* clientB.syncService.performSync()
+							const correctionActionsB =
+								yield* clientB.actionRecordRepo.findByTag(CorrectionActionTag)
+							expect(correctionActionsB.length).toBe(1)
+							const correctionActionBRecord = correctionActionsB[0]
+							expect(correctionActionBRecord).toBeDefined()
+							if (!correctionActionBRecord) return
 
-						expect(correctionActionBRecord.synced).toBe(true)
+							expect(correctionActionBRecord.synced).toBe(true)
 
-						yield* clientB.syncService.performSync()
+							yield* clientB.syncService.performSync()
 
-						yield* clientC.syncService.performSync()
+							yield* clientC.syncService.performSync()
 
-						const noteC_final = yield* clientC.noteRepo.findById(noteId)
-						expect(noteC_final._tag).toBe("Some")
-						if (noteC_final._tag === "Some") {
-							expect(noteC_final.value.content).toBe(baseContent)
-							expect(noteC_final.value.tags).toEqual(clientCTags)
-						}
+							const noteC_final = yield* clientC.noteRepo.findById(noteId)
+							expect(noteC_final._tag).toBe("Some")
+							if (noteC_final._tag === "Some") {
+								expect(noteC_final.value.content).toBe(baseContent)
+								expect(noteC_final.value.tags).toEqual(clientCTags)
+							}
 
-						const correctionActionsC =
-							yield* clientC.actionRecordRepo.findByTag(CorrectionActionTag)
-						expect(correctionActionsC.length).toBe(2)
+							const correctionActionsC =
+								yield* clientC.actionRecordRepo.findByTag(CorrectionActionTag)
+							expect(correctionActionsC.length).toBe(2)
 
-						const receivedCorrectionOnC = correctionActionsC.find(
-							(a) => a.id === correctionActionBRecord.id
-						)
-						const localCorrectionOnC = correctionActionsC.find(
-							(a) => a.id !== correctionActionBRecord.id
-						)
-						expect(receivedCorrectionOnC).toBeDefined()
-						expect(localCorrectionOnC).toBeDefined()
-						if (!receivedCorrectionOnC || !localCorrectionOnC) return
+							const receivedCorrectionOnC = correctionActionsC.find(
+								(a) => a.id === correctionActionBRecord.id
+							)
+							const localCorrectionOnC = correctionActionsC.find(
+								(a) => a.id !== correctionActionBRecord.id
+							)
+							expect(receivedCorrectionOnC).toBeDefined()
+							expect(localCorrectionOnC).toBeDefined()
+							if (!receivedCorrectionOnC || !localCorrectionOnC) return
 
-						expect(receivedCorrectionOnC.synced).toBe(true)
-						expect(localCorrectionOnC.synced).toBe(true)
+							expect(receivedCorrectionOnC.synced).toBe(true)
+							expect(localCorrectionOnC.synced).toBe(true)
 
-						const localCorrectionAmrs = yield* clientC.actionModifiedRowRepo.findByActionRecordIds([
-							localCorrectionOnC.id
-						])
-						expect(localCorrectionAmrs.length).toBeGreaterThan(0)
-						const hasTagsPatch = localCorrectionAmrs.some((amr) =>
-							Object.prototype.hasOwnProperty.call(amr.forward_patches, "tags")
-						)
-						expect(hasTagsPatch).toBe(true)
+							const localCorrectionAmrs =
+								yield* clientC.actionModifiedRowRepo.findByActionRecordIds([localCorrectionOnC.id])
+							expect(localCorrectionAmrs.length).toBeGreaterThan(0)
+							const hasTagsPatch = localCorrectionAmrs.some((amr) =>
+								Object.prototype.hasOwnProperty.call(amr.forward_patches, "tags")
+							)
+							expect(hasTagsPatch).toBe(true)
 
-						const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(actionA.id)
-						expect(isOriginalAppliedC).toBe(true)
+							const isOriginalAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+								actionA.id
+							)
+							expect(isOriginalAppliedC).toBe(true)
 
-						const isCorrectionBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
-							correctionActionBRecord.id
-						)
-						expect(isCorrectionBAppliedC).toBe(true)
-					})
+							const isCorrectionBAppliedC = yield* clientC.actionRecordRepo.isLocallyApplied(
+								correctionActionBRecord.id
+							)
+							expect(isCorrectionBAppliedC).toBe(true)
+						})
 				)
 			}).pipe(Effect.provide(makeSqliteTestServerLayer())),
 		{ timeout: 30000 }
@@ -293,7 +304,7 @@ describe("Sync Divergence Scenarios (SQLite clients)", () => {
 			Effect.gen(function* () {
 				const serverSql = yield* PgliteClient.PgliteClient
 
-				yield* withSqliteTestClients(["clientA", "clientB"], serverSql, (clients) =>
+				yield* withSqliteTestClients(["clientA", "clientB"], serverSql, undefined, (clients) =>
 					Effect.gen(function* () {
 						const clientA = clients[0]!
 						const clientB = clients[1]!

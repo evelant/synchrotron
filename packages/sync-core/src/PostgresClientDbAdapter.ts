@@ -14,6 +14,7 @@ import { SqlClient } from "@effect/sql"
 import { Effect, Layer } from "effect"
 import { applySyncTriggers, initializeClientDatabaseSchema } from "./db"
 import { ClientDbAdapter, ClientDbAdapterError } from "./ClientDbAdapter"
+import { DeterministicIdIdentityConfig } from "./DeterministicId"
 
 const ensurePostgresDialect = (sql: SqlClient.SqlClient) =>
 	sql.onDialectOrElse({
@@ -32,6 +33,7 @@ export const PostgresClientDbAdapter = Layer.effect(
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
 		yield* ensurePostgresDialect(sql)
+		const identityConfig = yield* DeterministicIdIdentityConfig
 		const dbDialect = "postgres" as const
 
 		const initializeSyncSchema = Effect.logDebug("clientDbAdapter.initializeSyncSchema.start", {
@@ -49,6 +51,19 @@ export const PostgresClientDbAdapter = Layer.effect(
 				tableCount: tableNames.length,
 				tables: tableNames
 			}).pipe(
+				Effect.zipRight(
+					Effect.forEach(tableNames, (tableName) => {
+						if (identityConfig.identityByTable[tableName] !== undefined) return Effect.void
+						return Effect.fail(
+							new ClientDbAdapterError({
+								message:
+									`Missing deterministic row identity for tracked table "${tableName}". ` +
+									`Add an entry to DeterministicIdIdentityConfig (sync-client: rowIdentityByTable) for this table.`,
+								tableName
+							})
+						)
+					})
+				),
 				Effect.zipRight(
 					applySyncTriggers(Array.from(tableNames)).pipe(
 						Effect.provideService(SqlClient.SqlClient, sql)

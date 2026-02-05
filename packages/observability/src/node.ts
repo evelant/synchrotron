@@ -121,9 +121,7 @@ export const makeOtelNodeOtlpLoggerLayer = (options: OtelNodeSdkOptions) =>
 
 			return Logger.addScoped(
 				OtlpLogger.make({ url, resource: { serviceName } }).pipe(
-					Effect.map((base) =>
-						Logger.mapInputOptions(base, moveLogDataToAnnotations)
-					)
+					Effect.map((base) => Logger.mapInputOptions(base, moveLogDataToAnnotations))
 				)
 			).pipe(Layer.provide(FetchHttpClient.layer))
 		})

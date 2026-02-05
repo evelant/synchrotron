@@ -155,7 +155,9 @@ export const makeOtelWebSdkLayer = (options: OtelWebSdkOptions) => {
 					return provider
 				}),
 				(provider) =>
-					Effect.ignoreLogged(Effect.promise(() => provider.forceFlush().then(() => provider.shutdown())))
+					Effect.ignoreLogged(
+						Effect.promise(() => provider.forceFlush().then(() => provider.shutdown()))
+					)
 			)
 		)
 	)

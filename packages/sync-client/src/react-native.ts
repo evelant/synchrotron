@@ -3,6 +3,8 @@ import {
 	ActionRecordRepo,
 	ActionRegistry,
 	ClientClockState,
+	DeterministicIdIdentityConfig,
+	type DeterministicIdIdentityStrategy,
 	SqliteClientDbAdapter,
 	SyncService
 } from "@synchrotron/sync-core"
@@ -22,10 +24,16 @@ import { SyncNetworkServiceLive } from "./SyncNetworkService"
  * The caller supplies the database config for the underlying `@op-engineering/op-sqlite` database.
  */
 export const makeSynchrotronSqliteReactNativeClientLayer = (
-	sqliteConfig: Parameters<typeof makeSqliteReactNativeClientLayer>[0],
-	config: Partial<SynchrotronClientConfigData> = {}
+	params: Readonly<{
+		readonly sqliteConfig: Parameters<typeof makeSqliteReactNativeClientLayer>[0]
+		readonly rowIdentityByTable: Readonly<Record<string, DeterministicIdIdentityStrategy>>
+		readonly config?: Partial<SynchrotronClientConfigData> | undefined
+	}>
 ) => {
-	const configLayer = createSynchrotronConfig(config)
+	const configLayer = createSynchrotronConfig(params.config ?? {})
+	const deterministicIdIdentityLayer = Layer.succeed(DeterministicIdIdentityConfig, {
+		identityByTable: params.rowIdentityByTable
+	})
 
 	return SyncService.Default.pipe(
 		Layer.provideMerge(
@@ -33,10 +41,11 @@ export const makeSynchrotronSqliteReactNativeClientLayer = (
 				Effect.logInfo("synchrotron.client.start", {
 					platform: "react-native",
 					hasSyncRpcAuthToken:
-						typeof config.syncRpcAuthToken === "string" && config.syncRpcAuthToken.length > 0,
-					sqliteFilename: sqliteConfig.filename,
-					syncRpcUrl: config.syncRpcUrl ?? null,
-					electricSyncUrl: config.electricSyncUrl ?? null
+						typeof params.config?.syncRpcAuthToken === "string" &&
+						params.config.syncRpcAuthToken.length > 0,
+					sqliteFilename: params.sqliteConfig.filename,
+					syncRpcUrl: params.config?.syncRpcUrl ?? null,
+					electricSyncUrl: params.config?.electricSyncUrl ?? null
 				})
 			)
 		),
@@ -49,8 +58,9 @@ export const makeSynchrotronSqliteReactNativeClientLayer = (
 		Layer.provideMerge(ClientIdentityLive),
 		Layer.provideMerge(SynchrotronKeyValueStoreLive),
 		Layer.provideMerge(SqliteClientDbAdapter),
-		Layer.provideMerge(makeSqliteReactNativeClientLayer(sqliteConfig)),
+		Layer.provideMerge(makeSqliteReactNativeClientLayer(params.sqliteConfig)),
 		Layer.provideMerge(configLayer),
+		Layer.provideMerge(deterministicIdIdentityLayer),
 		Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
 	)
 }

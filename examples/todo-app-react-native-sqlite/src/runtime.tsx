@@ -49,7 +49,8 @@ const syncRpcAuthToken = process.env.EXPO_PUBLIC_SYNC_RPC_AUTH_TOKEN
 const userId = process.env.EXPO_PUBLIC_SYNC_USER_ID ?? "user1"
 
 const otelEnabled = process.env.EXPO_PUBLIC_OTEL_ENABLED ?? "true"
-const otelServiceName = process.env.EXPO_PUBLIC_OTEL_SERVICE_NAME ?? "synchrotron-example-react-native"
+const otelServiceName =
+	process.env.EXPO_PUBLIC_OTEL_SERVICE_NAME ?? "synchrotron-example-react-native"
 const otelTracesEndpoint =
 	process.env.EXPO_PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ?? "http://localhost:4318/v1/traces"
 
@@ -83,13 +84,16 @@ const AppLive = TodoRepo.Default.pipe(
 	Layer.provideMerge(TodoActions.Default),
 	Layer.provideMerge(Layer.effectDiscard(setupClientDatabase)),
 	Layer.provideMerge(
-		makeSynchrotronSqliteReactNativeClientLayer(
-			{ filename: sqliteFilename },
-			{
+		makeSynchrotronSqliteReactNativeClientLayer({
+			sqliteConfig: { filename: sqliteFilename },
+			rowIdentityByTable: {
+				todos: (row) => row
+			},
+			config: {
 				syncRpcUrl,
 				syncRpcAuthToken
 			}
-		)
+		})
 	),
 	Layer.provideMerge(
 		Logger.replace(Logger.defaultLogger, Logger.prettyLoggerDefault.pipe(Logger.withLeveledConsole))

@@ -13,11 +13,14 @@ import {
 	ClientIdentity,
 	ClientIdOverride,
 	DeterministicId,
+	DeterministicIdIdentityConfig,
+	type DeterministicIdIdentityStrategy,
 	SqliteClientDbAdapter,
 	SyncNetworkService,
 	SyncService
 } from "@synchrotron/sync-core"
 import { initializeDatabaseSchema } from "@synchrotron/sync-core/db"
+import type { ClientDbAdapterService } from "@synchrotron/sync-core/ClientDbAdapter"
 import type { Scope } from "effect"
 import { Effect, Layer, Option, Schema } from "effect"
 import {
@@ -72,6 +75,7 @@ interface NoteRepoPortable extends Effect.Effect.Success<
 
 class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("SqliteTestHelpers", {
 	effect: Effect.gen(function* () {
+		const sql = yield* SqlClient.SqlClient
 		const actionRegistry = yield* ActionRegistry
 		const identity = yield* ClientIdentity
 		const deterministicId = yield* DeterministicId
@@ -213,6 +217,110 @@ class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("SqliteTestH
 				})
 		)
 
+		const createNoteClientSpecificInsertAction = actionRegistry.defineAction(
+			"test-create-note-client-specific-insert",
+			Schema.Struct({
+				title: Schema.String,
+				baseContent: Schema.String,
+				user_id: Schema.String,
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const clientId = yield* identity.get
+					const row = {
+						title: args.title,
+						content: `${args.baseContent}-${clientId}`,
+						user_id: args.user_id,
+						updated_at: new Date(args.timestamp),
+						tags: []
+					}
+
+					const id = yield* deterministicId.forRow("notes", row)
+					return yield* noteRepo.insert({ id, ...row })
+				})
+		)
+
+		const createNoteWithExtraRowOnClientBAction = actionRegistry.defineAction(
+			"test-create-note-with-extra-row-on-clientb",
+			Schema.Struct({
+				title: Schema.String,
+				content: Schema.String,
+				user_id: Schema.String,
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const noteRow = {
+						title: args.title,
+						content: args.content,
+						user_id: args.user_id,
+						updated_at: new Date(args.timestamp),
+						tags: []
+					}
+
+					const noteId = yield* deterministicId.forRow("notes", noteRow)
+					yield* noteRepo.insert({ id: noteId, ...noteRow })
+
+					const clientId = yield* identity.get
+					if (clientId !== "clientB") return { noteId } as const
+
+					const metaRow = {
+						note_id: noteId,
+						kind: "extra",
+						user_id: args.user_id
+					}
+					const metaId = yield* deterministicId.forRow("note_admin_meta", metaRow)
+
+					yield* sql`
+						INSERT INTO note_admin_meta (id, note_id, kind, user_id)
+						VALUES (${metaId}, ${noteId}, ${metaRow.kind}, ${metaRow.user_id})
+					`
+
+					return { noteId, metaId } as const
+				})
+		)
+
+		const createNoteWithExtraRowOnClientAAction = actionRegistry.defineAction(
+			"test-create-note-with-extra-row-on-clienta",
+			Schema.Struct({
+				title: Schema.String,
+				content: Schema.String,
+				user_id: Schema.String,
+				timestamp: Schema.Number
+			}),
+			(args) =>
+				Effect.gen(function* () {
+					const noteRow = {
+						title: args.title,
+						content: args.content,
+						user_id: args.user_id,
+						updated_at: new Date(args.timestamp),
+						tags: []
+					}
+
+					const noteId = yield* deterministicId.forRow("notes", noteRow)
+					yield* noteRepo.insert({ id: noteId, ...noteRow })
+
+					const clientId = yield* identity.get
+					if (clientId !== "clientA") return { noteId } as const
+
+					const metaRow = {
+						note_id: noteId,
+						kind: "origin-only",
+						user_id: args.user_id
+					}
+					const metaId = yield* deterministicId.forRow("note_admin_meta", metaRow)
+
+					yield* sql`
+							INSERT INTO note_admin_meta (id, note_id, kind, user_id)
+							VALUES (${metaId}, ${noteId}, ${metaRow.kind}, ${metaRow.user_id})
+						`
+
+					return { noteId, metaId } as const
+				})
+		)
+
 		const clientSpecificContentAction = actionRegistry.defineAction(
 			"test-client-specific-content",
 			Schema.Struct({
@@ -251,6 +359,9 @@ class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("SqliteTestH
 			updateTitleAction,
 			conditionalUpdateAction,
 			conditionalUpdateWithClientCExtraAction,
+			createNoteClientSpecificInsertAction,
+			createNoteWithExtraRowOnClientBAction,
+			createNoteWithExtraRowOnClientAAction,
 			clientSpecificContentAction,
 			deleteContentAction,
 			noteRepo
@@ -258,11 +369,27 @@ class SqliteTestHelpers extends Effect.Service<SqliteTestHelpers>()("SqliteTestH
 	})
 }) {}
 
-const makeSqliteTestLayers = (clientId: string, serverSql: PgliteClient.PgliteClient) => {
+type SqliteTestLayerConfig = {
+	readonly identityByTable?: Readonly<Record<string, DeterministicIdIdentityStrategy>> | undefined
+}
+
+const makeSqliteTestLayers = (
+	clientId: string,
+	serverSql: PgliteClient.PgliteClient,
+	config?: SqliteTestLayerConfig
+) => {
+	const identityByTable = config?.identityByTable ?? {
+		notes: (row: any) => row,
+		test_apply_patches: (row: any) => row
+	}
+
 	const baseLayer = Layer.mergeAll(
 		SqliteClient.layer({ filename: ":memory:" }),
 		KeyValueStore.layerMemory,
-		Layer.succeed(ClientIdOverride, clientId)
+		Layer.succeed(ClientIdOverride, clientId),
+		Layer.succeed(DeterministicIdIdentityConfig, {
+			identityByTable
+		})
 	)
 
 	const baseWithDebug =
@@ -324,6 +451,8 @@ interface SqliteTestClient {
 	syncService: SyncService
 	actionRecordRepo: ActionRecordRepo
 	actionModifiedRowRepo: ActionModifiedRowRepo
+	deterministicId: DeterministicId
+	clientDbAdapter: ClientDbAdapterService
 	clockState: ClientClockState
 	actionRegistry: ActionRegistry
 	syncNetworkService: SyncNetworkService
@@ -336,6 +465,7 @@ interface SqliteTestClient {
 export const withSqliteTestClient = <A, E, R = never>(
 	clientId: string,
 	serverSql: PgliteClient.PgliteClient,
+	config: SqliteTestLayerConfig | undefined,
 	f: (client: SqliteTestClient) => Effect.Effect<A, E, R>
 ) =>
 	Effect.gen(function* () {
@@ -343,11 +473,13 @@ export const withSqliteTestClient = <A, E, R = never>(
 		const clockState = yield* ClientClockState
 		const actionRecordRepo = yield* ActionRecordRepo
 		const actionModifiedRowRepo = yield* ActionModifiedRowRepo
+		const clientDbAdapter = yield* ClientDbAdapter
 		const syncNetworkService = yield* SyncNetworkService
 		const syncNetworkServiceTestHelpers = yield* SyncNetworkServiceTestHelpers
 		const syncService = yield* SyncService
 		const testHelpers = yield* SqliteTestHelpers
 		const actionRegistry = yield* ActionRegistry
+		const deterministicId = yield* DeterministicId
 		const noteRepo = testHelpers.noteRepo
 
 		const client = {
@@ -355,6 +487,8 @@ export const withSqliteTestClient = <A, E, R = never>(
 			syncService,
 			actionRecordRepo,
 			actionModifiedRowRepo,
+			deterministicId,
+			clientDbAdapter,
 			clockState,
 			actionRegistry,
 			syncNetworkService,
@@ -366,13 +500,14 @@ export const withSqliteTestClient = <A, E, R = never>(
 
 		return yield* f(client)
 	}).pipe(
-		Effect.provide(makeSqliteTestLayers(clientId, serverSql)),
+		Effect.provide(makeSqliteTestLayers(clientId, serverSql, config)),
 		Effect.annotateLogs("clientId", clientId)
 	)
 
 export const withSqliteTestClients = <A, E, R = never>(
 	clientIds: ReadonlyArray<string>,
 	serverSql: PgliteClient.PgliteClient,
+	config: SqliteTestLayerConfig | undefined,
 	f: (clients: ReadonlyArray<SqliteTestClient>) => Effect.Effect<A, E, R>
 ): Effect.Effect<A, unknown, Scope.Scope | R> => {
 	const loop = (
@@ -388,7 +523,7 @@ export const withSqliteTestClients = <A, E, R = never>(
 			return f(acc)
 		}
 
-		return withSqliteTestClient(head, serverSql, (client) => loop(tail, [...acc, client]))
+		return withSqliteTestClient(head, serverSql, config, (client) => loop(tail, [...acc, client]))
 	}
 
 	return loop(clientIds, [])

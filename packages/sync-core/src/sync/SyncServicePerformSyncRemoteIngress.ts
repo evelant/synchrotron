@@ -172,9 +172,7 @@ export const fetchIngestAndListRemoteActions = (deps: {
 					missingPatchActionCount: missingPatchActionIds.length,
 					missingPatchActionIds: missingPatchActionIds.slice(0, 20)
 				})
-				yield* Metric.increment(
-					SyncMetrics.remoteNotReadyTotalFor("missing_patches")
-				)
+				yield* Metric.increment(SyncMetrics.remoteNotReadyTotalFor("missing_patches"))
 				return { _tag: "RemoteNotReady" } as const
 			}
 		}

@@ -15,6 +15,7 @@ import { SqlClient, type SqlError } from "@effect/sql"
 import * as SqlStatement from "@effect/sql/Statement"
 import { Effect, Layer } from "effect"
 import { ClientDbAdapter, ClientDbAdapterError } from "./ClientDbAdapter"
+import { DeterministicIdIdentityConfig } from "./DeterministicId"
 import { installSqlitePatchCapture } from "./sqlite/SqlitePatchCapture"
 import { initializeSqliteSyncSchema } from "./sqlite/SqliteSyncSchema"
 
@@ -59,6 +60,7 @@ const SqliteClientDbAdapterLive = Layer.effect(
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient
 		yield* ensureSqliteDialect(sql)
+		const identityConfig = yield* DeterministicIdIdentityConfig
 		const dbDialect = "sqlite" as const
 
 		const initializeSyncSchema: Effect.Effect<void, SqlError.SqlError> = Effect.logDebug(
@@ -78,6 +80,19 @@ const SqliteClientDbAdapterLive = Layer.effect(
 				tableCount: tableNames.length,
 				tables: tableNames
 			}).pipe(
+				Effect.zipRight(
+					Effect.forEach(tableNames, (tableName) => {
+						if (identityConfig.identityByTable[tableName] !== undefined) return Effect.void
+						return Effect.fail(
+							new ClientDbAdapterError({
+								message:
+									`Missing deterministic row identity for tracked table "${tableName}". ` +
+									`Add an entry to DeterministicIdIdentityConfig (sync-client: rowIdentityByTable) for this table.`,
+								tableName
+							})
+						)
+					})
+				),
 				Effect.zipRight(installSqlitePatchCapture({ sql, dbDialect, tableNames })),
 				Effect.annotateLogs({ dbDialect }),
 				Effect.withSpan("ClientDbAdapter.installPatchCapture", {
