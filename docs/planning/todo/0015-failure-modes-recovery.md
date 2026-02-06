@@ -2,12 +2,14 @@
 
 ## Status
 
-In progress (partial)
+Implemented (with follow-ups possible)
 
 - Implemented: explicit resync primitives + tests (`SyncService.hardResync()` + `SyncService.rebase()`)
 - Implemented: typed `SendLocalActions*` failures over RPC + bounded `BehindHead` retry in `performSync()`
-- Implemented: lightweight “sync doctor” check at start of `performSync()` (orphan cleanup + applied-cursor invariant detection + auto-recovery)
-- Remaining: discontinuity detection + unsyncable local work recovery + other “stuck” tests
+- Implemented: lightweight “sync doctor” at start of `performSync()` (orphan cleanup + applied-cursor invariant detection + auto `hardResync()`/`rebase()` + retry)
+- Implemented: discontinuity detection + recovery (epoch mismatch + retained-history window → `hardResync()`/`rebase()` + retry)
+- Implemented: unsyncable local work recovery via quarantine (global upload gate) + app-driven discard or hard resync
+- Follow-up (optional): add a regression test for “ingress mid-flight” (remote actions missing patches) and consider a small bounded backoff loop
 
 ## Goal
 
@@ -86,37 +88,27 @@ even though:
 
 **Desired outcome:** bounded “wait for patches” retry/backoff and clear logging so it doesn’t look like a hang.
 
-## Proposed core improvements (TODO)
+## Implementation (v1)
 
 ### A) Typed error classification from server → client
 
-Stop forcing the client to string-match errors.
+Implemented: `SendLocalActions` and fetch-ingress now surface typed failures so the client doesn’t have to string-match:
 
-Add explicit “reason codes” for upload failures, at least:
-
-- `BehindHead` (include first unseen server ingest id)
-- `UploadDenied` (RLS/policy)
-- `UploadInvalid` (schema/constraint/serialization)
-- `SinceTooOld` / `EpochMismatch` (history discontinuity)
-
-Implemented (partial):
-
-- `SendLocalActions` now returns typed failures over RPC:
-  - `SendLocalActionsBehindHead` (includes basis + first unseen ingest id)
-  - `SendLocalActionsDenied`
-  - `SendLocalActionsInvalid`
-  - `SendLocalActionsInternal`
+- `SendLocalActionsBehindHead` (includes basis + first unseen ingest id)
+- `SendLocalActionsDenied` (RLS/policy)
+- `SendLocalActionsInvalid` (schema/constraint/serialization / deterministic validation)
+- `SendLocalActionsInternal`
+- `SyncHistoryEpochMismatch` (server reset/restore/breaking migration)
+- `FetchRemoteActionsCompacted` (client cursor older than server retained history window)
 
 ### B) Backoff retry for head-gate conflicts (not a “hard” failure)
 
 When upload fails with `BehindHead`, the correct recovery is usually just “retry after fetching/applying the newly-visible remote actions”.
 
-Proposed behavior:
+Current behavior:
 
-1. fetch remote actions
-2. apply remote actions
-3. advance applied watermark
-4. retry upload using a backoff `Schedule` (fibonacci/exponential + jitter)
+- `SyncService.performSync()` retries `SendLocalActionsBehindHead` a small number of times (immediate retry).
+- Test coverage: `packages/sync-core/test/sync/behind-head-retry.test.ts`
 
 Notes:
 
@@ -125,26 +117,24 @@ Notes:
   - do a small number of immediate retries (to cover the common race), then return a typed `BehindHead`/`RetryLater`, or
   - expose a separate “sync loop” helper that the app runs in the background with a `Schedule`.
 
-Implemented:
-
-- `SyncService.performSync()` retries `SendLocalActionsBehindHead` a small number of times (immediate retry; see `packages/sync-core/src/SyncService.ts`).
-- Test coverage: `packages/sync-core/test/sync/behind-head-retry.test.ts`
+Follow-up (optional): add jittered backoff for `BehindHead` retries inside `performSync()`.
 
 ### C) “Unsyncable local work” handling (prevent permanent bricks)
 
-When upload fails with `UploadDenied` (or a clearly non-recoverable `UploadInvalid`):
+Implemented policy: quarantine (global upload gate).
 
-Options (pick one; document behavior):
+When upload fails with `SendLocalActionsDenied` (or a non-recoverable `SendLocalActionsInvalid`):
 
-1. **Auto-rollback + delete** the smallest suffix of pending actions that cannot be uploaded.
-2. **Quarantine** those actions (new local status + UI hook), and continue syncing other audiences.
-3. Surface a deterministic “needs user intervention” error + an explicit `hardResync()` action.
+- quarantine **all** local unsynced actions into `local_quarantined_actions`
+- suspend *all* uploads while quarantined (prevents partial progress + repeated bricks)
+- continue ingesting + applying remote actions
+- require app/user intervention to resolve:
+  - `SyncService.discardQuarantinedActions()` (rollback + drop unsynced local work), or
+  - `SyncService.hardResync()` (discard everything + refetch snapshot)
 
 ### D) Resync primitives (hard + rebase)
 
-Add explicit client operations that make forward progress always possible:
-
-Implemented:
+Implemented: explicit client operations that make forward progress always possible:
 
 - `SyncService.hardResync()` and `SyncService.rebase()` (see `packages/sync-core/src/SyncService.ts`)
 - Tests in `packages/sync-core/test/sync/resync.test.ts`
@@ -201,12 +191,12 @@ Implemented: `performSync()` runs a cheap check at start to detect and self-heal
 
 If violated, trigger a single automatic `hardResync()` / `rebase()` + retry (subject to quarantine rules).
 
-## Test plan
+## Test coverage
 
-Add tests that prove “no permanent stuck” behaviors:
+Test coverage proving “no permanent stuck” behaviors:
 
-- **BehindHead retry:** inject an interleaving remote action between fetch and send; `performSync()` eventually uploads. (Implemented)
-- **RLS deny recovery:** revoke membership after local pending actions; client resolves (auto-rollback/quarantine) and sync proceeds.
-- **Epoch mismatch / history discontinuity:** server reset (or simulated `SinceTooOld`) forces hard resync.
-- **Partial wipe:** clear base tables or action log while keeping cursor; invariant triggers hard resync.
-- **Compaction rebase:** simulate `SinceTooOld` with pending local actions; client rebases (keeps pending actions) and eventually uploads.
+- **BehindHead retry:** `packages/sync-core/test/sync/behind-head-retry.test.ts`
+- **Unsyncable local work quarantine:** `packages/sync-core/test/sync/quarantine-recovery.test.ts`
+- **Epoch mismatch + compaction recovery:** `packages/sync-core/test/sync/history-discontinuity-recovery.test.ts`
+- **Partial wipe/cursor corruption recovery:** `packages/sync-core/test/sync/sync-doctor-recovery.test.ts`
+- **Resync primitives:** `packages/sync-core/test/sync/resync.test.ts`
