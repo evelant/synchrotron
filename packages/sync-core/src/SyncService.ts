@@ -27,6 +27,7 @@ import { makeBootstrapSnapshotApplier } from "./sync/SyncServiceBootstrap"
 import { makeExecuteAction } from "./sync/SyncServiceExecuteAction"
 import { makePerformSync } from "./sync/SyncServicePerformSync"
 import { makeQuarantine } from "./sync/SyncServiceQuarantine"
+import { makeRequestSync } from "./sync/SyncServiceRequestSync"
 import { makeRecovery } from "./sync/SyncServiceRecovery"
 import { makeRollback } from "./sync/SyncServiceRollback"
 import { makeUpload } from "./sync/SyncServiceUpload"
@@ -151,6 +152,8 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 			quarantineUnsyncedActions
 		})
 
+		const { requestSync } = yield* makeRequestSync(performSync)
+
 		const cleanupOldActionRecords = (retentionDays = 7) =>
 			Effect.gen(function* () {
 				const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000
@@ -166,6 +169,7 @@ export class SyncService extends Effect.Service<SyncService>()("SyncService", {
 		return {
 			executeAction,
 			performSync,
+			requestSync,
 			cleanupOldActionRecords,
 			applyActionRecords,
 			hardResync,

@@ -18,7 +18,11 @@ import {
 import { initializeClientDatabaseSchema } from "@synchrotron/sync-core/db"
 import { ClientIdentityLive } from "../../src/ClientIdentity"
 import { createSynchrotronConfig } from "../../src/config"
-import { ElectricSyncService } from "../../src/electric/ElectricSyncService"
+import {
+	ElectricSyncIngressLive,
+	ElectricSyncService
+} from "../../src/electric/ElectricSyncService"
+import { withSyncIngressRunner } from "../../src/layer"
 import { Effect, Layer, LogLevel, Logger, Ref } from "effect"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -120,12 +124,13 @@ describe("ElectricSyncService", () => {
 		;(mod as any).TransactionalMultiShapeStream.instances.length = 0
 	})
 
-	it("triggers SyncService.performSync only when both shapes are up-to-date", async () => {
+	it("triggers SyncService.requestSync only when both shapes are up-to-date", async () => {
 		const syncCalls = Ref.unsafeMake(0)
 		const stubSyncService = SyncService.of({
 			_tag: "SyncService",
 			executeAction: () => Effect.dieMessage("not used"),
-			performSync: () => Ref.update(syncCalls, (n) => n + 1).pipe(Effect.as([] as const)),
+			performSync: () => Effect.dieMessage("not used"),
+			requestSync: () => Ref.update(syncCalls, (n) => n + 1).pipe(Effect.as([] as const)),
 			cleanupOldActionRecords: (_retentionDays?: number) => Effect.succeed(true),
 			applyActionRecords: (_remoteActions: readonly any[]) => Effect.dieMessage("not used"),
 			hardResync: () => Effect.dieMessage("not used"),
@@ -134,10 +139,13 @@ describe("ElectricSyncService", () => {
 			discardQuarantinedActions: () => Effect.succeed({ discardedActionCount: 0 } as const)
 		})
 
-		const testLayer = ElectricSyncService.Default.pipe(
-			Layer.provideMerge(Layer.succeed(SyncService, stubSyncService)),
-			Layer.provideMerge(ActionRecordRepo.Default),
-			Layer.provideMerge(baseLayer)
+		const testLayer = withSyncIngressRunner(
+			ElectricSyncIngressLive.pipe(
+				Layer.provideMerge(ElectricSyncService.Default),
+				Layer.provideMerge(Layer.succeed(SyncService, stubSyncService)),
+				Layer.provideMerge(PostgresClientDbAdapter),
+				Layer.provideMerge(baseLayer)
+			)
 		)
 
 		const program = Effect.gen(function* () {
@@ -223,18 +231,21 @@ describe("ElectricSyncService", () => {
 			sendLocalActions: () => Effect.succeed(true)
 		})
 
-		const testLayer = ElectricSyncService.Default.pipe(
-			Layer.provideMerge(SyncService.Default),
-			Layer.provideMerge(Layer.succeed(SyncNetworkService, noopNetwork)),
-			Layer.provideMerge(ActionRegistry.Default),
-			Layer.provideMerge(ClientClockState.Default),
-			Layer.provideMerge(ActionRecordRepo.Default),
-			Layer.provideMerge(ActionModifiedRowRepo.Default),
-			Layer.provideMerge(DeterministicId.Default),
-			Layer.provideMerge(PostgresClientDbAdapter),
-			Layer.provideMerge(Layer.succeed(ClientIdOverride, "receiver")),
-			Layer.provideMerge(ClientIdentityLive),
-			Layer.provideMerge(baseLayer)
+		const testLayer = withSyncIngressRunner(
+			ElectricSyncIngressLive.pipe(
+				Layer.provideMerge(ElectricSyncService.Default),
+				Layer.provideMerge(SyncService.Default),
+				Layer.provideMerge(Layer.succeed(SyncNetworkService, noopNetwork)),
+				Layer.provideMerge(ActionRegistry.Default),
+				Layer.provideMerge(ClientClockState.Default),
+				Layer.provideMerge(ActionRecordRepo.Default),
+				Layer.provideMerge(ActionModifiedRowRepo.Default),
+				Layer.provideMerge(DeterministicId.Default),
+				Layer.provideMerge(PostgresClientDbAdapter),
+				Layer.provideMerge(Layer.succeed(ClientIdOverride, "receiver")),
+				Layer.provideMerge(ClientIdentityLive),
+				Layer.provideMerge(baseLayer)
+			)
 		)
 
 		const program = Effect.gen(function* () {

@@ -48,6 +48,16 @@ export class FetchRemoteActions extends Schema.TaggedRequest<FetchRemoteActions>
 			clientId: Schema.String,
 			sinceServerIngestId: Schema.Number,
 			/**
+			 * Transport mode hint.
+			 *
+			 * - `"full"` (default): return action log rows + AMRs since `sinceServerIngestId`.
+			 * - `"metaOnly"`: return only `{ serverEpoch, minRetainedServerIngestId }` with empty arrays.
+			 *
+			 * This is used by push-ingress clients (e.g. Electric) that ingest remote rows via another
+			 * mechanism but still need server meta for discontinuity / compaction detection.
+			 */
+			mode: Schema.optional(Schema.Literal("full", "metaOnly")),
+			/**
 			 * When true, include actions authored by `clientId` in the response.
 			 *
 			 * This is primarily used for bootstrap / local DB restore when the client has lost its local

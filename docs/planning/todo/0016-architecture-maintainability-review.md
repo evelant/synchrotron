@@ -49,7 +49,7 @@ Improve maintainability and understandability by clarifying package boundaries, 
 - `packages/sync-client`
   - Client DB connection layers (PGlite, SQLite wasm, SQLite RN)
   - RPC transport implementation (`SyncNetworkServiceLive`, `SyncNetworkServiceElectricLive`)
-  - Optional Electric ingestion (`ElectricSyncService`)
+  - Optional Electric ingress (`ElectricTransport` / `ElectricSyncService` → `SyncIngress` events)
   - Platform KeyValueStore wiring (localStorage / mmkv)
 - `packages/sync-server`
   - RPC handlers (`rpcRouter.ts`)
@@ -160,7 +160,7 @@ Files:
 - `packages/sync-core/src/SyncNetworkService.ts` (service definition + placeholder behavior)
 - `packages/sync-core/src/SyncLogIngest.ts` (core-owned ingestion helper for sync tables)
 - `packages/sync-client/src/SyncNetworkService.ts` (RPC client: fetch remote batches + upload; fetch is DB-write-free)
-- `packages/sync-client/src/electric/ElectricSyncService.ts` (Electric shape delivery + triggers `performSync()`; uses core ingestion helper)
+- `packages/sync-client/src/electric/ElectricSyncService.ts` (Electric shape delivery → emits `SyncIngress` events; core-owned runner ingests batches and triggers `requestSync()`)
 
 Today, `SyncService.performSync()` is “DB-driven” for apply (it reads `action_records` / `action_modified_rows`). It still calls `SyncNetworkService.fetchRemoteActions()` unconditionally because it also provides server metadata (epoch + retention watermark); in RPC polling mode it also returns remote rows.
 
@@ -171,7 +171,7 @@ Transports no longer implement sync-table insertion/upsert logic (and therefore 
 Remaining coupling / future refinement:
 
 - `SyncNetworkService` still bundles “remote fetch + server meta + upload” into one service.
-- Electric triggers sync on push signals, but `performSync()` still does a fetch (metadata-only in Electric mode).
+- In Electric mode, push ingress emits `SyncIngress` events and the core runner triggers `requestSync()`; `performSync()` still fetches server meta (metadata-only).
 - We may eventually split “server meta fetch” from “remote ingress delivery” (ingress stream / wakeups), while keeping upload RPC-only.
 
 ### 5) Layer composition style is hard to scan and inconsistent

@@ -8,8 +8,8 @@ Implemented (core; Electric mode avoids redundant RPC ingress)
 
 Today, remote actions/patches can enter a client DB through **two independent ingress paths**:
 
-- **RPC fetch**: `SyncNetworkServiceLive.fetchRemoteActions` fetches from the sync server; `SyncService.performSync()` ingests the returned rows into `action_records` / `action_modified_rows` via the shared core ingestion helper.
-- **Electric stream**: `ElectricSyncService` subscribes to Electric shapes, ingests rows via the same core helper, then triggers `SyncService.performSync()` once shapes are up-to-date.
+- **RPC fetch**: `SyncNetworkServiceLive.fetchRemoteActions` fetches from the sync server; `SyncService.performSync()` (invoked by `SyncService.requestSync()`) ingests the returned rows into `action_records` / `action_modified_rows` via the shared core ingestion helper.
+- **Electric push ingress**: Electric shape replication is exposed as `SyncIngress` events (`Batch`/`Wakeup`) by the client transport; the core-owned ingress runner ingests those batches into the same local tables and triggers `SyncService.requestSync()` once the stream is caught up.
 
 Remote **apply** and **cursor advancement** are now DB-driven:
 
@@ -215,7 +215,7 @@ Follow-ups:
 
 1. (Done) Disable RPC ingress in Electric-enabled clients (avoid redundant fetch):
    - `SyncNetworkServiceElectricLive` makes `fetchRemoteActions()` metadata-only (epoch + retention watermark).
-   - `makeSynchrotronElectricClientLayer` wires Electric ingress + RPC upload/metadata together.
+   - `ElectricTransport` (and `makeSynchrotronElectricClientLayer`) wires Electric ingress + RPC upload/metadata together.
 2. Clarify/strengthen the transport boundary (`SyncNetworkService` split or renamed; see below).
 
 ## Testing Plan
@@ -227,7 +227,7 @@ Implemented regressions:
 - Duplicate ingress idempotency (Electric + fetch): `packages/sync-core/test/sync/remote-ingest.test.ts`
 - Do not apply remote actions until their patches are present (prevents spurious outgoing CORRECTION): `packages/sync-core/test/sync/remote-ingest.test.ts`
 - Electric-only mode: ingest+apply via Electric even when `fetchRemoteActions` is a no-op: `packages/sync-client/test/electric/ElectricSyncService.test.ts`
-- Electric up-to-date gating: only trigger `performSync` once both shapes report `last=true`: `packages/sync-client/test/electric/ElectricSyncService.test.ts`
+- Electric up-to-date gating: only trigger `requestSync` once both shapes report `last=true`: `packages/sync-client/test/electric/ElectricSyncService.test.ts`
 
 Follow-ups:
 

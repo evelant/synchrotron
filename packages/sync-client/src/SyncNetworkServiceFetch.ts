@@ -26,6 +26,7 @@ type SyncNetworkRpcClient = Readonly<{
 	FetchRemoteActions: (payload: {
 		readonly clientId: string
 		readonly sinceServerIngestId: number
+		readonly mode?: "full" | "metaOnly"
 		readonly includeSelf?: boolean
 	}) => Effect.Effect<
 		FetchResult,
@@ -174,10 +175,10 @@ export const makeFetchRemoteActions = (deps: {
 				const lastSeenServerIngestId = yield* clockState.getLastSeenServerIngestId
 				const remote = yield* client.FetchRemoteActions({
 					clientId,
-					// Intentionally request a cursor beyond any plausible server head so the response
-					// includes metadata but no action log rows. In Electric-enabled clients, the
-					// authoritative ingress is the Electric stream, not this RPC fetch.
-					sinceServerIngestId: Number.MAX_SAFE_INTEGER,
+					// In Electric-enabled clients, the authoritative ingress is the Electric stream,
+					// but the core sync loop still needs server meta (epoch + retention watermark).
+					sinceServerIngestId: lastSeenServerIngestId,
+					mode: "metaOnly",
 					includeSelf: false
 				})
 				yield* Effect.logInfo("sync.network.fetchRemoteActions.metaOnly.result", {

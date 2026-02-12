@@ -7,4 +7,5 @@ export * from "./config"
 export * from "./ClientIdentity"
 export * from "./SyncNetworkService"
 export * from "./SyncRpcAuthToken"
+export * from "./transports"
 export * from "./layer" // Added export for the main client layer

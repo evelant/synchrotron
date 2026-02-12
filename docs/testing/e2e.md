@@ -90,4 +90,5 @@ Note: some sandboxed environments block Docker access entirely. In that case, ru
 
 - `const sync = yield* SyncService`
 - `yield* sync.executeAction(action)`
-- `yield* sync.performSync()`
+- `yield* sync.requestSync()` (preferred; single-flight + burst coalescing)
+  - Or `yield* sync.performSync()` if the test wants exactly one sync cycle.

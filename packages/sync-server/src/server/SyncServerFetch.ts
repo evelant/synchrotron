@@ -19,6 +19,8 @@ import { ServerInternalError } from "../SyncServerServiceErrors"
 import type { FetchActionsResult } from "../SyncServerServiceTypes"
 import { SyncUserId } from "../SyncUserId"
 
+export type FetchMode = "full" | "metaOnly"
+
 export const makeFetch = (deps: {
 	readonly sql: SqlClient.SqlClient
 	readonly serverMeta: ServerMetaService
@@ -57,7 +59,12 @@ export const makeFetch = (deps: {
 		`
 	})
 
-	const getActionsSince = (clientId: string, sinceServerIngestId: number, includeSelf = false) =>
+	const getActionsSince = (
+		clientId: string,
+		sinceServerIngestId: number,
+		includeSelf = false,
+		mode: FetchMode = "full"
+	) =>
 		Effect.gen(function* () {
 			const userId = yield* SyncUserId
 			// Set the RLS context for the duration of this transaction.
@@ -76,6 +83,21 @@ export const makeFetch = (deps: {
 						serverEpoch
 					})
 				)
+			}
+
+			if (mode === "metaOnly") {
+				yield* Effect.logDebug("server.getActionsSince.metaOnly", {
+					userId,
+					clientId,
+					sinceServerIngestId,
+					includeSelf
+				})
+				return {
+					serverEpoch,
+					minRetainedServerIngestId: minRetained,
+					actions: [] as const,
+					modifiedRows: [] as const
+				} satisfies FetchActionsResult
 			}
 
 			yield* Effect.logDebug("server.getActionsSince.start", {

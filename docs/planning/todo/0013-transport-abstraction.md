@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress (core-owned ingestion implemented)
+Implemented (v1): `requestSync()` + explicit meta-only fetch + examples updated
 
 ## Implementation notes (Jan 2026)
 
@@ -16,6 +16,14 @@ We implemented the first “core-owned ingestion” slice:
 
 What’s still pending is promoting the doc’s stream-first `SyncIngress.remoteBatches` contract into a
 first-class service so push + pull transports can be swapped/composed without any bespoke wiring.
+
+Update (Feb 2026): v1 refinement implemented:
+
+- Added `SyncService.requestSync()` (single-flight + coalescing) so transports/examples can trigger sync safely.
+- Made server meta fetch explicit by adding `FetchRemoteActions.mode = "full" | "metaOnly"`; Electric mode now
+  calls `FetchRemoteActions(mode="metaOnly")` instead of relying on a cursor hack.
+- Updated Electric ingress + example apps to call `requestSync()` without hand-rolled “already syncing” mutexes.
+- Added a focused unit test to validate `requestSync()` burst coalescing and non-overlap.
 
 ## Summary
 
@@ -41,6 +49,14 @@ This makes it hard to:
 - reason about “one ingress pipeline”
 - add new transports without copying a lot of internal wiring
 
+It also means “push ingress transports” (Electric, SSE/WebSocket, etc) must choose how to trigger sync.
+Historically (pre-`requestSync()`), Electric called `SyncService.performSync()` directly when shapes were caught up.
+This was reasonable, but without a shared helper it risked:
+
+- sync storms (calling sync on every ingress batch)
+- concurrent `performSync()` overlap (wasted work + extra contention)
+- duplicated “single-flight” logic across transports/examples
+
 ## Goals / Non-goals
 
 ### Goals
@@ -56,7 +72,66 @@ This makes it hard to:
 - Solve “malicious client” defenses (assume honest clients + base-table RLS boundary for v1).
 - Abstract away Postgres concepts entirely (e.g. `server_ingest_id` stays part of the model for now).
 
-## Proposed direction: “stream-first transport” + core-owned ingestion
+## Proposed direction (v1): transport-triggered sync + `requestSync()` + explicit server meta
+
+### Decision: transport-triggered sync is supported
+
+It is a supported pattern for an ingress transport to “kick” the sync runtime after it ingests remote rows.
+
+However, transports should call **`SyncService.requestSync()`** (new public helper), not `performSync()`
+directly. This provides:
+
+- single-flight `performSync()` execution (no concurrent overlap)
+- burst coalescing (many triggers → fewer actual sync runs)
+- a consistent place to add optional backoff/logging later
+
+### `requestSync()` semantics (v1)
+
+Add a public API:
+
+```ts
+SyncService.requestSync(): Effect.Effect<readonly ActionRecord[], unknown, never>
+```
+
+Behavior:
+
+- If no sync is running, `requestSync()` starts one `performSync()` immediately.
+- If a sync is already running, `requestSync()` coalesces “more work happened” and ensures a follow-up
+  `performSync()` runs after the current one completes (rather than running concurrently).
+- `requestSync()` completes when the runtime returns to “idle” (no pending requested sync work).
+- `requestSync()` does not change sync semantics; it inherits `performSync()`’s existing bounded retry policy
+  and error behavior.
+
+Implementation sketch (Effect primitives):
+
+- `Queue.sliding(1)` to coalesce wakeups
+- `Ref` for “in sync cycle” / “needs another run” flags
+- a single worker fiber draining wakeups and calling `performSync()` until idle
+- `Deferred` and/or `Latch` to allow `requestSync()` callers to await “idle after my request”
+
+### Make server meta explicit (remove the “meta-only fetch” hack)
+
+`performSync()` needs server meta on every run (epoch + retained-history watermark).
+
+Today, Electric-enabled clients call `FetchRemoteActions` with `sinceServerIngestId = Number.MAX_SAFE_INTEGER`
+to force an empty delta while still getting meta.
+
+Refine the RPC surface so Electric mode can fetch meta without hacks:
+
+- Option A (preferred): add `FetchServerMeta` RPC that returns `{ serverEpoch, minRetainedServerIngestId }`
+  (and optionally `headServerIngestId`).
+- Option B: add an explicit `mode: "full" | "metaOnly"` param to `FetchRemoteActions`.
+
+### Mapping existing implementations (v1)
+
+- **RPC polling (no Electric):** schedule `requestSync()` periodically and/or call it after local actions.
+  `performSync()` already does the fetch+ingest step in polling mode.
+- **Electric ingress + RPC upload:** Electric ingests via the core ingestion helper, then calls `requestSync()`
+  when both shapes are caught up. RPC remains for upload + server meta.
+- **Custom push ingress:** ingest remote sync-log rows into `action_records`/`action_modified_rows` (via the core
+  ingestion helper), then call `requestSync()` when caught up.
+
+## Future direction: “stream-first transport” + core-owned ingestion
 
 ### Key idea
 
@@ -143,7 +218,7 @@ This becomes the single place to encode DB specifics (SQL dialect differences, u
 
 So the transport does not need to be “perfectly ordered” or “transactional”, only reliable enough to eventually deliver the rows.
 
-## Mapping existing implementations
+## Mapping existing implementations (stream-first / future)
 
 ### RPC polling (no Electric)
 
@@ -193,12 +268,18 @@ Cons:
 
 - still needs a fetch API; adds moving parts vs a single `remoteBatches` stream
 
-## Follow-ups
+## Implementation plan (v1)
 
-- Decide the v1 transport contract shape:
-  - stream-first (`remoteBatches`) vs pull-first (`fetchRemoteActions`) + library runner
-- Move remote ingestion into core (single `ingestRemoteBatch`), and make transports return data only.
-- Refactor:
-  - RPC transport to implement `SyncTransport`
-  - Electric transport to implement `SyncTransport` (or a composable partial)
-- Update examples to depend only on the transport interface (not on Electric/RPC internals).
+1. Add `SyncService.requestSync()` public helper (single-flight + burst coalescing).
+2. Refactor Electric ingress to provide `SyncIngress`; core-owned runner ingests + triggers `requestSync()` (not transport code).
+3. Replace the Electric “meta-only fetch” hack with an explicit server meta RPC (`FetchServerMeta` or `FetchRemoteActions(mode)`).
+4. Update examples to call `requestSync()` rather than hand-rolled mutexes around `performSync()`.
+5. Add tests:
+   - `requestSync()` coalesces bursty triggers and never overlaps `performSync()`.
+   - Electric burst ingress does not cause overlapping sync runs.
+
+## Future follow-ups
+
+- Revisit the stream-first `SyncIngress.remoteBatches` contract once we want a single shared driver that
+  owns ingestion+triggering for both push and pull transports.
+- ✅ Implemented: standardize ingress as a service + core runner (`docs/planning/todo/0021-sync-ingress-service-v2.md`).

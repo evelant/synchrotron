@@ -66,10 +66,16 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					userId,
 					clientId,
 					sinceServerIngestId: payload.sinceServerIngestId,
+					mode: payload.mode ?? "full",
 					includeSelf: payload.includeSelf ?? false
 				})
 				const result = yield* serverService
-					.getActionsSince(clientId, payload.sinceServerIngestId, payload.includeSelf ?? false)
+					.getActionsSince(
+						clientId,
+						payload.sinceServerIngestId,
+						payload.includeSelf ?? false,
+						payload.mode ?? "full"
+					)
 					.pipe(Effect.provideService(SyncUserId, userId))
 
 				yield* Effect.annotateCurrentSpan({
@@ -155,6 +161,7 @@ export const SyncNetworkRpcHandlersLive = SyncNetworkRpcGroup.toLayer(
 					attributes: {
 						clientId: payload.clientId,
 						sinceServerIngestId: payload.sinceServerIngestId,
+						mode: payload.mode ?? "full",
 						includeSelf: payload.includeSelf ?? false,
 						"rpc.system": "synchrotron",
 						"rpc.service": "SyncNetworkRpc",

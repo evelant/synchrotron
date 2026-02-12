@@ -1,15 +1,14 @@
 # Synchrotron
 
-Offline-first sync for Postgres that converges by replaying business logic.
+Cross-platofrm offline-first sync for Postgres that converges by replaying business logic.
 
 Synchrotron records deterministic _actions_ (your application business logic functions that mutate data) and syncs those, rather than treating row-level patches as the primary source of truth. When clients diverge, they roll back to a common ancestor and replay actions in a global order. This keeps business rules in one place and avoids writing bespoke conflict-resolution handlers.
 
 It is designed to work with private data (Postgres RLS): actions can be conditional on private rows and still converge (per-user view) by emitting CORRECTION deltas when replay produces different results.
 
-It also depends on a few simple but hard requirements (see Usage). They're not optional.
+Built with [Effect](https://effect.website/). The demo transport uses [Electric SQL](https://electric-sql.com/) to replicate the sync metadata tables in real time, but the transport is intentionally pluggable (polling fetch, WebSocket/SSE, custom backends, etc).
 
-Built with [Effect](https://effect.website/) and `@effect/sql`. The demo transport uses [Electric SQL](https://electric-sql.com/) to replicate the sync metadata tables in real time, but the transport is intentionally pluggable (polling fetch, WebSocket/SSE, bespoke backends, etc).
-The reference client DB is [PGlite](https://pglite.dev/) (Postgres-in-WASM), and the client runtime also supports SQLite (WASM + React Native) via a small `ClientDbAdapter` interface.
+Runs on the web and react-native for iOS and Android. The client can use [PGlite](https://pglite.dev/) (Postgres-in-WASM) or Sqlite as a database.
 
 ## Why actions?
 
@@ -69,7 +68,7 @@ Synchrotron moves the merge boundary up a level:
 - Triggers capture per-row forward/reverse patches into `action_modified_rows`
 - `action_records` and `action_modified_rows` are delivered to clients either via Electric SQL shape streams (filtered by RLS) or via an RPC transport (`SyncNetworkService`)
 - Remote actions are fetched/streamed incrementally by a server-generated ingestion cursor (`server_ingest_id`) so clients don't miss late-arriving actions; replay order remains clock-based
-- The server is authoritative: it materializes base tables by applying patches in canonical order (rollback+replay on late arrival) and can reject uploads from clients that are behind the server ingestion head (client must fetch+reconcile+retry; `performSync()` does a small bounded retry; RPC error `_tag` = `SendLocalActionsBehindHead`)
+- The server is authoritative: it materializes base tables by applying patches in canonical order (rollback+replay on late arrival) and can reject uploads from clients that are behind the server ingestion head (client must fetch+reconcile+retry; the sync loop (`performSync()` / `requestSync()`) does a small bounded retry; RPC error `_tag` = `SendLocalActionsBehindHead`)
 - Applying a remote batch re-runs the action code on the client; if replay produces _additional_ effects beyond the received patches (including any received CORRECTION patches), the client emits a new patch-only CORRECTION action at the end of the sync pass (clocked after the observed remote actions)
 - If remote history interleaves with local unsynced actions, the client rolls back to the common ancestor and replays everything in HLC order
 
@@ -107,8 +106,12 @@ Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlit
 `SyncService` depends on a `SyncNetworkService` implementation (the contract lives in `sync-core`; client runtimes provide live layers). The default client implementation is `SyncNetworkServiceLive` (HTTP RPC via `@effect/rpc`).
 
 - Configure the RPC endpoint with `makeSynchrotronClientLayer({ rowIdentityByTable: { ... }, config: { syncRpcUrl: "http://..." } })` or `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
-- In RPC polling mode, `fetchRemoteActions()` is fetch-only; `SyncService.performSync()` ingests the returned rows into the local sync tables (core-owned) before applying.
-- Electric-enabled clients should use `makeSynchrotronElectricClientLayer(...)` so remote ingress is owned by Electric (no redundant RPC action-log ingestion). RPC is still used for uploads + server metadata (epoch/retention).
+- Custom transports should provide a `SynchrotronTransport` (required `syncNetworkServiceLayer` + optional `syncIngressLayer`) and pass it via `makeSynchrotronClientLayer({ ..., transport: MyTransport })`.
+- Push/notify/hybrid transports should provide `SyncIngress` (a `Stream` of `{ _tag: "Batch" | "Wakeup" }` events) via `transport.syncIngressLayer`. When a transport provides `syncIngressLayer`, `makeSynchrotronClientLayer(...)` automatically enables the core-owned ingress runner (schema init + ingestion + `SyncService.requestSync()` triggers).
+- For a reference push-ingress transport implementation, see `ElectricTransport` in `@synchrotron/sync-client/transports`.
+- Apps/transports should trigger sync with `SyncService.requestSync()` (single-flight + burst coalescing), not `performSync()` directly.
+- In RPC polling mode, `fetchRemoteActions()` is fetch-only; `performSync()` (invoked by `requestSync()`) ingests the returned rows into the local sync tables (core-owned) before applying.
+- Electric-enabled clients can use `makeSynchrotronElectricClientLayer(...)` (convenience) or wire `ElectricTransport` manually; remote ingress is owned by Electric (no redundant RPC action-log ingestion). RPC is still used for uploads + server metadata (epoch/retention) via `FetchRemoteActions(mode="metaOnly")`.
 - Auth for RLS:
   - `Authorization: Bearer <jwt>` (server verifies and derives `user_id` from `sub`).
   - Client-side: set `SynchrotronClientConfig.syncRpcAuthToken` (from `@synchrotron/sync-client/config`) to send the bearer token (or provide a custom `SyncRpcAuthToken` layer to fetch/refresh tokens dynamically).

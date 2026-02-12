@@ -12,7 +12,7 @@ By default, Client A and Client B run as **different users** (`user1` / `user2`)
 
 It also supports two transport modes:
 
-- **RPC (polling)**: manual/interval `performSync()` with a per-client offline toggle
+- **RPC (polling)**: manual/interval `requestSync()` with a per-client offline toggle
 - **Electric (ingress)**: Electric streams the sync metadata tables; the client applies remote actions from its local DB
 
 ## Setup

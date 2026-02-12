@@ -176,14 +176,14 @@ This has been intentionally simplified for now (honest-client model):
 
 Future defense-in-depth: re-introduce optional per-row staleness checks (vector causality) once the end-to-end system is stable.
 
-### J) Electric ingestion vs RPC fetch/apply isn’t a coherent package-level story yet
+### J) Remote action ingress is now coherent (resolved)
 
-There are effectively two different “remote action ingress” paths today:
+Resolved: remote ingress is now a coherent, “core-owned ingestion” story:
 
-- RPC fetch (`packages/sync-client/src/SyncNetworkService.ts`) inserts remote actions + AMRs, then `SyncService.performSync` applies them.
-- Electric streaming (`packages/sync-client/src/electric/ElectricSyncService.ts`) inserts actions + AMRs, and app code applies them by querying `findSyncedButUnapplied()` (see `examples/todo-app-web-pglite/src/hooks/useSyncedActions.ts`).
+- **RPC polling ingress**: `SyncNetworkService.fetchRemoteActions()` returns action-log rows (mode `"full"`). `SyncService.performSync()` ingests them into `action_records` / `action_modified_rows` via the shared core helper (`ingestRemoteSyncLogBatch`) before applying.
+- **Push/notify ingress** (e.g. Electric): transports emit `SyncIngress` events (`Batch`/`Wakeup`). The core-owned ingress runner ingests `Batch` events and triggers `SyncService.requestSync()` (single-flight + coalescing).
 
-These can overlap in a real app (and do in the example, which calls `performSync()` and also runs the “apply synced-but-unapplied” loop). Without stronger idempotency + cursor handling, this creates duplicate-apply pressure and makes it unclear which component is responsible for advancing `last_seen_server_ingest_id`.
+Apps/examples should trigger sync via `requestSync()` rather than running a bespoke “apply loop” alongside `performSync()`.
 
 ### K) Multi-tab / multi-writer local DB is currently unsafe (client_id + clock races)
 

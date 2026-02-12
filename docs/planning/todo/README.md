@@ -4,11 +4,10 @@ This folder contains **internal planning docs** for Synchrotron. These are not u
 
 ## Active / Open
 
-| ID     | Topic                                       | Status              | Next                                                                                                                                          |
-| ------ | ------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0018` | OpenTelemetry observability                 | In progress         | Validate end-to-end traces/logs/metrics (web/RN → backend) in Grafana; handle any OTLP HTTP CORS issues; iterate on spans + metric names.     |
-| `0014` | Dev/test action purity check                | Proposed (optional) | Add an opt-in “replay twice” purity check (diagnostics only), likely for CI/dev.                                                              |
-| `0013` | Transport abstraction (remote ingress)      | In progress         | Decide ingestion-only transport interface + wiring (upload stays RPC).                                                                        |
+| ID     | Topic                        | Status              | Next                                                                                                                                      |
+| ------ | ---------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `0018` | OpenTelemetry observability  | In progress         | Validate end-to-end traces/logs/metrics (web/RN → backend) in Grafana; handle any OTLP HTTP CORS issues; iterate on spans + metric names. |
+| `0014` | Dev/test action purity check | Proposed (optional) | Add an opt-in “replay twice” purity check (diagnostics only), likely for CI/dev.                                                          |
 
 ## Chores
 
@@ -25,6 +24,7 @@ This folder contains **internal planning docs** for Synchrotron. These are not u
 | `0011` | Shared rows via `audience_key` + membership mapping | Implemented |
 | `0004` | RLS policies + visibility model                     | Implemented |
 | `0012` | Membership churn vs server replay                   | Implemented |
+| `0013` | Transport abstraction (remote ingress)              | Implemented |
 | `0008` | Unify remote ingress + apply + applied cursor       | Implemented |
 | `0009` | Example improvements / debug UX                     | Implemented |
 | `0005` | Client DB abstraction (SQLite-first)                | Implemented |
@@ -35,6 +35,7 @@ This folder contains **internal planning docs** for Synchrotron. These are not u
 | `0017` | Reconcile atomicity (crash-consistency)             | Implemented |
 | `0019` | Stable row ids under divergent content              | Implemented |
 | `0020` | Replay creates extra/new rows                       | Implemented |
+| `0021` | `SyncIngress` transport v2                          | Implemented |
 
 ## Conventions
 

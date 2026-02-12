@@ -126,7 +126,7 @@ Implemented policy: quarantine (global upload gate).
 When upload fails with `SendLocalActionsDenied` (or a non-recoverable `SendLocalActionsInvalid`):
 
 - quarantine **all** local unsynced actions into `local_quarantined_actions`
-- suspend *all* uploads while quarantined (prevents partial progress + repeated bricks)
+- suspend _all_ uploads while quarantined (prevents partial progress + repeated bricks)
 - continue ingesting + applying remote actions
 - require app/user intervention to resolve:
   - `SyncService.discardQuarantinedActions()` (rollback + drop unsynced local work), or

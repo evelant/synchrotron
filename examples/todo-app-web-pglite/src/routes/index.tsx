@@ -14,10 +14,7 @@ import {
 	Text,
 	TextField
 } from "@radix-ui/themes"
-import {
-	makeSynchrotronClientLayer,
-	makeSynchrotronElectricClientLayer
-} from "@synchrotron/sync-client"
+import { ElectricTransport, makeSynchrotronClientLayer } from "@synchrotron/sync-client"
 import {
 	ClientClockState,
 	ClientDbAdapter,
@@ -402,40 +399,27 @@ const makeClientLayer = (options: {
 	const syncRpcAuthToken =
 		options.clientKey === "clientA" ? defaults.syncRpcAuthTokenA : defaults.syncRpcAuthTokenB
 
-	const synchrotronLayer =
-		options.transportMode === "electric"
-			? makeSynchrotronElectricClientLayer({
-					rowIdentityByTable: {
-						todos: (row) => row
-					},
-					config: {
-						...(typeof syncRpcAuthToken === "string" ? { syncRpcAuthToken } : {}),
-						syncRpcUrl,
-						electricSyncUrl: defaults.electricUrl,
-						pglite: {
-							dataDir,
-							debug: 0,
-							relaxedDurability: true
-						}
-					},
-					keyValueStoreLayer: makeLocalStorageKeyValueStoreLayer(kvPrefix)
-				})
-			: makeSynchrotronClientLayer({
-					rowIdentityByTable: {
-						todos: (row) => row
-					},
-					config: {
-						...(typeof syncRpcAuthToken === "string" ? { syncRpcAuthToken } : {}),
-						syncRpcUrl,
-						electricSyncUrl: defaults.electricUrl,
-						pglite: {
-							dataDir,
-							debug: 0,
-							relaxedDurability: true
-						}
-					},
-					keyValueStoreLayer: makeLocalStorageKeyValueStoreLayer(kvPrefix)
-				})
+	const baseSynchrotronLayerParams = {
+		rowIdentityByTable: {
+			todos: (row: Readonly<Record<string, unknown>>) => row
+		},
+		config: {
+			...(typeof syncRpcAuthToken === "string" ? { syncRpcAuthToken } : {}),
+			syncRpcUrl,
+			electricSyncUrl: defaults.electricUrl,
+			pglite: {
+				dataDir,
+				debug: 0,
+				relaxedDurability: true
+			}
+		},
+		keyValueStoreLayer: makeLocalStorageKeyValueStoreLayer(kvPrefix)
+	} as const
+
+	const synchrotronLayer = makeSynchrotronClientLayer({
+		...baseSynchrotronLayerParams,
+		transport: options.transportMode === "electric" ? ElectricTransport : undefined
+	})
 
 	const clientLayer = TodoRepo.Default.pipe(
 		Layer.provideMerge(TodoActions.Default),
@@ -669,7 +653,6 @@ function ClientPanel(props: {
 	const [offline, setOffline] = useState(false)
 	const offlineRef = useRef(false)
 	const [isSyncing, setIsSyncing] = useState(false)
-	const syncingRef = useRef(false)
 	const offlineSupported = props.transportMode === "rpc-poll"
 
 	useEffect(() => {
@@ -693,13 +676,11 @@ function ClientPanel(props: {
 
 	const runSync = useCallback(() => {
 		if (offlineRef.current) return Promise.resolve()
-		if (syncingRef.current) return Promise.resolve()
-		syncingRef.current = true
 		setIsSyncing(true)
 
 		const effect = Effect.gen(function* () {
 			const syncService = yield* SyncService
-			yield* syncService.performSync()
+			yield* syncService.requestSync()
 		})
 
 		return runtime
@@ -709,7 +690,6 @@ function ClientPanel(props: {
 				console.warn(`${props.label}: sync failed`, e)
 			})
 			.finally(() => {
-				syncingRef.current = false
 				setIsSyncing(false)
 			})
 	}, [props.label, runtime])

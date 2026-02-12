@@ -201,9 +201,9 @@ export const makeExecuteAction = (deps: {
 								`(or the action attempted to insert two rows with the same identity key). ` +
 								`Fix: ensure every tracked table has an entry in DeterministicIdIdentityConfig ` +
 								`(sync-client: rowIdentityByTable), and include a stable disambiguator in the identity ` +
-								`key when creating multiple same-kind rows within one action.`
+								`key when creating multiple same-kind rows within one action.`,
+							{ cause: error }
 						)
-						;(collisionError as any).cause = error
 
 						return yield* Effect.fail(
 							new ActionExecutionError({

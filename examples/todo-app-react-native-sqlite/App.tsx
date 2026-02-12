@@ -41,7 +41,6 @@ function AppInner() {
 	const [error, setError] = useState<string | null>(null)
 	const [newTodoText, setNewTodoText] = useState("")
 	const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-	const syncingRef = useRef(false)
 	const resettingRef = useRef(false)
 
 	const resetDatabaseEffect = useCallback(
@@ -98,20 +97,17 @@ function AppInner() {
 
 	const syncOnce = useCallback(() => {
 		if (resettingRef.current) return Promise.resolve()
-		if (syncingRef.current) return Promise.resolve()
-		syncingRef.current = true
 		setIsSyncing(true)
 
 		const effect = Effect.gen(function* () {
 			const syncService = yield* SyncService
-			yield* syncService.performSync()
+			yield* syncService.requestSync()
 		})
 
 		return runtime
 			.runPromise(effect)
 			.catch((e) => console.warn("Sync failed", e))
 			.finally(() => {
-				syncingRef.current = false
 				setIsSyncing(false)
 			})
 			.then(() => loadTodos())
@@ -272,7 +268,7 @@ function AppInner() {
 			})
 
 			yield* syncService.executeAction(action)
-			yield* syncService.performSync()
+			yield* syncService.requestSync()
 		})
 
 		runtime
@@ -301,7 +297,7 @@ function AppInner() {
 				})
 
 				yield* syncService.executeAction(action)
-				yield* syncService.performSync()
+				yield* syncService.requestSync()
 			})
 
 			runtime
@@ -331,7 +327,7 @@ function AppInner() {
 				})
 
 				yield* syncService.executeAction(action)
-				yield* syncService.performSync()
+				yield* syncService.requestSync()
 			})
 
 			runtime

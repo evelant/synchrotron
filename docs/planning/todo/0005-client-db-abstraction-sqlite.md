@@ -200,13 +200,13 @@ Milestone 4 notes (implemented):
 
 ### Milestone 5 — Make ingestion/network DB-agnostic (where needed)
 
-1. Ensure `ElectricSyncService` only depends on `SqlClient` (remove `PgLiteClient` dependency) so it can insert streamed rows into any client DB.
+1. Ensure Electric ingress is DB-agnostic by emitting `SyncIngress` events (no DB writes in the transport); core-owned ingestion runs via `SqlClient` (`ingestRemoteSyncLogBatch`) so any client DB can be used.
 2. Validate that JSON encoding/decoding of `clock` and `args` works across dialects.
 3. (Optional) Provide a non-Electric `SyncNetworkService` implementation for environments where Electric is unavailable.
 
 Milestone 5 notes (implemented):
 
-- `packages/sync-client/src/electric/ElectricSyncService.ts` now depends on `SqlClient` (not `PgLiteClient`) and inserts JSON fields as strings so it can target SQLite-backed clients too.
+- `packages/sync-client/src/electric/ElectricSyncService.ts` emits `SyncIngress` events (no DB writes). `packages/sync-core/src/SyncIngressRunner.ts` performs the actual ingestion into `action_records` / `action_modified_rows` via the shared core helper (`ingestRemoteSyncLogBatch`).
 - Replicated `action_records.synced` is treated as `0 | 1` (and `created_at` is inserted as an ISO string), matching the portability rules introduced in Milestone 4.
 - `packages/sync-client/src/SyncNetworkService.ts` is configurable via `SynchrotronClientConfig.syncRpcUrl` / `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
 

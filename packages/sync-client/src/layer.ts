@@ -1,15 +1,20 @@
 import type { KeyValueStore } from "@effect/platform"
 import { BrowserKeyValueStore } from "@effect/platform-browser"
+import type { SqlClient } from "@effect/sql/SqlClient"
+import type { PgliteClient } from "@effect/sql-pglite/PgliteClient"
 import {
 	ActionModifiedRowRepo,
 	ActionRecordRepo,
 	ActionRegistry,
-	ClientDbAdapter,
+	type ClientDbAdapter,
 	ClientClockState,
 	DeterministicIdIdentityConfig,
+	type ClientIdentity,
 	type DeterministicIdIdentityStrategy,
 	PostgresClientDbAdapter,
 	SqliteClientDbAdapter,
+	type SyncNetworkService,
+	runSyncIngressRunner,
 	SyncService
 } from "@synchrotron/sync-core"
 import { Effect, Layer } from "effect"
@@ -18,31 +23,11 @@ import { SynchrotronClientConfig, createSynchrotronConfig } from "./config"
 import { PgliteClientLive } from "./db/connection"
 import { SqliteWasmClientMemoryLive } from "./db/sqlite-wasm"
 import { ClientIdentityLive } from "./ClientIdentity"
-import { ElectricSyncService } from "./electric/ElectricSyncService"
-import { SyncNetworkServiceElectricLive, SyncNetworkServiceLive } from "./SyncNetworkService"
+import { SyncNetworkServiceLive } from "./SyncNetworkService"
 import { SyncRpcAuthTokenFromConfig } from "./SyncRpcAuthToken"
+import type { SyncRpcAuthToken } from "./SyncRpcAuthToken"
 import { logInitialSyncDbState } from "./logInitialDbState"
-
-/**
- * Layer that initializes the sync schema and starts Electric ingress.
- *
- * This is intentionally **not** included in `makeSynchrotronClientLayer` by default,
- * so apps can opt into Electric explicitly (and demos can implement "offline" mode
- * by simply not wiring Electric at all).
- */
-export const ElectricSyncLive = Layer.unwrapEffect(
-	Effect.gen(function* () {
-		yield* Effect.logInfo("electric.sync.setup.start")
-		const clientDbAdapter = yield* ClientDbAdapter
-
-		// Electric ingress may write into `action_records` / `action_modified_rows`,
-		// so ensure the sync schema exists before starting the stream.
-		yield* clientDbAdapter.initializeSyncSchema
-		yield* Effect.logInfo("electric.sync.setup.schemaReady")
-
-		return ElectricSyncService.Default
-	}).pipe(Effect.withSpan("ElectricSyncLive"))
-)
+import type { SynchrotronTransport } from "./transports/Transport"
 
 /**
  * Creates a fully configured Synchrotron client layer with custom configuration
@@ -63,26 +48,56 @@ export const ElectricSyncLive = Layer.unwrapEffect(
  */
 export type RowIdentityByTable = Readonly<Record<string, DeterministicIdIdentityStrategy>>
 
+export type SynchrotronClientLayerServices =
+	| SyncService
+	| ActionRecordRepo
+	| SqlClient
+	| ActionModifiedRowRepo
+	| ActionRegistry
+	| DeterministicIdIdentityConfig
+	| SynchrotronClientConfig
+	| ClientIdentity
+	| ClientClockState
+	| SyncNetworkService
+	| ClientDbAdapter
+	| SyncRpcAuthToken
+	| KeyValueStore.KeyValueStore
+	| PgliteClient
+
 export type MakeSynchrotronClientLayerParams = Readonly<{
 	readonly rowIdentityByTable: RowIdentityByTable
+	readonly transport?: SynchrotronTransport | undefined
 	readonly config?: Partial<SynchrotronClientConfigData> | undefined
 	readonly keyValueStoreLayer?: Layer.Layer<KeyValueStore.KeyValueStore> | undefined
-	readonly syncNetworkServiceLayer?: typeof SyncNetworkServiceLive | undefined
 }>
 
-export const makeSynchrotronClientLayer = (params: MakeSynchrotronClientLayerParams) => {
+export function makeSynchrotronClientLayer(
+	params: Omit<MakeSynchrotronClientLayerParams, "transport"> & {
+		readonly transport?: undefined
+	}
+): Layer.Layer<SynchrotronClientLayerServices, unknown, never>
+export function makeSynchrotronClientLayer<RNetwork, ENetwork, RIngress, EIngress>(
+	params: Omit<MakeSynchrotronClientLayerParams, "transport"> & {
+		readonly transport?: SynchrotronTransport<RNetwork, ENetwork, RIngress, EIngress> | undefined
+	}
+): Layer.Layer<
+	SynchrotronClientLayerServices,
+	unknown,
+	Exclude<RNetwork | RIngress, SynchrotronClientLayerServices>
+>
+export function makeSynchrotronClientLayer(
+	params: MakeSynchrotronClientLayerParams
+): Layer.Layer<SynchrotronClientLayerServices, unknown, unknown> {
 	// Create the config layer with custom config merged with defaults
+	const transport = params.transport
 	const configLayer = createSynchrotronConfig(params.config ?? {})
 	const keyValueStoreLayer = params.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
-	const syncNetworkServiceLayer = params.syncNetworkServiceLayer ?? SyncNetworkServiceLive
+	const syncNetworkServiceLayer = transport?.syncNetworkServiceLayer ?? SyncNetworkServiceLive
 	const deterministicIdIdentityLayer = Layer.succeed(DeterministicIdIdentityConfig, {
 		identityByTable: params.rowIdentityByTable
 	})
 
-	// Note: Electric is intentionally optional. Do not start Electric replication
-	// unless the consumer explicitly adds `ElectricSyncLive` (preferred) to their app layer.
-	// (If you wire `ElectricSyncService.Default` directly, ensure the sync schema is initialized first.)
-	return SyncService.Default.pipe(
+	const baseLayer = SyncService.Default.pipe(
 		// Highest-level services first, core dependencies last.
 		// `Layer.provideMerge` wraps previously-added layers, so later layers are available to earlier ones.
 		Layer.provideMerge(syncNetworkServiceLayer),
@@ -114,6 +129,12 @@ export const makeSynchrotronClientLayer = (params: MakeSynchrotronClientLayerPar
 		Layer.provideMerge(deterministicIdIdentityLayer),
 		Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
 	)
+
+	// If the transport provides push/notify ingress, enable the core-owned ingress runner automatically.
+	// Consumers should not need to compose `SyncIngress` + `runSyncIngressRunner` manually.
+	if (!transport?.syncIngressLayer) return baseLayer
+
+	return withSyncIngressRunner(transport.syncIngressLayer.pipe(Layer.provideMerge(baseLayer)))
 }
 
 /**
@@ -122,14 +143,15 @@ export const makeSynchrotronClientLayer = (params: MakeSynchrotronClientLayerPar
  * Intended for environments where PGlite is unavailable (or undesirable) and a stable SQLite engine is preferred.
  */
 export const makeSynchrotronSqliteWasmClientLayer = (params: MakeSynchrotronClientLayerParams) => {
+	const transport = params.transport
 	const configLayer = createSynchrotronConfig(params.config ?? {})
 	const keyValueStoreLayer = params.keyValueStoreLayer ?? BrowserKeyValueStore.layerLocalStorage
-	const syncNetworkServiceLayer = params.syncNetworkServiceLayer ?? SyncNetworkServiceLive
+	const syncNetworkServiceLayer = transport?.syncNetworkServiceLayer ?? SyncNetworkServiceLive
 	const deterministicIdIdentityLayer = Layer.succeed(DeterministicIdIdentityConfig, {
 		identityByTable: params.rowIdentityByTable
 	})
 
-	return SyncService.Default.pipe(
+	const baseLayer = SyncService.Default.pipe(
 		Layer.provideMerge(syncNetworkServiceLayer),
 		Layer.provideMerge(SyncRpcAuthTokenFromConfig),
 		Layer.provideMerge(ActionRegistry.Default),
@@ -156,26 +178,25 @@ export const makeSynchrotronSqliteWasmClientLayer = (params: MakeSynchrotronClie
 		Layer.provideMerge(deterministicIdIdentityLayer),
 		Layer.tap((context) => logInitialSyncDbState.pipe(Effect.provide(context)))
 	)
+
+	if (!transport?.syncIngressLayer) return baseLayer
+	return withSyncIngressRunner(transport.syncIngressLayer.pipe(Layer.provideMerge(baseLayer)))
 }
 
 /**
- * PGlite client with Electric ingress enabled.
+ * Enables the core-owned `SyncIngress` runner for a given client layer.
  *
- * This wires:
- * - Electric shape replication for remote ingress (`ElectricSyncLive`)
- * - RPC for uploads + server metadata (`SyncNetworkServiceElectricLive`)
+ * Most apps should prefer passing `transport` (with `syncIngressLayer`) to `makeSynchrotronClientLayer(...)`,
+ * which enables the runner automatically.
  *
- * The key property is that RPC fetch does **not** ingest remote actions when Electric is enabled,
- * avoiding the “two ingress writers” pitfall. Remote apply remains DB-driven via `SyncService.performSync()`.
+ * This helper is primarily for advanced composition/testing:
+ * - provide `SyncIngress` (e.g. from Electric, WS, SSE, etc)
+ * - wrap any layer that already provides `SqlClient` + `ClientDbAdapter` + `SyncService`
+ *
+ * The runner:
+ * - ensures the sync schema exists (`clientDbAdapter.initializeSyncSchema`)
+ * - ingests remote action-log batches into local sync tables
+ * - triggers `SyncService.requestSync()` (single-flight + burst coalescing)
  */
-export const makeSynchrotronElectricClientLayer = (
-	params: Omit<MakeSynchrotronClientLayerParams, "syncNetworkServiceLayer">
-) =>
-	ElectricSyncLive.pipe(
-		Layer.provideMerge(
-			makeSynchrotronClientLayer({
-				...params,
-				syncNetworkServiceLayer: SyncNetworkServiceElectricLive
-			})
-		)
-	)
+export const withSyncIngressRunner = <A, E, R>(layer: Layer.Layer<A, E, R>) =>
+	layer.pipe(Layer.tap((context) => runSyncIngressRunner.pipe(Effect.provide(context))))
