@@ -1,203 +1,71 @@
 # Synchrotron
 
-Cross-platofrm offline-first sync for Postgres that converges by replaying business logic.
+Offline-first fully-multiplayer sync for Postgres for _any_ app with no conflict resolution code. Synchrotron always converges correctly for _your app's rules_ even when data is shared between users or private to certain users. The end result is as if everything offline had happened in real time against a traditional central API.
 
-Synchrotron records deterministic _actions_ (your application business logic functions that mutate data) and syncs those, rather than treating row-level patches as the primary source of truth. When clients diverge, they roll back to a common ancestor and replay actions in a global order. This keeps business rules in one place and avoids writing bespoke conflict-resolution handlers.
+How is that possible if Synchrotron doesn't know your app's business rules, multiple users can mutate the same data offline, some data is invisible to some users, and you don't write special code to handle conflicts?
 
-It is designed to work with private data (Postgres RLS): actions can be conditional on private rows and still converge (per-user view) by emitting CORRECTION deltas when replay produces different results.
+Synchrotron records **actions** (your mutation functions + arguments) rather than row-level patches. When clients diverge, they roll back to a common ancestor state then replay actions in a global order. Even if two clients edit the same piece of data offline when they sync _your app's logic runs in the order the actions were originally taken_. The final state never breaks your app's rules without requiring any conflict resolution code.
 
-Built with [Effect](https://effect.website/). The demo transport uses [Electric SQL](https://electric-sql.com/) to replicate the sync metadata tables in real time, but the transport is intentionally pluggable (polling fetch, WebSocket/SSE, custom backends, etc).
+This is in contrast to most existing offline-first solutions which only track and merge data. Merging data doesn't know anything about the meaning of the data, so most solutions will happily merge data into states that are completely invalid for your app, leaving you to write special case-by-case code to fix it.
 
-Runs on the web and react-native for iOS and Android. The client can use [PGlite](https://pglite.dev/) (Postgres-in-WASM) or Sqlite as a database.
+Runs on the web and React Native (iOS and Android). Comes with OpenTelemetry instrumentation. Client database can be [PGlite](https://pglite.dev/) (Postgres-in-WASM) or SQLite.
 
-## Why actions?
-
-Most offline sync stacks replicate table changes and settle concurrency with last-write-wins (or similar naive strategy). That converges, but it ignores semantic intent: two "valid" patches can still violate business rules, and you end up writing merge/conflict handlers on top.
-
-Synchrotron moves the merge boundary up a level:
-
-- You sync operations (actions), not just their resulting patches
-- Conflicts resolve by rollback + replay of the same business logic
-- Patches are still captured, but only for fast-forwarding, rollback, and divergence detection
+Built with [Effect](https://effect.website/).
 
 ## Status
 
-### Experimental
+**Experimental, but complete** — Not used in production yet but it is fully featured, has a robust test suite, and has example apps for all platforms.
 
-- This is an experimental project and is not ready for production use
-- There are comprehensive tests in `packages/sync-core` illustrating that the idea works
-- API is split into packages: `sync-client`, `sync-core`, and `sync-server`
-  - There are example apps demonstrating basic functionality:
-  - **Shared backend**: `examples/backend` (Postgres + Electric + Bun RPC server).
-    - `pnpm docker:up` (requires Docker)
-    - `pnpm dev:backend` (starts docker + server)
-    - Includes a local OpenTelemetry dev backend: Grafana LGTM stack on http://localhost:3001 (with minimal Synchrotron dashboards).
-  - **Web + PGlite**: `examples/todo-app-web-pglite` (Bun build --watch + Bun static server; works online/offline; does not yet handle multiple tabs in the same window).
-    - Includes a built-in “two clients” harness (Client A / Client B) with transport toggle (RPC polling vs Electric ingress) and a per-client debug panel.
-    - `pnpm dev:web`
-    - Open http://localhost:5173 in your browser
-  - **React Native + SQLite (+ Web)**: `examples/todo-app-react-native-sqlite` (native uses `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web uses `@effect/sql-sqlite-wasm` via a `.web.ts` module).
-    - `pnpm dev:react-native`
+## Examples
+
+This repo includes end-to-end examples:
+
+- **Shared backend**: `examples/backend` (Postgres + [Electric-sql](https://electric-sql.com/) + Bun server).
+  - `pnpm docker:up` (requires Docker)
+  - `pnpm dev:backend`
+  - Includes a local OpenTelemetry dev backend: Grafana LGTM stack with example dashboards on http://localhost:3001.
+- **Web + PGlite**: `examples/todo-app-web-pglite`
+  - Built-in “two clients” harness with transport toggle (RPC polling vs Electric ingress) and online/offline toggle.
+  - `pnpm dev:web` → open http://localhost:5173
+- **React Native + SQLite (+ Web)**: `examples/todo-app-react-native-sqlite`
+  - `pnpm dev:react-native`
+
+Each example has its own README with setup and architecture notes.
+
+## Documentation
+
+Start here:
+
+- Docs index: `docs/README.md`
+- App integration guide: `docs/usage.md`
+- Transports (ingress/egress): `docs/transports.md`
+- System design (algorithm + invariants): `DESIGN.md`
+
+Related topics:
+
+- Bootstrap snapshots: `docs/bootstrap.md`
+- Security model (RLS + auth): `docs/security.md`
+- Shared rows (`audience_key`): `docs/shared-rows.md`
+- Server retention/compaction: `docs/server-retention-compaction.md`
+- Testing (E2E): `docs/testing/e2e.md`
+
+## Packages
+
+- `packages/sync-core`: core algorithm + DB contract (schema, patch capture, apply/reconcile).
+- `packages/sync-client`: client DB layers (PGlite, SQLite), RPC transport, and optional ingress transports (Electric).
+- `packages/sync-server`: RPC server + server-side materialization + snapshots + auth.
+- `packages/observability`: optional OpenTelemetry layers used by examples.
+- `packages/sql-pglite`: `@effect/sql` driver for PGlite (upstream candidate).
 
 ## Development
 
+- Install: `pnpm install`
+- Build: `pnpm run -r build`
 - Format: `pnpm format`
-- Lint: `pnpm lint` (Prettier check + ESLint)
-- Note: `packages/sql-pglite` is intentionally excluded (upstream candidate with separate requirements).
+- Lint: `pnpm lint`
+- Test: `pnpm test`
 
-## Capabilities
-
-- **Full offline SQL**: Actions can read/write the local database without CRDT-style restrictions
-- **Intent preservation**: Invariants live in your actions and are re-applied during replay
-- **No dedicated conflict-resolution code**: No per-field merge functions; resolution is "re-run the logic"
-- **RLS-friendly**: PostgreSQL Row Level Security filters what each client can see; clients still converge
-- **Deterministic IDs**: Actions generate stable IDs in TypeScript so clients don't fight over primary keys
-- **Eventual consistency**: Converges even with private data and conditional logic (via CORRECTION deltas)
-
-## Differences
-
-- **Patch/LWW replication**: Many offline-first strategies sync row/field changes and pick a winner (explicitly or implicitly). They converge, but semantic conflicts and invariant breaks are left to app code. Synchrotron merges by rerunning the mutation logic and only uses patches as a low-level mechanism for rollback/fast-forward.
-- **CRDTs**: CRDT merges work at the data-structure level (field/column). They're great when your domain fits those types (such as a text editor), but cross-row/cross-table invariants still need separate handling. Synchrotron keeps your relational model and re-applies invariants by replaying actions.
-- **Event sourcing**: Event sourcing is a persistence model where domain events are the source of truth. It doesn't, by itself, solve multi-writer offline merges or partial visibility (RLS). Synchrotron is a replication/convergence strategy not a persistence model. You can still emit domain events from actions for audit/integration if you want.
-- **Write-through server + offline queue**: A common pattern is to queue API requests while offline and let the server be the only authority. That works, but it usually limits what "offline" can do and pushes conflict handling to server endpoints. Synchrotron lets clients execute full local transactions and reconcile later.
-- **OT / collaborative editors**: OT is usually purpose-built for documents (text) with per-type transforms. Synchrotron is built around a database and general application mutations.
-
-## How it works (high level)
-
-- `executeAction` runs an action in a transaction and records `{ _tag, args, client_id, clock }`
-- Triggers capture per-row forward/reverse patches into `action_modified_rows`
-- `action_records` and `action_modified_rows` are delivered to clients either via Electric SQL shape streams (filtered by RLS) or via an RPC transport (`SyncNetworkService`)
-- Remote actions are fetched/streamed incrementally by a server-generated ingestion cursor (`server_ingest_id`) so clients don't miss late-arriving actions; replay order remains clock-based
-- The server is authoritative: it materializes base tables by applying patches in canonical order (rollback+replay on late arrival) and can reject uploads from clients that are behind the server ingestion head (client must fetch+reconcile+retry; the sync loop (`performSync()` / `requestSync()`) does a small bounded retry; RPC error `_tag` = `SendLocalActionsBehindHead`)
-- Applying a remote batch re-runs the action code on the client; if replay produces _additional_ effects beyond the received patches (including any received CORRECTION patches), the client emits a new patch-only CORRECTION action at the end of the sync pass (clocked after the observed remote actions)
-- If remote history interleaves with local unsynced actions, the client rolls back to the common ancestor and replays everything in HLC order
-
-## TODO
-
-- RLS hardening: expand policies + tests beyond the v1 demo (`packages/sync-server/test/rls-filtering.test.ts`).
-- Tighten CORRECTION semantics + diagnostics (see `DESIGN.md`).
-- Add end-to-end tests with the example app
-- Improve the APIs. They're proof-of-concept level at the moment and could be significantly nicer.
-- Consider a non-Effect facade. Effect is great, but not every codebase can adopt it; a Promise-based wrapper should be straightforward.
-- Add support for multiple clients in the same window (PGlite workers)
-- Add doc comments and typedoc gen
-- Upstream @effect/sql-pglite (https://github.com/Effect-TS/effect/pull/4692)
-- Improve docs
-- Clean up logging and debug
-- Future improvement: use a backoff/jitter schedule for `SendLocalActionsBehindHead` retries (instead of a small fixed retry count).
-- Improve example app, make it more real-world. Maybe add another based on [linearlite](https://github.com/electric-sql/electric/tree/main/examples/linearlite)
-- Evaluate performance in a more real world use case. The example todo app seems plenty fast but performance with larger datasets is unknown and there is currently no optimization.
-
-## Client databases
-
-The client DB is selected by which `@effect/sql` driver layer you provide:
-
-- **PGlite** (browser): `makeSynchrotronClientLayer({ rowIdentityByTable, config?, ... })` from `@synchrotron/sync-client`
-- **PGlite + Electric ingress** (browser): `makeSynchrotronElectricClientLayer({ rowIdentityByTable, config?, ... })` from `@synchrotron/sync-client`
-- **SQLite (WASM)**: `makeSynchrotronSqliteWasmClientLayer({ rowIdentityByTable, config?, ... })` from `@synchrotron/sync-client`
-- **SQLite (React Native / React Native Web)**: `makeSynchrotronSqliteReactNativeClientLayer({ sqliteConfig, rowIdentityByTable, config? })` from `@synchrotron/sync-client/react-native` (native: `@effect/sql-sqlite-react-native` backed by `@op-engineering/op-sqlite`; web: `@effect/sql-sqlite-wasm` using OPFS persistence via `OpfsWorker`)
-
-Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlite-react-native` for `@op-engineering/op-sqlite@15.x` compatibility (see `patches/@effect__sql-sqlite-react-native.patch`).
-
-Note: this repo applies a pnpm `patchedDependencies` patch to `@effect/sql-sqlite-wasm` to (a) provide a `locateFile` override for Metro / React Native Web wasm loading (SqliteClient + OpfsWorker), (b) fail fast on OPFS worker startup errors instead of hanging on the `ready` handshake, and (c) avoid a `connectionRef` TDZ crash if the worker errors before initialization (see `patches/@effect__sql-sqlite-wasm.patch` and `packages/sync-client/src/db/sqlite-react-native.web.ts`). The React Native example copies the `wa-sqlite.wasm` binaries into `examples/todo-app-react-native-sqlite/public/` (via `postinstall`) so web can load them from `/wa-sqlite.wasm`.
-
-## Networking
-
-`SyncService` depends on a `SyncNetworkService` implementation (the contract lives in `sync-core`; client runtimes provide live layers). The default client implementation is `SyncNetworkServiceLive` (HTTP RPC via `@effect/rpc`).
-
-- Configure the RPC endpoint with `makeSynchrotronClientLayer({ rowIdentityByTable: { ... }, config: { syncRpcUrl: "http://..." } })` or `SYNC_RPC_URL` (default: `http://localhost:3010/rpc`).
-- Custom transports should provide a `SynchrotronTransport` (required `syncNetworkServiceLayer` + optional `syncIngressLayer`) and pass it via `makeSynchrotronClientLayer({ ..., transport: MyTransport })`.
-- Push/notify/hybrid transports should provide `SyncIngress` (a `Stream` of `{ _tag: "Batch" | "Wakeup" }` events) via `transport.syncIngressLayer`. When a transport provides `syncIngressLayer`, `makeSynchrotronClientLayer(...)` automatically enables the core-owned ingress runner (schema init + ingestion + `SyncService.requestSync()` triggers).
-- For a reference push-ingress transport implementation, see `ElectricTransport` in `@synchrotron/sync-client/transports`.
-- Apps/transports should trigger sync with `SyncService.requestSync()` (single-flight + burst coalescing), not `performSync()` directly.
-- In RPC polling mode, `fetchRemoteActions()` is fetch-only; `performSync()` (invoked by `requestSync()`) ingests the returned rows into the local sync tables (core-owned) before applying.
-- Electric-enabled clients can use `makeSynchrotronElectricClientLayer(...)` (convenience) or wire `ElectricTransport` manually; remote ingress is owned by Electric (no redundant RPC action-log ingestion). RPC is still used for uploads + server metadata (epoch/retention) via `FetchRemoteActions(mode="metaOnly")`.
-- Auth for RLS:
-  - `Authorization: Bearer <jwt>` (server verifies and derives `user_id` from `sub`).
-  - Client-side: set `SynchrotronClientConfig.syncRpcAuthToken` (from `@synchrotron/sync-client/config`) to send the bearer token (or provide a custom `SyncRpcAuthToken` layer to fetch/refresh tokens dynamically).
-
-## Observability
-
-Synchrotron uses Effect's built-in logging + tracing.
-
-- `SyncService` wraps key sync phases in `Effect.withSpan(...)` and annotates logs with correlation IDs like `syncSessionId`, `applyBatchId`, and `sendBatchId`.
-- Example apps can export traces + metrics (and optionally logs) via OpenTelemetry using `@synchrotron/observability`.
-- `@effect/sql-pglite` logs every executed SQL statement at `TRACE` as `pglite.statement.start` / `pglite.statement.end` / `pglite.statement.error` (statement text is truncated to keep logs readable).
-- The client/server RPC path logs structured `sync.network.*` / `rpc.*` events with action + patch counts (plus extra detail for `_InternalCorrectionApply` / CORRECTION deltas).
-
-## Usage
-
-Synchrotron only works if you follow these rules. They're simple, but they're hard requirements:
-
-1.  **Initialize the Sync Schema:** On clients, call `ClientDbAdapter.initializeSyncSchema` (provided by either `PostgresClientDbAdapter` or `SqliteClientDbAdapter`). On the Postgres backend, run `initializeDatabaseSchema` to also install server-only SQL functions used for patch-apply / rollback.
-2.  **Install Patch Capture:** Call `ClientDbAdapter.installPatchCapture([...])` during your database initialization for _all_ tables whose changes should be tracked and synchronized by the system. This installs patch-capture triggers (AFTER INSERT/UPDATE/DELETE) that write to `action_modified_rows` (dialect-specific implementation).
-    - Tracked tables must include an `audience_key` column (`TEXT`). Patch capture copies `NEW/OLD.audience_key` onto `action_modified_rows.audience_key` for fast RLS filtering (shared/collaborative rows) and strips it out of the JSON patches. Prefer a generated `audience_key`; otherwise patch-apply populates it from `action_modified_rows.audience_key` on INSERT (see `docs/shared-rows.md`).
-    - Tracked tables must have a deterministic row-identity strategy configured via `rowIdentityByTable` / `DeterministicIdIdentityConfig`. `installPatchCapture([...])` fails fast if any tracked table is missing identity config.
-    - On SQLite, `installPatchCapture` should be called after any schema migrations that add/remove columns on tracked tables (it drops/recreates triggers from the current table schema).
-    - On SQLite, declare boolean columns as `BOOLEAN` (not `INTEGER`) so patch capture can encode booleans as JSON `true/false` (portable to Postgres); `0/1` numeric patches can cause false divergence and server-side apply failures.
-    - On SQLite, Synchrotron coerces bound boolean parameters (`true/false`) to `1/0` at execution time (SQLite driver limitation).
-    ```typescript
-    // Example during setup:
-    import { ClientDbAdapter } from "@synchrotron/sync-core"
-    // ... after creating tables ...
-    const clientDbAdapter = yield * ClientDbAdapter
-    yield * clientDbAdapter.installPatchCapture(["notes", "todos", "other_synced_table"])
-    ```
-3.  **Action Determinism:** Actions must be deterministic aside from database operations. Capture any non-deterministic inputs (like current time, random values, user context not in the database, network call results, etc.) as arguments passed into the action. The `timestamp` argument (`Date.now()`) is automatically provided. You have full access to the database in actions, no restrictions on reads or writes.
-    - Actions are defined via `ActionRegistry.defineAction(tag, argsSchema, fn)`.
-    - `argsSchema` must include `timestamp: Schema.Number`, but the returned action creator accepts `timestamp` optionally; it is injected automatically when you create an action (and preserved for replay).
-    - `action_records.args` are replicated to any client that can read that `action_records` row (no redaction). Don’t put secrets in args; store private inputs in normal tables protected by RLS and pass only opaque references (ids) in args.
-    - Design note: “purity” means repeatable on the same snapshot. If running an action twice against the same DB state produces different writes, that’s a determinism bug. Also treat “hidden/private state influencing writes to shared rows” as an application-level constraint: it can leak derived information, and competing CORRECTION overwrites on shared fields resolve via action order (last CORRECTION wins). See `DESIGN.md`.
-4.  **Mutations via Actions:** All modifications (INSERT, UPDATE, DELETE) to synchronized tables _must_ be performed exclusively through actions executed via `SyncService` (e.g. `const sync = yield* SyncService; yield* sync.executeAction(action)`). Patch-capture triggers will reject writes when no capture context is set (unless tracking is explicitly disabled for rollback / patch-apply).
-5.  **IDs are App-Provided (Required):** Inserts into synchronized tables must explicitly include `id`. Use `deterministicId.forRow(tableName, row)` (from `const deterministicId = yield* DeterministicId`) inside `SyncService`-executed actions to compute deterministic UUIDs scoped to the current action.
-    - To keep IDs stable under RLS/private-data divergence, configure **row identity** once per table via `DeterministicIdIdentityConfig` so IDs are derived from stable identity fields (not from full row content that can legitimately differ across replicas).
-    - Every tracked table must have an identity strategy configured. `forRow(...)` fails if a table has no identity strategy.
-
-    ```ts
-    const clientLayer = makeSynchrotronClientLayer({
-    	rowIdentityByTable: {
-    		// Preferred: stable identity columns for shared rows
-    		notes: ["audience_key", "note_key"]
-
-    		// Advanced: custom projection
-    		// notes: (row) => ({ audience_key: row.audience_key, note_key: row.note_key })
-    	},
-    	config: {
-    		syncRpcUrl: "http://localhost:3010/rpc"
-    	}
-    })
-    ```
-
-    Avoid relying on DB defaults/triggers for IDs; prefer removing `DEFAULT` clauses for `id` columns so missing IDs fail fast.
-
-6.  **Client identity + clock state:** Synchrotron splits identity from clock/cursor state:
-    - `ClientIdentity`: stable per-device `clientId`, persisted in Effect’s `KeyValueStore` under `sync_client_id`.
-      - Browser clients use `localStorage`.
-      - React Native (native) uses `react-native-mmkv` via `@synchrotron/sync-client/react-native` (install `react-native-mmkv` in your app).
-      - React Native (web) uses `localStorage`.
-    - `ClientClockState`: persists `current_clock`, `last_synced_clock`, `server_epoch`, and `last_seen_server_ingest_id` in the local DB (`client_sync_status`).
-    - If the local database is cleared but the `clientId` is retained, the client bootstraps from a server snapshot of the canonical base-table state (no full action-log replay) and advances its remote fetch cursor to the snapshot head (see `docs/bootstrap.md`).
-    - Recovery primitives:
-      - `SyncService.hardResync()` discards local state and re-fetches a bootstrap snapshot.
-      - `SyncService.rebase()` keeps pending local actions (preserving action ids for deterministic ID stability), rehydrates a fresh snapshot, then re-runs those pending actions before syncing again.
-      - If the client is too far behind due to server-side action log retention/compaction (or the server’s history epoch changed due to restore/reset/breaking migration), `SyncService.performSync()` will automatically `hardResync()` (no pending actions) or `rebase()` (pending actions) and retry once.
-      - `SyncService.performSync()` starts with a lightweight “sync doctor” check: it self-heals obvious sync-table corruption (orphan rows) and verifies the applied-cursor invariant. If corruption is detected, it automatically `hardResync()` / `rebase()` (same policy as discontinuity recovery) and retries once.
-      - If the server rejects an upload as `SendLocalActionsInvalid`, the client will automatically attempt a single `rebase()` and retry once.
-      - If uploads are still rejected (or rejected as `SendLocalActionsDenied`), the client quarantines all unsynced actions in `local_quarantined_actions`, suspends further uploads, but continues ingesting remote actions. Apps can inspect via `SyncService.getQuarantinedActions()` and resolve via `SyncService.discardQuarantinedActions()` (rollback + drop local unsynced work) or `SyncService.hardResync()`.
-7.  **RLS User Context (Server):** To enforce Postgres RLS on both app tables and sync tables, the server must run requests under a non-bypass DB role and set the principal in the transaction (`synchrotron.user_id`, and `request.jwt.claim.sub` for Supabase `auth.uid()` compatibility). The demo RPC server derives `user_id` from verified auth (`Authorization: Bearer <jwt>`). Server-side materialization applies patches under the originating action principal (`action_records.user_id`), not the request principal.
-    - Real apps should use verified auth (JWT) and have the server derive `user_id` from the token. See `docs/security.md`.
-    - Note: `action_records.user_id` is the originating user (audit + `WITH CHECK`). For shared/collaborative data, sync-table visibility should be derived from `action_modified_rows.audience_key` (membership/sharing rules) rather than only the originating user. See `docs/shared-rows.md` and `docs/security.md`.
-8.  **Foreign Keys (Postgres):** If you use foreign keys between synced tables, prefer `DEFERRABLE INITIALLY DEFERRED` constraints (e.g. `REFERENCES notes(id) DEFERRABLE INITIALLY DEFERRED`). Server rollback+replay materialization runs in a single SQL transaction and can temporarily violate FK ordering while rewinding/reapplying patches; deferrable FKs are still enforced at commit.
-
-## Downsides and limitations
-
-- Not a good fit for applications with high write volume data shared between many users. The greater the write volume and number of users writing a piece of data the more action records the system will need to sync and track. This could lead to performance issues. This algorithm is probably better suited to data that is naturally scoped to relatively smaller subsets of users. For high-write volume-broadly-shared data use a traditional through-server write strategy and electric-sql to sync changes.
-- While designed to be broadly applicable and flexible it may not be a good fit for all applications. There is no one-size-fits-all for offline-first writes.
-- It is deeply tied to the [Effect](https://effect.website/) library. Effect offers massive advantages over plain async TypeScript, but not everybody can adopt it.
-
-## Design
-
-See [DESIGN.md](DESIGN.md) for design details.
+Note: `packages/sql-pglite` is intentionally excluded from repo-wide checks (upstream candidate with separate requirements).
 
 ## License
 
